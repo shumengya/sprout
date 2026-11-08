@@ -1,0 +1,11 @@
+# 构建产物
+bin/
+*.exe
+
+# 本地数据目录（会话、日志，以及可能写了 apiKey 的 models.jsonc）
+data/
+
+# 密钥与凭证
+.env
+.env.*
+auth.json
