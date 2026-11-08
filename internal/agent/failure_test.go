@@ -198,7 +198,7 @@ func TestEmptyToolArgumentsNormalized(t *testing.T) {
 
 func TestProviderErrorMessagesAreChinese(t *testing.T) {
 	for status, want := range map[int]string{
-		401: "API Key", 403: "没有权限", 404: "不存在", 429: "额度", 500: "模型服务出错", 0: "无法连接",
+		401: "API Key", 403: "没有权限", 404: "不存在", 429: "额度", 500: "模型服务出错", 0: "通信失败",
 	} {
 		if msg := (&ProviderError{Status: status}).Error(); !strings.Contains(msg, want) {
 			t.Errorf("status %d 的提示 %q 应含 %q", status, msg, want)

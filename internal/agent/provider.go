@@ -70,7 +70,7 @@ func (e *ProviderError) Error() string {
 	var hint string
 	switch {
 	case e.Status == 0:
-		hint = "无法连接模型服务，请检查网络和 baseUrl"
+		hint = "与模型服务通信失败，请检查网络和 baseUrl"
 	case e.contextTooLong():
 		hint = "上下文超出模型窗口，对话太长了，请重新开始一个会话"
 	case e.Status == 401:
