@@ -42,27 +42,27 @@
 ## 项目结构
 
 ```text
-cmd/sprout/            主入口与子命令
-internal/app/          组件装配：配置 → provider / tool / session → surface
-internal/agent/        ReAct 循环
-internal/event/        事件与命令协议
-internal/session/      JSONL 会话
-internal/config/       models.jsonc 与运行配置
-internal/platform/     shell / 路径 / 终端差异
-internal/provider/     模型渠道商
-  openai/              Chat Completions + Responses
-  anthropic/           Messages
-internal/tool/         工具
-  bash/
-  powershell/
-internal/tui/          Bubble Tea v2 终端界面
-internal/cli/          非交互 CLI
-internal/webui/        WebUI 模块
-internal/rpc/          JSON-RPC 服务
-docs/                  设计文档
+cmd/sprout/              主入口：解析参数、装配组件、启动入口
+internal/
+  agent/                 ReAct 内核
+    event/               事件与命令协议
+    session/             JSONL 会话
+    config/              models.jsonc 与运行配置
+    platform/            shell / 路径 / 终端差异
+    tool/                工具
+      bash/
+      powershell/
+  provider/              模型渠道商
+    openai/              Chat Completions + Responses
+    anthropic/           Messages
+  tui/                   Bubble Tea v2 终端界面
+  cli/                   非交互 CLI
+  webui/                 WebUI 模块
+  rpc/                   JSON-RPC 服务
+docs/                    设计文档
 ```
 
-所有组件在同一个 Go module 内，靠包边界隔离，暂不拆成多个 module。对外 API 稳定前统一放在 `internal/`，需要对外嵌出时再加 `pkg/sprout` 门面。
+小模块（事件、会话、配置、平台、工具）挂在内核 `agent/` 下；`provider`、`tui`、`cli`、`webui`、`rpc` 是平级的大组件。所有组件在同一个 Go module 内，靠包边界隔离，暂不拆成多个 module。对外 API 稳定前统一放在 `internal/`，需要对外嵌出时再加 `pkg/sprout` 门面。
 
 ## 架构
 

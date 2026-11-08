@@ -24,9 +24,9 @@ M0 没有 Go 代码，不要为了“让命令能跑”先建空包或空测试�
 
 - `internal/agent` 是内核，不得 import `internal/tui`、`internal/cli`、`internal/webui`、`internal/rpc`；surface 只能通过 `internal/event` 的事件与命令和内核交互。
 - provider、tool、session 存储都以接口注入；内核不 import 具体厂商 SDK。
-- 平台差异（shell、路径、终端）只放在 `internal/platform`，其他包不判断 `GOOS`。
+- 平台差异（shell、路径、终端）只放在 `internal/agent/platform`，其他包不判断 `GOOS`。
 - 单二进制、无 CGO；不引入 SQLite 驱动、系统库绑定等依赖，保证 Termux 可编译。
-- 不建万能 `utils` 包；共享类型放 `internal/event` 或对应领域包。目录职责见 README「项目结构」。
+- 不建万能 `utils` 包；共享类型放 `internal/agent/event` 或对应领域包。目录职责见 README「项目结构」。
 
 ## 已定技术决策
 
