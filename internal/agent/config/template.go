@@ -1,0 +1,87 @@
+package config
+
+import (
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+)
+
+// Template 是首次运行时生成的 models.jsonc。
+// 仓库根目录的 models.example.jsonc 必须与它逐字一致，由 template_test.go 保证。
+const Template = `// Sprout 模型配置（JSONC：支持 // 和 /* */ 注释，以及尾逗号）。
+// 修改后需要重启 sprout 才会生效。
+{
+  // 默认使用的模型，格式为 "provider名/模型名"，两边都必须在下面定义过。
+  "default": "deepseek/deepseek-chat",
+
+  "providers": {
+    "deepseek": {
+      // 协议：openai-chat（Chat Completions）或 openai-responses（Responses）。
+      "protocol": "openai-chat",
+      "baseUrl": "https://api.deepseek.com/v1",
+      // API Key 优先读环境变量 apiKeyEnv，环境变量没设置时才使用 apiKey。
+      // 直接写 apiKey 时，请确保这个文件只在本机使用，不要提交到仓库。
+      "apiKeyEnv": "DEEPSEEK_API_KEY",
+      "apiKey": "",
+      "models": {
+        "deepseek-chat": {
+          "contextWindow": 128000,
+          "maxOutput": 8192,
+          "tools": true
+        }
+      }
+    },
+
+    "openai": {
+      "protocol": "openai-chat",
+      "baseUrl": "https://api.openai.com/v1",
+      "apiKeyEnv": "OPENAI_API_KEY",
+      "models": {
+        "gpt-4o-mini": {
+          "contextWindow": 128000,
+          "maxOutput": 16384,
+          "tools": true
+        }
+      }
+    },
+
+    // 同一个 OpenAI 账号也可以走 Responses 协议。
+    "openai-responses": {
+      "protocol": "openai-responses",
+      "baseUrl": "https://api.openai.com/v1",
+      "apiKeyEnv": "OPENAI_API_KEY",
+      "models": {
+        "gpt-5": {
+          "contextWindow": 400000,
+          "maxOutput": 32768,
+          "tools": true
+        }
+      }
+    }
+  },
+
+  "shell": {
+    // 留空则自动探测；Windows 下可填 Git Bash / PowerShell 的绝对路径。
+    "bashPath": "",
+    "powershellPath": ""
+  }
+}
+`
+
+// EnsureTemplate 在 path 不存在时写入模板，已存在则原样保留。
+// 文件可能被用户填入 apiKey，所以权限收紧为仅所有者可读写。
+func EnsureTemplate(path string) (created bool, err error) {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("创建配置模板失败: %w", err)
+	}
+	if _, err := f.WriteString(Template); err != nil {
+		f.Close()
+		return false, fmt.Errorf("写入配置模板失败: %w", err)
+	}
+	return true, f.Close()
+}
