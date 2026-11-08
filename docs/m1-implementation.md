@@ -167,9 +167,9 @@ type Request struct {
     MaxOutputTokens int
 }
 
+// tool call 不走 Chunk，流结束后随 Response 返回；usage 也只在 Response 里。
 type Chunk struct {
     TextDelta string
-    Usage     *Usage
 }
 
 type Response struct {
@@ -210,7 +210,7 @@ type Provider interface {
 
 - agent 只处理内部 `Message` / `ToolCall`，不出现协议字段。
 - 两个适配器都只向外发 `message.delta`；tool call 在流结束后交给 agent 循环。
-- 错误统一成 `ProviderError{Status, Code, Message, Retryable}`，TUI 显示可读中文。
+- 错误统一成 `ProviderError{Status, Code, Message, Retryable, Err}`，`Error()` 直接给出中文说明；`Status` 为 0 表示没有拿到 HTTP 响应（连接失败或流中途中断）。
 
 ## 7. ReAct 循环
 
@@ -247,9 +247,11 @@ if step == 10 且仍有 tool call:
 ### 接口
 
 ```go
+// stdout 与 stderr 分开收集，回给模型时由 Result.ForModel() 格式化。
 type Result struct {
     Command   string
-    Output    string
+    Stdout    string
+    Stderr    string
     ExitCode  int
     Truncated bool
     TimedOut  bool
@@ -264,7 +266,7 @@ type Tool interface {
 }
 ```
 
-参数统一 `{"command":"..."}`。
+参数统一 `{"command":"..."}`，可选 `timeout_seconds`（1–600，默认 120，越界取上限）。
 
 ### 检测
 
@@ -326,10 +328,12 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
 
 ## 10. 会话
 
-- 路径：`<dataDir>/sessions/--<cwd>--/<timestamp>_<id>.jsonl`。
-- 消息级记录：user、assistant（含 tool calls）、tool result、turn。
-- 同目录 `meta.json`：provider、model、cwd、工具列表、开始时间。
-- 不存 token delta；只存最终 assistant 消息。
+- 路径：`<dataDir>/sessions/--<cwd slug>--/<yyyymmdd-hhmmss>_<id>.jsonl`。slug 去掉开头的分隔符，把 `/`、`\`、`:` 换成 `-`，如 `D:\SmyProjects\sprout` → `--D--SmyProjects-sprout--`。
+- 记录类型（每行一条，`type` 区分）：`session`（头）、`user`、`assistant`（含 `tool_calls`）、`tool`（含完整 stdout/stderr、退出码、耗时）、`usage`、`turn`（`reason`）、`error`。
+- 会话记录器是 `event.Sink`，与 surface 订阅同一条事件流；`message.delta` 和 `tool.requested` 不落盘。
+- 文件在第一个可落盘事件到来时才创建；启动后什么都没做就退出不会留下空文件。权限 0600。
+- 同目录 `meta.json` 是该工作目录下所有会话的索引：`{cwd, sessions: {<文件名>: {id, provider, model, tools, startedAt, version}}}`，原子替换写入，损坏时重建。不加跨进程锁，两个实例同时在同一目录启动可能丢一条登记，JSONL 本身不受影响。
+- 写入失败只记日志，不影响 agent。
 - M1 不做恢复；启动新会话。
 
 ## 11. 实现检查点
@@ -355,24 +359,24 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
 
 ## 12. 验收清单
 
-- [ ] `go build -o bin/sprout.exe ./cmd/sprout` 成功，双击进入全屏 TUI。
-- [ ] 首次运行生成 `bin/data/.sprout/models.jsonc`；已有文件不覆盖。
-- [ ] DeepSeek `openai-chat` 配置下，真实对话成功，流式显示。
-- [ ] 切换 `openai-responses`，真实对话成功。
-- [ ] 输入“看一下当前目录，告诉我 Go 入口文件”，模型真实调用 powershell，TUI 显示命令、退出码、输出。
-- [ ] 有 Git Bash 时，模型可调用 bash；没有时 `bash` 不出现在工具列表。
-- [ ] 工具输出超过 50KB 时截断；超时能取消；exit code 非 0 能回给模型。
-- [ ] 生成中 Ctrl+C 取消；空闲 Ctrl+C/Ctrl+D 退出。
-- [ ] `bin/data/.sprout/sessions/...` 生成会话 JSONL 和 `meta.json`。
-- [ ] 缺 Key、401、网络失败、工具超时都有中文提示，不 panic。
-- [ ] `go test ./...`、`go vet ./...` 通过。
-- [ ] 代码里没有默认启用的假模型或假工具路径。
+- [ ] `go build -o bin/sprout.exe ./cmd/sprout` 成功，双击进入全屏 TUI。（构建与命令行启动已验证；双击启动和真实终端里的全屏界面未手工验证）
+- [x] 首次运行生成 `bin/data/.sprout/models.jsonc`；已有文件不覆盖。（真实二进制冒烟 + 单元测试）
+- [ ] DeepSeek `openai-chat` 配置下，真实对话成功，流式显示。（协议层用 httptest 回放 SSE 验证；未用真实 Key）
+- [ ] 切换 `openai-responses`，真实对话成功。（同上；`function_call` 不带 `id` 的做法依据文档推断，需真实服务验证）
+- [ ] 输入“看一下当前目录，告诉我 Go 入口文件”，模型真实调用 powershell，TUI 显示命令、退出码、输出。（agent + 真实 PowerShell 进程 + 模型服务替身已走通 `sprout run`；TUI 渲染有测试；未用真实模型、未在真实 TUI 里手工操作）
+- [x] 有 Git Bash 时，模型可调用 bash；没有时 `bash` 不出现在工具列表。（真实 Git Bash 进程测试 + 注册测试）
+- [x] 工具输出超过 50KB 时截断；超时能取消；exit code 非 0 能回给模型。
+- [ ] 生成中 Ctrl+C 取消；空闲 Ctrl+C/Ctrl+D 退出。（按键处理和取消链路用真实 `tea.Program` 验证；Windows 控制台里 Ctrl+C 是否按键事件送达未手工验证）
+- [x] `bin/data/.sprout/sessions/...` 生成会话 JSONL 和 `meta.json`。
+- [x] 缺 Key、401、网络失败、工具超时都有中文提示，不 panic。
+- [x] `go test ./...`、`go vet ./...` 通过。（未用 `-race`：本机没有 gcc）
+- [x] 代码里没有默认启用的假模型或假工具路径。（替身只出现在 `_test.go`）
 
 ## 13. 风险
 
 1. **两种协议的 tool call 流式结构差异**：Chat 按 index 拼 delta；Responses 用 item/arguments 事件。分别写测试。
 2. **PowerShell 5.1 编码**：重定向输出可能是 UTF-16LE/OEM；先设控制台 UTF-8，再实测中文。
-3. **Windows 超时进程树**：`CommandContext` 只杀直接子进程；M1 记录限制，后续用 Job Object。
+3. **Windows 超时进程树**：已处理。`shell.Run` 通过 `platform.ConfigureCmd` 在超时/取消时终止整个进程树（Unix 用进程组，Windows 用 `taskkill /T /F`），并设置 `WaitDelay` 防止孙进程占着管道导致 Wait 卡住。未使用 Job Object。
 4. **双击 cwd**：数据目录用 exe 路径，不依赖 cwd；会话分组后续再处理。
 5. **Bubble Tea v2 API**：模块路径 `charm.land/...`，`View() tea.View`，`tea.KeyPressMsg`；按 Crush 源码写并锁版本。
 6. **输入法 Enter**：必须手工测中文输入，避免组合期误发送。
@@ -389,3 +393,55 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
 - 权限审批、沙箱。
 - 会话恢复、上下文压缩、多 agent。
 - Markdown、鼠标、图片。
+
+## 15. 实现与计划的差异
+
+以下是落地时有意偏离上文设计的地方，以代码为准。
+
+**事件协议**（`internal/agent/event`）
+
+- 新增 `message.completed`：一次模型调用结束后携带完整 assistant 消息（正文、tool calls、stop reason）。会话记录器只订阅事件流，不让 agent 依赖 session 包，所以完整消息必须出现在事件里。
+- `tool.finished` 带完整 stdout/stderr（已受 50KB 上限约束）和 `Cancelled`、`Err` 字段。被取消而没来得及执行的调用只有 `tool.finished`，没有 `tool.requested`。
+- 每轮必以一个 `turn.finished` 结束，`reason` 为 `stop` / `cancelled` / `error` / `max_steps` / `length`。`error` 事件之后一定跟着 `turn.finished`。
+- 事件协议里没有单独的 `Command` 类型：取消通过 `context` 完成，提交通过 `Agent.Run(ctx, prompt, sink)`。
+
+**内核语义**
+
+- 最大轮数按“模型调用次数”计，默认 10；超过后发 `error` 并以 `max_steps` 结束。
+- 取消或失败时为尚未执行的 tool call 补上“未执行”结果，保证历史里每个 assistant tool call 都有对应的 tool 消息，否则下一次请求会被服务端拒绝。
+- 第一次模型调用就失败或被取消时撤销本轮用户消息，避免重试出现重复提问。
+- 空的工具参数规范化为 `{}`。
+- panic 被 recover，历史还原到本轮开始前，仍然以 `turn.finished(error)` 收尾。
+
+**Provider**
+
+- `Chunk` 只有 `TextDelta`；usage 只在 `Response` 里（原计划的 `Chunk.Usage` 没有用处，已删除）。
+- Chat 请求带 `stream_options.include_usage`，usage 在 `finish_reason` 之后的独立 chunk 里，所以读到 `[DONE]` 或 EOF 才结束。
+- Chat 同一个 `index` 出现不同的非空 `id` 时视为新调用（个别兼容服务给每个调用都填 0）。
+- Responses 的函数调用来自 `added` / `arguments.delta` / `arguments.done` / `output_item.done` / `completed.output` 多个来源，后到的覆盖先到的；文本已通过增量输出过就不再用完整 item 重复输出。
+- Responses 的 `function_call` 条目不带 `id`（`store:false` 时没有配对的 reasoning 条目）；这一点依据文档推断，**尚未用真实服务验证**。
+- Responses 的函数工具显式 `strict:false`，否则默认 `strict:true` 会要求 schema 满足严格模式。
+- 发送给服务端的输出上限直接取 `models.jsonc` 里的 `maxOutput`（Chat 为 `max_tokens`，Responses 为 `max_output_tokens`）。个别新模型（如 OpenAI 的 o 系列）在 Chat 协议下拒绝 `max_tokens`，这类模型请使用 Responses 协议。`contextWindow` 目前不参与任何逻辑（M1 没有上下文管理），仅作记录。
+
+**工具**
+
+- `Result` 把 stdout 与 stderr 分开保存；回给模型时由 `ForModel()` 统一格式化。
+- 总输出上限 50KB，stdout 占 80%、stderr 占 20%，各自保留头尾。
+- 工具参数增加可选的 `timeout_seconds`。
+- PowerShell 在命令前注入 UTF-8 输出编码前导并关闭进度条（避免 stderr 里出现 CLIXML 噪声）；PowerShell 的退出码在 `-Command` 模式下失败时通常是 1，不一定等于原生程序自己的退出码，已写进工具描述。
+
+**会话**
+
+- `meta.json` 是工作目录分组下的会话索引（见 §10），而不是单个会话的元数据。
+
+**TUI**
+
+- 输入框用真实终端光标（输入法候选窗跟随），只有首行带 `>` 提示符。
+- 退出时 `Model.Shutdown` 取消进行中的一轮并最多等 5 秒让 agent 收尾，保证最后的 `turn.finished(cancelled)` 能被会话记录。
+- Windows 双击启动（独占控制台）出错退出前会等待回车，让用户看清错误。
+
+**尚未验证**
+
+- 真实 DeepSeek / OpenAI 服务（需要 Key）：两种协议只用 httptest 回放验证过。
+- 真实终端里的 TUI 手工操作，尤其是中文输入法下 Enter 的组合期行为、Windows 控制台里 Ctrl+C 的送达方式。
+- `go test -race`（本机没有 gcc）。

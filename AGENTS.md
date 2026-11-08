@@ -6,11 +6,11 @@
 
 Sprout 是 Go 编写的跨平台通用型 agent runtime：内核是 ReAct 循环，TUI / WebUI / CLI / JSON-RPC 四种入口共用同一套会话与工具。模块路径 `github.com/shumengya/sprout`，Go 1.27+。
 
-当前处于 **M0（设计与文档）**，没有可运行代码。M1 范围：ReAct 循环、OpenAI Chat Completions + Responses、`bash` + `powershell` 两个工具、Bubble Tea v2 TUI、单次 CLI、JSONL 会话。详细计划见 `docs/m1-minimal.md`。未经用户确认，不要提前实现后续里程碑。
+当前处于 **M1（最小可用闭环）**，ReAct 循环、OpenAI Chat Completions + Responses、`bash` + `powershell`、Bubble Tea v2 TUI、`sprout run`、JSONL 会话已实现。M1 范围与实现差异见 `docs/m1-minimal.md`、`docs/m1-implementation.md`（§15 列出了与原计划的差异和尚未验证的部分）。未经用户确认，不要提前实现后续里程碑。
 
 ## 常用命令
 
-M1 初始化 `go.mod` 后，提交前依次执行：
+提交前依次执行：
 
 ```bash
 go build ./...
@@ -18,7 +18,9 @@ go test ./...
 go vet ./...
 ```
 
-M0 没有 Go 代码，不要为了“让命令能跑”先建空包或空测试。
+开发时用 `go run ./cmd/sprout --data-dir ./data/.sprout`；`go run` 的二进制在临时目录，不显式指定数据目录会报错。构建发布二进制：`go build -o bin/sprout.exe ./cmd/sprout`（`bin/` 与 `data/` 已在 `.gitignore`）。
+
+测试里的 shell 用例使用本机真实的 Git Bash / pwsh / PowerShell 5.1，没有对应 shell 时自动跳过。`-race` 需要 CGO 工具链，本项目本身无 CGO，按需在有 gcc 的环境里跑。
 
 ## 架构边界
 

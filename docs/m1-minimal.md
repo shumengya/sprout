@@ -215,6 +215,8 @@ TUI 输入 → agent.Run(ctx, prompt) → event channel → tea.Cmd → TUI 更�
 
 ## 8. 代码结构
 
+> 这是计划时的结构；实际落地的文件划分略有不同（例如 `platform` 下按功能拆成 `shell_detect.go`、`proc_*.go`、`console_*.go`，`tui` 拆成 `turn.go`、`toolcard.go` 等），差异见 `docs/m1-implementation.md` §15，以代码为准。
+
 ```text
 cmd/sprout/main.go                    参数、配置、装配、启动 TUI/CLI
 internal/agent/agent.go               ReAct 循环

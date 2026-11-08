@@ -111,7 +111,7 @@ TUI、WebUI、CLI、JSON-RPC 都只是这套协议的适配器。
 
 ## 当前状态
 
-**设计阶段（M0）。** 仓库目前只有文档，没有可运行代码。
+**M1 已实现（最小可用闭环）。** 终端界面、单次运行、两种 OpenAI 协议、`bash` / `powershell` 工具和 JSONL 会话均可用；WebUI、JSON-RPC 等后续里程碑尚未开始。真实模型服务和真实终端的手工验证状态见 `docs/m1-implementation.md` §12、§15。
 
 ## 路线图
 
@@ -123,13 +123,18 @@ TUI、WebUI、CLI、JSON-RPC 都只是这套协议的适配器。
 
 ## 快速开始
 
-尚未实现。M1 完成后的目标用法：
+```bash
+go build -o bin/sprout.exe ./cmd/sprout
+
+sprout                 # 终端界面
+sprout run "..."       # 单次非交互，答案写 stdout，进度写 stderr
+```
+
+首次运行会在 `<程序所在目录>/data/.sprout/models.jsonc` 生成带注释的配置，填入 API Key（或设置对应环境变量，如 `DEEPSEEK_API_KEY`）后重启即可。可用 `--data-dir` 或 `SPROUT_DATA_DIR` 指定数据目录；用 `go run` 开发时必须显式指定，例如 `go run ./cmd/sprout --data-dir ./data/.sprout`。
+
+后续里程碑的目标用法（尚未实现）：
 
 ```bash
-go build ./cmd/sprout
-
-sprout                 # TUI
-sprout run "..."       # 单次非交互
 sprout serve           # JSON-RPC
 sprout web             # WebUI
 ```
