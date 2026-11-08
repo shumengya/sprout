@@ -93,7 +93,7 @@ type TurnFinished struct {
 	Reason string
 }
 
-// Error 描述一次失败。它之后一定跟着 Reason 为 ReasonError 的 TurnFinished。
+// Error 描述一次失败。它之后一定跟着 TurnFinished，Reason 为 ReasonError 或 ReasonMaxSteps。
 type Error struct {
 	Message   string
 	Retryable bool
