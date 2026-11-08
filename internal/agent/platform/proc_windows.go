@@ -1,0 +1,37 @@
+//go:build windows
+
+package platform
+
+import (
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"syscall"
+)
+
+// createNoWindow 避免 taskkill 在控制台程序里闪出新窗口。
+const createNoWindow = 0x08000000
+
+// ConfigureCmd 让 ctx 取消/超时时终止整个进程树，而不只是直接子进程。
+// 否则 `pwsh -Command "ping ..."` 这类命令超时后孙进程会继续跑并占着管道。
+func ConfigureCmd(cmd *exec.Cmd) {
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return nil
+		}
+		taskkill := "taskkill"
+		if root := os.Getenv("SystemRoot"); root != "" {
+			taskkill = filepath.Join(root, "System32", "taskkill.exe")
+		}
+		kill := exec.Command(taskkill, "/T", "/F", "/PID", strconv.Itoa(cmd.Process.Pid))
+		kill.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
+		_ = kill.Run()
+		// taskkill 失败时退回到只杀直接子进程；进程已退出不算错误。
+		if err := cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			return err
+		}
+		return nil
+	}
+}
