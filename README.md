@@ -52,6 +52,8 @@ internal/
     tool/                工具
       bash/
       powershell/
+    skills/              技能发现与加载
+    mcp/                 MCP 客户端与工具接入
   provider/              模型渠道商
     openai/              Chat Completions + Responses
     anthropic/           Messages
@@ -62,7 +64,7 @@ internal/
 docs/                    设计文档
 ```
 
-小模块（事件、会话、配置、平台、工具）挂在内核 `agent/` 下；`provider`、`tui`、`cli`、`webui`、`rpc` 是平级的大组件。所有组件在同一个 Go module 内，靠包边界隔离，暂不拆成多个 module。对外 API 稳定前统一放在 `internal/`，需要对外嵌出时再加 `pkg/sprout` 门面。
+小模块（事件、会话、配置、平台、工具、skills、MCP）挂在内核 `agent/` 下；`provider`、`tui`、`cli`、`webui`、`rpc` 是平级的大组件。所有组件在同一个 Go module 内，靠包边界隔离，暂不拆成多个 module。对外 API 稳定前统一放在 `internal/`，需要对外嵌出时再加 `pkg/sprout` 门面。
 
 ## 架构
 
