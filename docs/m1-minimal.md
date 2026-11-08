@@ -1,7 +1,7 @@
-# M1 最小实现（MVP-0）
+# M1 最小实现：真实可用闭环
 
-> 目标：一个能在 Windows 上双击运行、以 TUI 为主入口的迷你 agent。
-> 只验证一件事：用户 ↔ 模型 ↔ 终端工具这条闭环能不能稳定跑起来。
+> 目标：一个能在 Windows 上双击运行、以 TUI 为主入口、真实调用模型和终端工具的迷你 agent。
+> 不做假数据、假工具或演示模式。
 
 ## 1. 目标
 
@@ -243,57 +243,53 @@ internal/tui/model.go                 Bubble Tea 主模型
 internal/tui/update.go                消息处理
 internal/tui/view.go                  布局与渲染
 internal/tui/entries.go               transcript 条目与工具渲染
-internal/tui/commands.go              斜杠命令 /tools /tool
+internal/tui/commands.go              斜杠命令 /tools /help /quit
 internal/cli/run.go                   单次运行
 models.example.jsonc                  示例配置
 ```
 
-## 9. 实现步骤
+## 9. 实现检查点
 
-### Step 1：TUI 骨架 + 真实 shell 工具
+详细任务见 `docs/m1-implementation.md`。三个检查点都是真实功能，没有假 agent。
 
-- 全屏 Bubble Tea 主模型、header、viewport、textarea、状态行。
-- 安装级数据目录、配置加载、首次生成 `models.jsonc`。
-- 真实 `bash` / `powershell` 检测、执行、超时、头尾截断；通过 `/tools`、`/tool` 手动调用。
-- 假 agent 只做流式回显，不伪造工具结果。
-- 验收：双击 `sprout.exe` 进入界面；`/tool powershell Get-Location` 返回真实输出；有 Git Bash 时 `/tool bash pwd` 可用。
+### A. 真实对话
 
-### Step 2：接上两种 OpenAI 协议
+- 数据目录、配置、Provider 接口、Chat Completions + Responses 流式。
+- TUI 全屏、输入、流式输出、取消。
+- 验收：真实 Key，输入“你好”得到真实流式回答；切换 protocol 仍可用。
+- A 只是构建中间点，不是 M1 交付。
 
-- 2a：Chat Completions 非流式，跑通请求、响应、错误。
-- 2b：Responses 非流式，复用同一套内部消息模型。
-- TUI 显示最终回答；provider 由 `models.jsonc` 的 `protocol` 选择。
-- 验收：同一句“你好”分别用 `openai-chat` 和 `openai-responses` 得到回答；401/网络错误显示在 transcript。
+### B. 最小闭环
 
-### Step 3：把工具接进 ReAct 循环
+- Tool 接口/Registry、bash/powershell 检测与执行、系统提示、工具 schema 下发、tool call 解析、结果回传、最多 10 轮。
+- 验收：完整走通“提问 → 模型思考 → 调用工具 → 观察输出 → 最终回答”；这是 M1 的最小可用点。
 
-- 工具在 Step 1 已实现；本步把 Tool 定义喂给模型，解析 tool call，执行并回传结果。
-- 验收：Windows 上“列出当前目录文件”走 powershell；装了 Git Bash 时可走 bash；卸载/隐藏 Git Bash 后 bash 从工具列表消失。
+### C. M1 完成
 
-### Step 4：流式、会话与收尾
-
-- SSE 流式、成功/失败路径、会话 JSONL、`sprout run`、错误提示。
-- 验收：首 token 流式出现；会话文件完整；Ctrl+C 能取消；双击崩溃时界面不闪退。
+- 会话 JSONL、`sprout run`、Windows 控制台 UTF-8、双击错误暂停、日志。
+- 验收：会话文件完整，单次 CLI 可用，重启后数据仍在。
 
 ## 10. 验收标准
 
 1. `go build -o bin/sprout.exe ./cmd/sprout` 成功，双击能打开 TUI。
 2. 首次运行在 `bin/data/.sprout/models.jsonc` 生成带注释的配置；已有文件不覆盖。
-3. 输入消息后流式显示回答，生成期间可取消。
-4. 切换 `models.jsonc` 的 `protocol`，Chat Completions 与 Responses 都能完成一轮对话和工具调用。
-5. `/tool powershell Get-Location` 返回真实输出；有 Git Bash 时 `/tool bash pwd` 可用，无 Git Bash 时显示原因。
-6. “看看当前目录有哪些文件”触发 shell 工具，命令、退出码、截断输出可见，最终回答正确。
-7. Windows 同时检测 `powershell` 与 Git Bash 时两个工具都可用；只有 PowerShell 时 `bash` 不出现在工具列表。
+3. 填入真实 DeepSeek 或 OpenAI Key 后，输入消息得到真实流式回答，生成期间可取消。
+4. 切换 `models.jsonc` 的 `protocol`，Chat Completions 与 Responses 都能完成真实对话和工具调用。
+5. 输入“看一下当前目录，告诉我 Go 入口文件”，模型真实调用 powershell，TUI 显示命令、退出码、输出，最后给出答案。
+6. 有 Git Bash 时模型可调用 bash；没有时 `bash` 不出现在工具列表，并显示原因。
+7. Windows 同时检测 `powershell` 与 Git Bash 时两个工具都可用。
 8. PowerShell 5.1 下模型不会生成 `&&` 等 7+ 语法；7+ 下正常。
 9. `models.jsonc` 支持注释和尾逗号，解析错误能定位到行列。
 10. 会话 JSONL + `meta.json` 落在 `<dataDir>/sessions/` 下。
 11. 缺少 API Key、网络失败、工具超时不 panic，错误显示在 TUI。
 12. `go vet ./...` 通过；SSE 解析、tool call 拼接、shell 检测、配置解析有单元测试。
+13. 代码里没有默认启用的假模型、假工具或演示路径。
 
 ## 11. 明确不做
 
 - WebUI、JSON-RPC、后台 daemon。
 - Anthropic Messages。
+- 假 agent、假工具、演示模式。
 - MCP、skills、文件读写/搜索工具。
 - 权限审批、沙箱。
 - 会话恢复、上下文压缩、多 agent。
