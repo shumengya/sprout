@@ -39,6 +39,31 @@
 | 工具 | `bash`、`powershell` | M1 只做两个；其他工具待单独评估后扩充 |
 | 权限 | 暂不实现 | 默认完全权限；后续做成独立模块，不混进内核 |
 
+## 项目结构
+
+```text
+cmd/sprout/            主入口与子命令
+internal/app/          组件装配：配置 → provider / tool / session → surface
+internal/agent/        ReAct 循环
+internal/event/        事件与命令协议
+internal/session/      JSONL 会话
+internal/config/       models.jsonc 与运行配置
+internal/platform/     shell / 路径 / 终端差异
+internal/provider/     模型渠道商
+  openai/              Chat Completions + Responses
+  anthropic/           Messages
+internal/tool/         工具
+  bash/
+  powershell/
+internal/tui/          Bubble Tea v2 终端界面
+internal/cli/          非交互 CLI
+internal/webui/        WebUI 模块
+internal/rpc/          JSON-RPC 服务
+docs/                  设计文档
+```
+
+所有组件在同一个 Go module 内，靠包边界隔离，暂不拆成多个 module。对外 API 稳定前统一放在 `internal/`，需要对外嵌出时再加 `pkg/sprout` 门面。
+
 ## 架构
 
 ```text
