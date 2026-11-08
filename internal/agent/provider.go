@@ -25,7 +25,8 @@ type Request struct {
 
 // Chunk 是流式输出的一个增量。tool call 不走 Chunk，流结束后随 Response 一起返回。
 type Chunk struct {
-	TextDelta string
+	TextDelta      string
+	ReasoningDelta string // 思维链增量，仅部分模型有
 }
 
 // Usage 是 token 用量，provider 没有返回时全为 0。

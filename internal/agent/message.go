@@ -24,11 +24,13 @@ type ToolCall struct {
 
 // Message 是对话历史里的一条消息。
 //
-//   - assistant 消息可带 ToolCalls。
+//   - assistant 消息可带 ToolCalls，以及思考模式模型产生的 Reasoning（思维链）。
+//     Reasoning 必须原样保存并在后续请求里回传：DeepSeek 要求带 tools 的请求回传历史 reasoning_content。
 //   - tool 消息通过 ToolID 对应某个 ToolCall.ID，Content 是回给模型的结果文本。
 type Message struct {
 	Role      Role
 	Content   string
+	Reasoning string
 	ToolCalls []ToolCall
 	ToolID    string
 }

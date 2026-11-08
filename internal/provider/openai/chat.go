@@ -21,12 +21,13 @@ func (p *chatProvider) Stream(ctx context.Context, req agent.Request, emit func(
 	defer resp.Body.Close()
 
 	var (
-		sse    = newSSEReader(resp.Body)
-		text   strings.Builder
-		acc    = newChatAccum()
-		finish string
-		usage  agent.Usage
-		done   bool
+		sse       = newSSEReader(resp.Body)
+		text      strings.Builder
+		reasoning strings.Builder
+		acc       = newChatAccum()
+		finish    string
+		usage     agent.Usage
+		done      bool
 	)
 	for !done {
 		ev, err := sse.Next()
@@ -59,6 +60,12 @@ func (p *chatProvider) Stream(ctx context.Context, req agent.Request, emit func(
 			continue
 		}
 		c := ch.Choices[0]
+		if c.Delta.ReasoningContent != "" {
+			reasoning.WriteString(c.Delta.ReasoningContent)
+			if err := emit(agent.Chunk{ReasoningDelta: c.Delta.ReasoningContent}); err != nil {
+				return agent.Response{}, err
+			}
+		}
 		if c.Delta.Content != "" {
 			text.WriteString(c.Delta.Content)
 			if err := emit(agent.Chunk{TextDelta: c.Delta.Content}); err != nil {
@@ -90,7 +97,9 @@ func (p *chatProvider) Stream(ctx context.Context, req agent.Request, emit func(
 		stop = agent.StopToolCalls
 	}
 	return agent.Response{
-		Message:    agent.Message{Role: agent.RoleAssistant, Content: text.String(), ToolCalls: calls},
+		Message: agent.Message{
+			Role: agent.RoleAssistant, Content: text.String(), Reasoning: reasoning.String(), ToolCalls: calls,
+		},
 		Usage:      usage,
 		StopReason: stop,
 	}, nil

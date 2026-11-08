@@ -27,6 +27,9 @@ func (t *turn) loop() error {
 		}
 
 		resp, err := a.cfg.Provider.Stream(t.ctx, a.request(), func(c Chunk) error {
+			if c.ReasoningDelta != "" {
+				t.out.Emit(event.ReasoningDelta{Text: c.ReasoningDelta})
+			}
 			if c.TextDelta != "" {
 				t.out.Emit(event.MessageDelta{Text: c.TextDelta})
 			}
@@ -44,7 +47,10 @@ func (t *turn) loop() error {
 		msg.ToolCalls = normalizeCalls(msg.ToolCalls)
 		a.history = append(a.history, msg)
 
-		t.out.Emit(event.MessageCompleted{Content: msg.Content, ToolCalls: eventCalls(msg.ToolCalls), StopReason: resp.StopReason})
+		t.out.Emit(event.MessageCompleted{
+			Content: msg.Content, Reasoning: msg.Reasoning,
+			ToolCalls: eventCalls(msg.ToolCalls), StopReason: resp.StopReason,
+		})
 		if resp.Usage != (Usage{}) {
 			t.out.Emit(event.Usage{
 				InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens, TotalTokens: resp.Usage.TotalTokens,

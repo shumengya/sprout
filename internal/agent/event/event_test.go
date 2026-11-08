@@ -6,6 +6,7 @@ func TestKinds(t *testing.T) {
 	cases := map[Kind]Event{
 		KindTurnStarted:      TurnStarted{},
 		KindMessageDelta:     MessageDelta{},
+		KindReasoningDelta:   ReasoningDelta{},
 		KindMessageCompleted: MessageCompleted{},
 		KindToolRequested:    ToolRequested{},
 		KindToolFinished:     ToolFinished{},

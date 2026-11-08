@@ -127,6 +127,46 @@ func TestHistoryAccumulatesAcrossRuns(t *testing.T) {
 	}
 }
 
+func TestReasoningFlowsThroughAgentAndIsReplayed(t *testing.T) {
+	// 思维链要进入历史并随下一次请求回传，同时作为事件发给 surface 和会话记录。
+	think := scriptStep{
+		chunks: nil,
+		resp: Response{Message: Message{Reasoning: "先看目录", ToolCalls: []ToolCall{call("c1", "bash", `{}`)}},
+			StopReason: StopToolCalls},
+	}
+	p := &scripted{steps: []scriptStep{think, say("好了")}}
+	a := newAgent(t, p, registry(t, okTool("bash", tool.Result{Command: "ls"})), nil)
+	var c collector
+	if err := a.Run(context.Background(), "q", &c); err != nil {
+		t.Fatal(err)
+	}
+	second := p.reqs[1].Messages
+	if second[1].Reasoning != "先看目录" {
+		t.Fatalf("下一次请求的历史里应带上 Reasoning: %+v", second[1])
+	}
+	mc := c.events[1].(event.MessageCompleted)
+	if mc.Reasoning != "先看目录" {
+		t.Errorf("MessageCompleted.Reasoning = %q", mc.Reasoning)
+	}
+}
+
+func TestReasoningDeltasBecomeEvents(t *testing.T) {
+	p := &scripted{steps: []scriptStep{{
+		chunks:          []string{"答"},
+		resp:            Response{Message: Message{Content: "答"}, StopReason: StopStop},
+		reasoningChunks: []string{"想", "想"},
+	}}}
+	var c collector
+	if err := newAgent(t, p, nil, nil).Run(context.Background(), "q", &c); err != nil {
+		t.Fatal(err)
+	}
+	want := []event.Kind{event.KindTurnStarted, event.KindReasoningDelta, event.KindReasoningDelta,
+		event.KindMessageDelta, event.KindMessageCompleted, event.KindTurnFinished}
+	if !slices.Equal(c.kinds(), want) {
+		t.Fatalf("事件序列 = %v，期望 %v", c.kinds(), want)
+	}
+}
+
 func TestHistoryIsACopy(t *testing.T) {
 	a := newAgent(t, &scripted{steps: []scriptStep{say("x")}}, nil, nil)
 	_ = a.Run(context.Background(), "q", &collector{})

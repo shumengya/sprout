@@ -22,10 +22,13 @@ type chatStreamOpts struct {
 }
 
 type chatMessage struct {
-	Role       string         `json:"role"`
-	Content    string         `json:"content"` // 始终输出，哪怕是空串：部分兼容服务要求该字段存在
-	ToolCalls  []chatToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string         `json:"tool_call_id,omitempty"`
+	Role    string `json:"role"`
+	Content string `json:"content"` // 始终输出，哪怕是空串：部分兼容服务要求该字段存在
+	// ReasoningContent 是 DeepSeek 等思考模式模型的思维链。带 tools 的请求必须原样回传历史里的这个字段，
+	// 否则服务端可能返回 400。没有思维链时为空，omitempty 保证对其他服务商不多发字段。
+	ReasoningContent string         `json:"reasoning_content,omitempty"`
+	ToolCalls        []chatToolCall `json:"tool_calls,omitempty"`
+	ToolCallID       string         `json:"tool_call_id,omitempty"`
 }
 
 type chatToolCall struct {
@@ -64,6 +67,9 @@ func buildChatRequest(req agent.Request) chatRequest {
 	}
 	for _, m := range req.Messages {
 		cm := chatMessage{Role: string(m.Role), Content: m.Content}
+		if m.Role == agent.RoleAssistant {
+			cm.ReasoningContent = m.Reasoning
+		}
 		if m.Role == agent.RoleTool {
 			cm.ToolCallID = m.ToolID
 		}
@@ -87,8 +93,9 @@ func buildChatRequest(req agent.Request) chatRequest {
 type chatChunk struct {
 	Choices []struct {
 		Delta struct {
-			Content   string `json:"content"`
-			ToolCalls []struct {
+			Content          string `json:"content"`
+			ReasoningContent string `json:"reasoning_content"`
+			ToolCalls        []struct {
 				Index    int    `json:"index"`
 				ID       string `json:"id"`
 				Function struct {

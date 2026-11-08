@@ -37,6 +37,7 @@ type toolCallRec struct {
 type assistantRec struct {
 	header
 	Content    string        `json:"content"`
+	Reasoning  string        `json:"reasoning,omitempty"`
 	ToolCalls  []toolCallRec `json:"tool_calls,omitempty"`
 	StopReason string        `json:"stop_reason,omitempty"`
 }
@@ -83,7 +84,7 @@ func toRecord(e event.Event, now time.Time) (any, bool) {
 	case event.TurnStarted:
 		return userRec{h("user"), e.Prompt}, true
 	case event.MessageCompleted:
-		rec := assistantRec{header: h("assistant"), Content: e.Content, StopReason: e.StopReason}
+		rec := assistantRec{header: h("assistant"), Content: e.Content, Reasoning: e.Reasoning, StopReason: e.StopReason}
 		for _, c := range e.ToolCalls {
 			rec.ToolCalls = append(rec.ToolCalls, toolCallRec{c.ID, c.Name, c.Arguments})
 		}

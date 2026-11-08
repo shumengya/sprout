@@ -172,6 +172,69 @@ func TestChatDropsEmptyToolCallSlots(t *testing.T) {
 	}
 }
 
+func TestChatReasoningStreamedAndAccumulated(t *testing.T) {
+	// DeepSeek 思考模式：先流 reasoning_content，再流 content；content 为 null 的 chunk 也要能解析。
+	srv := newServer(t, okBody(sse(
+		`{"choices":[{"delta":{"role":"assistant","content":null,"reasoning_content":""}}]}`,
+		`{"choices":[{"delta":{"content":null,"reasoning_content":"先想"}}]}`,
+		`{"choices":[{"delta":{"content":null,"reasoning_content":"一下"}}]}`,
+		`{"choices":[{"delta":{"content":"答案","reasoning_content":null}}]}`,
+		`{"choices":[{"delta":{"content":"","reasoning_content":null},"finish_reason":"stop"}]}`, "[DONE]",
+	)))
+	var reasoning, text []string
+	resp, err := newProvider(t, config.ProtocolChat, srv).Stream(context.Background(), userReq("q"), func(c agent.Chunk) error {
+		if c.ReasoningDelta != "" {
+			reasoning = append(reasoning, c.ReasoningDelta)
+		}
+		if c.TextDelta != "" {
+			text = append(text, c.TextDelta)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(reasoning, "|") != "先想|一下" || strings.Join(text, "|") != "答案" {
+		t.Errorf("增量: reasoning=%q text=%q", reasoning, text)
+	}
+	if resp.Message.Reasoning != "先想一下" || resp.Message.Content != "答案" {
+		t.Errorf("响应 = %+v", resp.Message)
+	}
+}
+
+func TestChatReplaysReasoningOnAssistantMessages(t *testing.T) {
+	// 带 tools 的请求必须原样回传历史 assistant 的 reasoning_content。
+	srv := newServer(t, okBody(sse(chatDelta("ok"), `{"choices":[{"delta":{},"finish_reason":"stop"}]}`, "[DONE]")))
+	req := userReq("q")
+	req.Messages = append(req.Messages,
+		agent.Message{Role: agent.RoleAssistant, Reasoning: "我要先看目录",
+			ToolCalls: []agent.ToolCall{{ID: "c1", Name: "bash", Arguments: `{}`}}},
+		agent.Message{Role: agent.RoleTool, ToolID: "c1", Content: "out"},
+		agent.Message{Role: agent.RoleAssistant, Content: "好了", Reasoning: "整理一下"},
+	)
+	if _, _, err := collect(newProvider(t, config.ProtocolChat, srv), req); err != nil {
+		t.Fatal(err)
+	}
+	msgs := asList(srv.reqs[0].json(t)["messages"])
+	if asMap(msgs[2])["reasoning_content"] != "我要先看目录" || asMap(msgs[4])["reasoning_content"] != "整理一下" {
+		t.Errorf("历史 assistant 消息应带 reasoning_content: %v / %v", msgs[2], msgs[4])
+	}
+}
+
+func TestChatOmitsReasoningContentWhenEmpty(t *testing.T) {
+	// 没有思维链时不能多发字段：别的 OpenAI 兼容服务可能因为未知字段而拒绝请求。
+	srv := newServer(t, okBody(sse(chatDelta("ok"), `{"choices":[{"delta":{},"finish_reason":"stop"}]}`, "[DONE]")))
+	req := userReq("q")
+	req.Messages = append(req.Messages, agent.Message{Role: agent.RoleAssistant, Content: "旧回答"},
+		agent.Message{Role: agent.RoleUser, Content: "再问"})
+	if _, _, err := collect(newProvider(t, config.ProtocolChat, srv), req); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(srv.reqs[0].Body), "reasoning_content") {
+		t.Errorf("没有思维链时请求体不应出现 reasoning_content: %s", srv.reqs[0].Body)
+	}
+}
+
 func TestChatLengthStop(t *testing.T) {
 	srv := newServer(t, okBody(sse(chatDelta("被截"), `{"choices":[{"delta":{},"finish_reason":"length"}]}`, "[DONE]")))
 	resp, _, err := collect(newProvider(t, config.ProtocolChat, srv), userReq("q"))

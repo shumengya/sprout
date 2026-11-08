@@ -12,6 +12,7 @@ type Kind string
 const (
 	KindTurnStarted      Kind = "turn.started"
 	KindMessageDelta     Kind = "message.delta"
+	KindReasoningDelta   Kind = "reasoning.delta"
 	KindMessageCompleted Kind = "message.completed"
 	KindToolRequested    Kind = "tool.requested"
 	KindToolFinished     Kind = "tool.finished"
@@ -51,10 +52,17 @@ type MessageDelta struct {
 	Text string
 }
 
+// ReasoningDelta 是模型思维链的流式增量（DeepSeek 等思考模式模型的 reasoning_content）。
+// 只用于展示；完整内容在 MessageCompleted.Reasoning 里。
+type ReasoningDelta struct {
+	Text string
+}
+
 // MessageCompleted 在一次模型调用结束后发出，携带完整的 assistant 消息。
-// 会话记录只保存它，不保存 MessageDelta。
+// 会话记录只保存它，不保存 MessageDelta / ReasoningDelta。
 type MessageCompleted struct {
 	Content    string
+	Reasoning  string
 	ToolCalls  []ToolCall
 	StopReason string
 }
@@ -101,6 +109,7 @@ type Error struct {
 
 func (TurnStarted) Kind() Kind      { return KindTurnStarted }
 func (MessageDelta) Kind() Kind     { return KindMessageDelta }
+func (ReasoningDelta) Kind() Kind   { return KindReasoningDelta }
 func (MessageCompleted) Kind() Kind { return KindMessageCompleted }
 func (ToolRequested) Kind() Kind    { return KindToolRequested }
 func (ToolFinished) Kind() Kind     { return KindToolFinished }

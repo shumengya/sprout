@@ -131,6 +131,26 @@ func TestRecordsFullTurn(t *testing.T) {
 	}
 }
 
+func TestReasoningIsRecordedButDeltasAreNot(t *testing.T) {
+	r, _ := newRec(t)
+	r.Emit(event.TurnStarted{Prompt: "q"})
+	r.Emit(event.ReasoningDelta{Text: "增量不落盘"})
+	r.Emit(event.MessageCompleted{Content: "答", Reasoning: "完整思维链", StopReason: "stop"})
+	r.Emit(event.MessageCompleted{Content: "无思维链"})
+	r.Close()
+
+	recs := readRecords(t, r.Path())
+	if len(recs) != 4 { // session, user, assistant, assistant
+		t.Fatalf("记录数 = %d，ReasoningDelta 不应落盘", len(recs))
+	}
+	if recs[2]["reasoning"] != "完整思维链" {
+		t.Errorf("assistant 记录应保存完整思维链: %v", recs[2])
+	}
+	if _, has := recs[3]["reasoning"]; has {
+		t.Errorf("没有思维链时不应出现 reasoning 字段: %v", recs[3])
+	}
+}
+
 func TestChineseAndNewlinesSurviveRoundTrip(t *testing.T) {
 	r, _ := newRec(t)
 	r.Emit(event.TurnStarted{Prompt: "你好\n世界 \"引号\" \\反斜杠"})

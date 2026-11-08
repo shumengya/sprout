@@ -13,10 +13,11 @@ import (
 // scriptStep 是脚本化 provider 的一次调用：先推送 chunks，再按 err / resp 返回。
 // hook 在推送前执行，用来模拟取消或 panic。
 type scriptStep struct {
-	chunks []string
-	resp   Response
-	err    error
-	hook   func(ctx context.Context)
+	chunks          []string
+	reasoningChunks []string // 先于 chunks 推送
+	resp            Response
+	err             error
+	hook            func(ctx context.Context)
 }
 
 // scripted 按顺序回放脚本，并记录每次收到的请求。只用于测试。
@@ -34,6 +35,11 @@ func (s *scripted) Stream(ctx context.Context, req Request, emit func(Chunk) err
 	st := s.steps[i]
 	if st.hook != nil {
 		st.hook(ctx)
+	}
+	for _, c := range st.reasoningChunks {
+		if err := emit(Chunk{ReasoningDelta: c}); err != nil {
+			return Response{}, err
+		}
 	}
 	for _, c := range st.chunks {
 		if err := emit(Chunk{TextDelta: c}); err != nil {
