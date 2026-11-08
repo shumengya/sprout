@@ -20,6 +20,7 @@ const (
 	kindTool
 	kindNotice
 	kindError
+	kindThink // 模型的思维链（reasoning_content）
 )
 
 // 颜色用 ANSI 基础色，跟随终端主题，深浅色背景下都可读。
@@ -43,29 +44,36 @@ type entry struct {
 	running bool
 	fin     event.ToolFinished
 
-	cache  string
-	cacheW int
-	dirty  bool
+	// 思维链条目：live 表示还在流式输出，此时只预览最后几行。
+	live bool
+
+	cache    string
+	cacheW   int
+	cacheExp bool // 渲染缓存对应的“展开思维链”开关
+	dirty    bool
 }
 
 func (e *entry) touch() { e.dirty = true }
 
-func (e *entry) render(w int) string {
-	if !e.dirty && e.cacheW == w {
+// render 返回条目在宽度 w 下的渲染结果。expandThink 只影响思维链条目。
+func (e *entry) render(w int, expandThink bool) string {
+	if !e.dirty && e.cacheW == w && e.cacheExp == expandThink {
 		return e.cache
 	}
-	e.cache, e.cacheW, e.dirty = e.draw(w), w, false
+	e.cache, e.cacheW, e.cacheExp, e.dirty = e.draw(w, expandThink), w, expandThink, false
 	return e.cache
 }
 
-func (e *entry) draw(w int) string {
+func (e *entry) draw(w int, expandThink bool) string {
 	switch e.kind {
 	case kindUser:
 		return hang(styUser.Render("你> "), 4, wrap(sanitize(e.text), w-4))
 	case kindAssistant:
-		return wrap(sanitize(e.text), w)
+		return renderMarkdown(sanitize(e.text), w)
 	case kindTool:
 		return e.drawTool(w)
+	case kindThink:
+		return e.drawThink(w, expandThink)
 	case kindError:
 		return styErr.Render(hang("! ", 2, wrap(sanitize(e.text), w-2)))
 	}

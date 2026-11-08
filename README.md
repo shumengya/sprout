@@ -32,7 +32,7 @@
 
 | 主题 | 选择 | 理由 |
 | --- | --- | --- |
-| TUI | Bubble Tea v2 + lipgloss + bubbles（Markdown 渲染后续再加） | v2 于 2026-02 稳定；Crush 同栈；纯 Go，Termux 可编译 |
+| TUI | Bubble Tea v2 + lipgloss + bubbles（自带轻量 Markdown 渲染，不依赖 glamour） | v2 于 2026-02 稳定；Crush 同栈；纯 Go，Termux 可编译 |
 | LLM 协议 | OpenAI Chat Completions → OpenAI Responses → Anthropic Messages | 先覆盖最广的兼容协议，再补新协议与原生协议 |
 | 模型配置 | `models.jsonc`（JSONC，可写注释） | 供应商、模型、能力、默认参数集中配置；用户配置统一 JSONC |
 | 内部状态 | JSON / JSONL | 用户很少直接编辑，保持严格、好解析 |
@@ -105,7 +105,7 @@ docs/                    设计文档
 内核与所有 surface 共用一套类型化协议，定义在 `internal/agent/event`：
 
 - **Command**（界面 → 内核）：`prompt`、`cancel`、`resume`。
-- **Event**（内核 → 界面）：`turn.started`、`message.delta`、`tool.requested`、`tool.finished`、`usage`、`turn.finished`、`error`。
+- **Event**（内核 → 界面）：`turn.started`、`message.delta`、`reasoning.delta`、`message.completed`、`tool.requested`、`tool.finished`、`usage`、`turn.finished`、`error`。
 
 TUI、WebUI、CLI、JSON-RPC 都只是这套协议的适配器。
 

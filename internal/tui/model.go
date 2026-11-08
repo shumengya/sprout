@@ -65,12 +65,20 @@ type Model struct {
 	entries []*entry
 	tools   map[string]*entry // tool call id → 条目
 	cur     *entry            // 正在流式追加的 assistant 条目
-	follow  bool              // transcript 是否自动跟随底部
+	think   *entry            // 正在流式追加的思维链条目
+	// thinkShown：本次模型调用是否已经流式展示过思维链，用来避免 MessageCompleted 时重复补一个。
+	thinkShown bool
+	follow     bool // transcript 是否自动跟随底部
+	unseen     bool // 暂停跟随期间是否有新内容到达
+
+	showThink bool // 是否展开思维链全文（/think 切换）
+	mouse     bool // 是否开启鼠标上报（/mouse 切换）；开启后滚轮可滚动，但终端自带的拖选需要按住 Shift
 
 	running bool
-	curTool string // 正在执行的工具名，状态行显示用
-	status  string // 状态行的临时提示，下次按键时清除
-	tokens  int    // 本会话累计 token
+	started time.Time // 本轮开始时间，状态行显示已耗时
+	curTool string    // 正在执行的工具名，状态行显示用
+	status  string    // 状态行的临时提示，下次按键时清除
+	tokens  int       // 本会话累计 token
 
 	turn     int
 	events   chan event.Event
@@ -85,7 +93,7 @@ func New(o Options) *Model {
 	if o.Runner == nil && o.Disabled == "" {
 		o.Disabled = "没有可用的 agent，无法发起对话。"
 	}
-	m := &Model{opts: o, follow: true, tools: map[string]*entry{}, quit: make(chan struct{})}
+	m := &Model{opts: o, follow: true, mouse: true, tools: map[string]*entry{}, quit: make(chan struct{})}
 
 	m.vp = viewport.New()
 	m.vp.FillHeight = true
@@ -111,6 +119,7 @@ func New(o Options) *Model {
 	m.sp = spinner.New(spinner.WithSpinner(spinner.Dot))
 	m.sp.Style = styFaint
 
+	m.add(&entry{kind: kindNotice, text: welcomeText})
 	for _, n := range o.Notices {
 		m.add(&entry{kind: kindNotice, text: n})
 	}
@@ -141,17 +150,22 @@ func (m *Model) layout() {
 }
 
 // refresh 重新渲染 transcript；只有脏条目或宽度变化的条目会真正重绘。
+// 暂停跟随（用户上滚）期间如果有新内容到达，会记下 unseen，状态行提示“有新内容”。
 func (m *Model) refresh() {
 	if m.w <= 0 {
 		return
 	}
+	before := m.vp.TotalLineCount()
 	parts := make([]string, len(m.entries))
 	for i, e := range m.entries {
-		parts[i] = e.render(m.w)
+		parts[i] = e.render(m.w, m.showThink)
 	}
 	m.vp.SetContent(strings.Join(parts, "\n\n"))
 	if m.follow {
 		m.vp.GotoBottom()
+		m.unseen = false
+	} else if m.vp.TotalLineCount() > before && before > 0 {
+		m.unseen = true
 	}
 }
 

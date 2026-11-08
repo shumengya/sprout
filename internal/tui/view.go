@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -13,6 +14,9 @@ func (m *Model) View() tea.View {
 	var v tea.View
 	v.AltScreen = true
 	v.WindowTitle = "Sprout"
+	if m.mouse {
+		v.MouseMode = tea.MouseModeCellMotion
+	}
 	if m.w <= 0 || m.h <= 0 {
 		v.Content = "加载中…"
 		return v
@@ -54,16 +58,9 @@ func (m *Model) header() string {
 }
 
 func (m *Model) statusLine() string {
-	var left string
-	switch {
-	case m.status != "":
-		left = styWarn.Render(m.status)
-	case m.running && m.curTool != "":
-		left = m.sp.View() + " 执行 " + m.curTool
-	case m.running:
-		left = m.sp.View() + " 生成中"
-	default:
-		left = styFaint.Render("空闲")
+	left := m.activity()
+	if hint := m.scrollHint(); hint != "" {
+		left += "  " + hint
 	}
 	right := "Ctrl+C 退出"
 	if m.running {
@@ -77,4 +74,40 @@ func (m *Model) statusLine() string {
 	left = ansi.Truncate(left, max(m.w-ansi.StringWidth(right)-1, 1), "…")
 	gap := max(m.w-ansi.StringWidth(left)-ansi.StringWidth(right), 1)
 	return left + strings.Repeat(" ", gap) + right
+}
+
+// activity 是状态行左侧：当前在做什么。
+func (m *Model) activity() string {
+	switch {
+	case m.status != "":
+		return styWarn.Render(m.status)
+	case !m.running:
+		return styFaint.Render("空闲")
+	}
+	label := "生成中"
+	switch {
+	case m.curTool != "":
+		label = "执行 " + m.curTool
+	case m.think != nil:
+		label = "思考中"
+	}
+	// 超过几秒才显示耗时，短回答不闪烁。
+	if !m.started.IsZero() {
+		if d := time.Since(m.started); d >= 3*time.Second {
+			label += fmt.Sprintf(" %ds", int(d.Seconds()))
+		}
+	}
+	return m.sp.View() + " " + label
+}
+
+// scrollHint 在用户上滚查看历史时提示当前位置和回到底部的方法。
+func (m *Model) scrollHint() string {
+	if m.follow {
+		return ""
+	}
+	s := fmt.Sprintf("历史 %d%%，End 回到底部", int(m.vp.ScrollPercent()*100))
+	if m.unseen {
+		s += "，有新内容"
+	}
+	return styWarn.Render(s)
 }

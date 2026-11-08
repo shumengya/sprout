@@ -18,6 +18,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		return m.onKey(msg)
 
+	case tea.MouseWheelMsg:
+		switch msg.Button {
+		case tea.MouseWheelUp:
+			m.scrollBy(-wheelStep)
+		case tea.MouseWheelDown:
+			m.scrollBy(wheelStep)
+		}
+		return m, nil
+
+	case tea.MouseMsg:
+		// 点击、拖动等其他鼠标事件不处理，也不转给输入框（否则会触发它自己的选区逻辑）。
+		return m, nil
+
 	case eventMsg:
 		if msg.turn != m.turn { // 上一轮遗留的消息
 			return m, nil
@@ -65,13 +78,8 @@ func (m *Model) onKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "enter":
 		return m.submit()
-	case "pgup":
-		m.vp.PageUp()
-		m.follow = m.vp.AtBottom()
-		return m, nil
-	case "pgdown":
-		m.vp.PageDown()
-		m.follow = m.vp.AtBottom()
+	}
+	if m.scrollKey(k.String()) {
 		return m, nil
 	}
 	var cmd tea.Cmd

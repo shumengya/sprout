@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -36,6 +37,7 @@ func (s chanSink) Emit(e event.Event) {
 func (m *Model) startTurn(prompt string) tea.Cmd {
 	m.turn++
 	turn := m.turn
+	m.started = time.Now()
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	events := make(chan event.Event, 64)
@@ -77,18 +79,35 @@ func waitEvent(turn int, ch <-chan event.Event) tea.Cmd {
 // onEvent 把内核事件映射成 transcript 条目。
 func (m *Model) onEvent(e event.Event) {
 	switch e := e.(type) {
+	case event.ReasoningDelta:
+		if m.think == nil {
+			m.think = m.add(&entry{kind: kindThink, live: true})
+			m.thinkShown = true
+		}
+		m.think.text += e.Text
+		m.think.touch()
 	case event.MessageDelta:
+		m.endThink()
 		if m.cur == nil {
 			m.cur = m.add(&entry{kind: kindAssistant})
 		}
 		m.cur.text += e.Text
 		m.cur.touch()
 	case event.MessageCompleted:
-		if m.cur == nil && e.Content != "" { // 没收到增量时用完整内容补上
+		m.endThink()
+		// 没收到增量（非流式服务）时，用完整内容补上思维链和正文。
+		// thinkShown 记录本次模型调用是否已经流式展示过思维链：MessageDelta 会提前结束 m.think，
+		// 所以不能靠 m.think 是否为空来判断，否则流式过的思维链会在这里被重复补一次。
+		if !m.thinkShown && e.Reasoning != "" {
+			m.add(&entry{kind: kindThink, text: e.Reasoning})
+		}
+		m.thinkShown = false
+		if m.cur == nil && e.Content != "" {
 			m.add(&entry{kind: kindAssistant, text: e.Content})
 		}
 		m.cur = nil
 	case event.ToolRequested:
+		m.endThink()
 		m.cur = nil
 		m.tools[e.Call.ID] = m.add(&entry{
 			kind: kindTool, name: e.Call.Name, command: commandOf(e.Call.Arguments), running: true,
@@ -115,8 +134,20 @@ func (m *Model) onEvent(e event.Event) {
 	}
 }
 
+// endThink 结束当前的思维链条目：从“流式预览”变成可折叠的摘要。
+func (m *Model) endThink() {
+	if m.think == nil {
+		return
+	}
+	m.think.live = false
+	m.think.touch()
+	m.think = nil
+}
+
 func (m *Model) finishTurn(reason string) {
 	// 一轮结束，“正在取消…”这类针对本轮的临时提示也该消失。
+	m.endThink()
+	m.thinkShown = false
 	m.running, m.cur, m.curTool, m.status = false, nil, "", ""
 	if m.cancel != nil {
 		m.cancel() // 释放 context

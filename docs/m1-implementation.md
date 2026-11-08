@@ -316,7 +316,7 @@ type Tool interface {
 - Input：textarea，Enter 发送，Ctrl+J 换行，Ctrl+C 取消/退出，Ctrl+D 退出。
 - `/tools` 查看检测结果；`/help`；`/quit`。
 - 工具卡片：命令、退出码、耗时、输出预览（最多 8 行，截断标注）。
-- 不做 Markdown、鼠标、代码高亮。
+- 不做代码高亮。（Markdown 与鼠标滚轮是后补的，见 §15。）
 
 事件流：
 
@@ -330,7 +330,7 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
 
 - 路径：`<dataDir>/sessions/--<cwd slug>--/<yyyymmdd-hhmmss>_<id>.jsonl`。slug 去掉开头的分隔符，把 `/`、`\`、`:` 换成 `-`，如 `D:\SmyProjects\sprout` → `--D--SmyProjects-sprout--`。
 - 记录类型（每行一条，`type` 区分）：`session`（头）、`user`、`assistant`（含 `tool_calls`）、`tool`（含完整 stdout/stderr、退出码、耗时）、`usage`、`turn`（`reason`）、`error`。
-- 会话记录器是 `event.Sink`，与 surface 订阅同一条事件流；`message.delta` 和 `tool.requested` 不落盘。
+- 会话记录器是 `event.Sink`，与 surface 订阅同一条事件流；`message.delta`、`reasoning.delta` 和 `tool.requested` 不落盘；`assistant` 记录带完整 `reasoning`（有思维链时）。
 - 文件在第一个可落盘事件到来时才创建；启动后什么都没做就退出不会留下空文件。权限 0600。
 - 同目录 `meta.json` 是该工作目录下所有会话的索引：`{cwd, sessions: {<文件名>: {id, provider, model, tools, startedAt, version}}}`，原子替换写入，损坏时重建。不加跨进程锁，两个实例同时在同一目录启动可能丢一条登记，JSONL 本身不受影响。
 - 写入失败只记日志，不影响 agent。
@@ -392,7 +392,7 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
 - MCP、skills、文件读写/搜索工具。
 - 权限审批、沙箱。
 - 会话恢复、上下文压缩、多 agent。
-- Markdown、鼠标、图片。
+- 图片、完整的 CommonMark 渲染、代码高亮。
 
 ## 15. 实现与计划的差异
 
@@ -440,10 +440,24 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
 - 退出时 `Model.Shutdown` 取消进行中的一轮并最多等 5 秒让 agent 收尾，保证最后的 `turn.finished(cancelled)` 能被会话记录。
 - Windows 双击启动（独占控制台）出错退出前会等待回车，让用户看清错误。
 
+**M1 落地后补充的 TUI 能力**
+
+- 查看历史：鼠标滚轮（每格 3 行）、PgUp/PgDn、Ctrl+↑/↓ 逐行、Ctrl+Home/End 跳到最前/最后；输入框为空时 ↑ ↓ Home End 同样滚动对话。上滚会暂停自动跟随，状态行显示“历史 N%，End 回到底部”，暂停期间有新内容到达时追加“有新内容”。
+- `/mouse` 开关鼠标上报。开启时滚轮可用，但终端自带的拖选需要按住 Shift；关闭后可直接用鼠标选中文字复制。
+- 助手回答按轻量 Markdown 渲染：标题、`-`/`*`/数字列表（悬挂缩进）、引用、分隔线、围栏代码块、行内 `代码` 与 `**粗体**`、对齐的表格（按显示宽度对齐中文，放不下时退回普通文本）。流式输出中途未闭合的语法原样显示，不吞字符。不依赖 glamour，也不做代码高亮。
+- 模型的思维链用淡色单独显示：流式时只预览最后 3 行并显示字数，结束后折叠成一行摘要，`/think` 展开或折叠全文。状态行显示“思考中”，超过 3 秒后追加已耗时。
+- 空对话时显示一行新手引导（发送、翻页、`/help`）。
+
+**思维链（reasoning_content）**
+
+- `agent.Message` 增加 `Reasoning`；Chat 适配器解析流里的 `delta.reasoning_content`，并在后续请求里把历史 assistant 消息的 `reasoning_content` 原样回传（没有思维链时不发该字段）。DeepSeek 官方文档要求带 `tools` 的请求回传它，否则可能返回 400；实测当前服务端尚未强制，但随时可能变严。
+- 新增 `reasoning.delta` 事件（仅用于展示，不落盘）；`message.completed` 与会话 `assistant` 记录带完整 `reasoning`。
+- Responses 适配器不处理思维链。
+
 **尚未验证**
 
 - OpenAI 官方服务（Chat 与 Responses）：只验证过 DeepSeek。
-- 真实终端里的 TUI 手工操作，尤其是中文输入法下 Enter 的组合期行为、Windows 控制台里 Ctrl+C 的送达方式、流式渲染的观感。
+- 真实终端里的 TUI 手工操作，尤其是中文输入法下 Enter 的组合期行为、Windows 控制台里 Ctrl+C 的送达方式、鼠标滚轮是否被送达、Ctrl+Home/End 等组合键在各终端里是否被正确识别、流式渲染的观感。TUI 只用 `tea.Program` 加桩 runner 和模型级渲染测试验证过。
 - 在非终端环境（stdin 重定向到 `/dev/null`）下启动 TUI 不会自行退出，会一直挂到被外部终止；正常使用不受影响，M1 未处理。
 - 工具子进程会继承 `sprout` 的环境变量，包括通过 `DEEPSEEK_API_KEY` 等传入的 API Key；模型可以让命令读取它。M1 没有权限模块，这是已知取舍。
 - `go test -race`（本机没有 gcc）。

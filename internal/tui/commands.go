@@ -7,14 +7,24 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+const welcomeText = `输入问题后按 Enter 发送；PgUp / PgDn 或鼠标滚轮可以翻看历史；/help 查看全部快捷键。`
+
 const helpText = `快捷键
   Enter           发送
   Ctrl+J          输入框换行
   Ctrl+C          生成中：取消本轮；空闲：退出
   Ctrl+D          退出
-  PgUp / PgDn     滚动对话
+
+查看历史
+  鼠标滚轮 / PgUp PgDn    滚动对话
+  Ctrl+↑ Ctrl+↓           逐行滚动
+  Ctrl+Home Ctrl+End      跳到最前 / 最后
+  ↑ ↓ Home End            输入框为空时同上
+  滚到底部后会自动跟随新内容；上滚期间状态行会提示“有新内容”
 
 命令
+  /think          展开 / 折叠模型的思考过程
+  /mouse          开关鼠标滚轮（关闭后可直接用鼠标选中文字复制）
   /tools          查看检测到的终端工具
   /help           显示本帮助
   /quit           退出`
@@ -28,6 +38,20 @@ func (m *Model) slash(text string) (handled bool, cmd tea.Cmd) {
 		m.add(&entry{kind: kindNotice, text: helpText})
 	case "/tools":
 		m.add(&entry{kind: kindNotice, text: m.toolsReport()})
+	case "/think":
+		m.showThink = !m.showThink
+		state := "已折叠，只显示一行摘要"
+		if m.showThink {
+			state = "已展开，显示完整内容"
+		}
+		m.add(&entry{kind: kindNotice, text: "模型的思考过程" + state + "。"})
+	case "/mouse":
+		m.mouse = !m.mouse
+		msg := "鼠标滚轮已关闭，现在可以直接用鼠标选中文字复制；翻页请用 PgUp / PgDn。"
+		if m.mouse {
+			msg = "鼠标滚轮已开启，可滚动对话。此时选中文字需要按住 Shift 再拖动（取决于终端）。"
+		}
+		m.add(&entry{kind: kindNotice, text: msg})
 	case "/quit", "/exit":
 		return true, tea.Quit
 	default:
