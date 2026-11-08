@@ -32,9 +32,10 @@
 
 | 主题 | 选择 | 理由 |
 | --- | --- | --- |
-| TUI | Bubble Tea v2 + lipgloss + bubbles + glamour | v2 于 2026-02 稳定；Crush 同栈；纯 Go，Termux 可编译 |
+| TUI | Bubble Tea v2 + lipgloss + bubbles（Markdown 渲染后续再加） | v2 于 2026-02 稳定；Crush 同栈；纯 Go，Termux 可编译 |
 | LLM 协议 | OpenAI Chat Completions → OpenAI Responses → Anthropic Messages | 先覆盖最广的兼容协议，再补新协议与原生协议 |
-| 模型配置 | `models.jsonc`（带注释） | 供应商、模型、能力、默认参数集中配置 |
+| 模型配置 | `models.jsonc`（JSONC，可写注释） | 供应商、模型、能力、默认参数集中配置；用户配置统一 JSONC |
+| 内部状态 | JSON / JSONL | 用户很少直接编辑，保持严格、好解析 |
 | 会话 | JSONL 追加写，按工作目录分组 | 无 CGO、可恢复、可重放；目录形如 `~/.sprout/sessions/<工作目录>/<session-id>.jsonl` |
 | 工具 | `bash`、`powershell` | M1 只做两个；其他工具待单独评估后扩充 |
 | 权限 | 暂不实现 | 默认完全权限；后续做成独立模块，不混进内核 |
@@ -95,12 +96,12 @@ docs/                    设计文档
 1. 内核不 import 任何 surface 包。
 2. surface 只通过「事件流 + 命令」与内核交互，不直接调用工具或 provider。
 3. provider、tool、会话存储都可替换。
-4. 平台差异（shell、路径、终端）收敛在 `internal/platform`。
+4. 平台差异（shell、路径、终端）收敛在 `internal/agent/platform`。
 5. WebUI 作为独立模块，优先通过 RPC 接入内核，避免与内核进程耦合。
 
 ## 交互协议（初版）
 
-内核与所有 surface 共用一套类型化协议，定义在 `internal/event`：
+内核与所有 surface 共用一套类型化协议，定义在 `internal/agent/event`：
 
 - **Command**（界面 → 内核）：`prompt`、`cancel`、`resume`。
 - **Event**（内核 → 界面）：`turn.started`、`message.delta`、`tool.requested`、`tool.finished`、`usage`、`turn.finished`、`error`。
@@ -113,12 +114,11 @@ TUI、WebUI、CLI、JSON-RPC 都只是这套协议的适配器。
 
 ## 路线图
 
-- **M0 设计**：README、AGENTS.md、核心接口草图。
-- **M1 内核 + CLI**：ReAct 循环、OpenAI Chat Completions / Responses、Anthropic Messages、`bash` / `powershell`、CLI、JSONL 会话。
-- **M2 TUI**：Bubble Tea v2 主入口，流式输出与工具调用展示。
-- **M3 JSON-RPC**：会话管理、流式事件、取消。
-- **M4 WebUI**：独立前端模块，复用 JSON-RPC 事件。
-- **M5 扩展**：更多工具、MCP、skills、子代理、更多 provider。
+- **M0 设计**：README、AGENTS.md、M1 详细计划（`docs/m1-minimal.md`）。
+- **M1 内核 + TUI + CLI**：ReAct 循环、OpenAI Chat Completions、`bash` / `powershell`、Bubble Tea v2 TUI、单次 CLI、JSONL 会话。
+- **M2 JSON-RPC**：会话管理、流式事件、取消。
+- **M3 WebUI**：独立前端模块，复用 JSON-RPC 事件。
+- **M4 扩展**：更多工具、MCP、skills、子代理、更多 provider。
 
 ## 快速开始
 
