@@ -361,11 +361,11 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
 
 - [ ] `go build -o bin/sprout.exe ./cmd/sprout` 成功，双击进入全屏 TUI。（构建与命令行启动已验证；双击启动和真实终端里的全屏界面未手工验证）
 - [x] 首次运行生成 `bin/data/.sprout/models.jsonc`；已有文件不覆盖。（真实二进制冒烟 + 单元测试）
-- [ ] DeepSeek `openai-chat` 配置下，真实对话成功，流式显示。（协议层用 httptest 回放 SSE 验证；未用真实 Key）
-- [ ] 切换 `openai-responses`，真实对话成功。（同上；`function_call` 不带 `id` 的做法依据文档推断，需真实服务验证）
-- [ ] 输入“看一下当前目录，告诉我 Go 入口文件”，模型真实调用 powershell，TUI 显示命令、退出码、输出。（agent + 真实 PowerShell 进程 + 模型服务替身已走通 `sprout run`；TUI 渲染有测试；未用真实模型、未在真实 TUI 里手工操作）
-- [x] 有 Git Bash 时，模型可调用 bash；没有时 `bash` 不出现在工具列表。（真实 Git Bash 进程测试 + 注册测试）
-- [x] 工具输出超过 50KB 时截断；超时能取消；exit code 非 0 能回给模型。
+- [x] DeepSeek `openai-chat` 配置下，真实对话成功，流式显示。（2026-11 用真实 DeepSeek Key 通过 `sprout run` 验证：纯对话、多步工具调用、并行 tool call、错误 Key 的 401 提示；TUI 里的流式渲染未手工验证）
+- [x] 切换 `openai-responses`，真实对话成功。（用真实 DeepSeek 的 `/responses` 端点验证了纯对话和一次工具调用往返，含不带 `id` 的 `function_call` 回传；**OpenAI 官方 Responses 服务未验证**）
+- [ ] 输入“看一下当前目录，告诉我 Go 入口文件”，模型真实调用 powershell，TUI 显示命令、退出码、输出。（真实 DeepSeek + 真实 PowerShell 通过 `sprout run` 走通，模型正确找到 `cmd/sprout/main.go:27`；TUI 的渲染有测试，但未在真实终端里手工操作）
+- [x] 有 Git Bash 时，模型可调用 bash；没有时 `bash` 不出现在工具列表。（真实 DeepSeek 调用 Git Bash 验证，输出中文与 POSIX 路径正确）
+- [x] 工具输出超过 50KB 时截断；超时能取消；exit code 非 0 能回给模型。（真实模型也验证过：约 788KB 输出被截断且模型读懂了截断标记；超时后模型读懂了 `timed_out`）
 - [ ] 生成中 Ctrl+C 取消；空闲 Ctrl+C/Ctrl+D 退出。（按键处理和取消链路用真实 `tea.Program` 验证；Windows 控制台里 Ctrl+C 是否按键事件送达未手工验证）
 - [x] `bin/data/.sprout/sessions/...` 生成会话 JSONL 和 `meta.json`。
 - [x] 缺 Key、401、网络失败、工具超时都有中文提示，不 panic。
@@ -419,7 +419,7 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
 - Chat 请求带 `stream_options.include_usage`，usage 在 `finish_reason` 之后的独立 chunk 里，所以读到 `[DONE]` 或 EOF 才结束。
 - Chat 同一个 `index` 出现不同的非空 `id` 时视为新调用（个别兼容服务给每个调用都填 0）。
 - Responses 的函数调用来自 `added` / `arguments.delta` / `arguments.done` / `output_item.done` / `completed.output` 多个来源，后到的覆盖先到的；文本已通过增量输出过就不再用完整 item 重复输出。
-- Responses 的 `function_call` 条目不带 `id`（`store:false` 时没有配对的 reasoning 条目）；这一点依据文档推断，**尚未用真实服务验证**。
+- Responses 的 `function_call` 条目不带 `id`（`store:false` 时没有配对的 reasoning 条目）；依据文档推断。已用真实 DeepSeek 的 `/responses` 端点验证往返可用，但 **OpenAI 官方服务（尤其带 reasoning 的 gpt-5 / o 系列）尚未验证**。
 - Responses 的函数工具显式 `strict:false`，否则默认 `strict:true` 会要求 schema 满足严格模式。
 - 发送给服务端的输出上限直接取 `models.jsonc` 里的 `maxOutput`（Chat 为 `max_tokens`，Responses 为 `max_output_tokens`）。个别新模型（如 OpenAI 的 o 系列）在 Chat 协议下拒绝 `max_tokens`，这类模型请使用 Responses 协议。`contextWindow` 目前不参与任何逻辑（M1 没有上下文管理），仅作记录。
 
@@ -442,6 +442,8 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
 
 **尚未验证**
 
-- 真实 DeepSeek / OpenAI 服务（需要 Key）：两种协议只用 httptest 回放验证过。
-- 真实终端里的 TUI 手工操作，尤其是中文输入法下 Enter 的组合期行为、Windows 控制台里 Ctrl+C 的送达方式。
+- OpenAI 官方服务（Chat 与 Responses）：只验证过 DeepSeek。
+- 真实终端里的 TUI 手工操作，尤其是中文输入法下 Enter 的组合期行为、Windows 控制台里 Ctrl+C 的送达方式、流式渲染的观感。
+- 在非终端环境（stdin 重定向到 `/dev/null`）下启动 TUI 不会自行退出，会一直挂到被外部终止；正常使用不受影响，M1 未处理。
+- 工具子进程会继承 `sprout` 的环境变量，包括通过 `DEEPSEEK_API_KEY` 等传入的 API Key；模型可以让命令读取它。M1 没有权限模块，这是已知取舍。
 - `go test -race`（本机没有 gcc）。
