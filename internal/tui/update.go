@@ -1,0 +1,110 @@
+package tui
+
+import (
+	"strings"
+
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+)
+
+// Update 只改状态、返回 Cmd，不做 IO。
+func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.w, m.h = msg.Width, msg.Height
+		m.layout()
+		return m, nil
+
+	case tea.KeyPressMsg:
+		return m.onKey(msg)
+
+	case eventMsg:
+		if msg.turn != m.turn { // 上一轮遗留的消息
+			return m, nil
+		}
+		m.onEvent(msg.ev)
+		m.refresh()
+		return m, waitEvent(msg.turn, m.events)
+
+	case turnClosedMsg:
+		if msg.turn != m.turn {
+			return m, nil
+		}
+		if m.running { // 通道关了却没收到 TurnFinished，不能让界面一直停在“生成中”
+			m.add(&entry{kind: kindError, text: "本轮意外结束，没有收到完成信号。"})
+			m.finishTurn("")
+			m.refresh()
+		}
+		return m, nil
+
+	case spinner.TickMsg:
+		if !m.running { // 停止转发即停止动画，不会残留空转的定时器
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.sp, cmd = m.sp.Update(msg)
+		return m, cmd
+	}
+
+	var cmd tea.Cmd
+	m.in, cmd = m.in.Update(msg)
+	return m, cmd
+}
+
+func (m *Model) onKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	m.status = ""
+	switch k.String() {
+	case "ctrl+c":
+		if m.running {
+			m.cancel()
+			m.status = "正在取消…"
+			return m, nil
+		}
+		return m, tea.Quit
+	case "ctrl+d":
+		return m, tea.Quit
+	case "enter":
+		return m.submit()
+	case "pgup":
+		m.vp.PageUp()
+		m.follow = m.vp.AtBottom()
+		return m, nil
+	case "pgdown":
+		m.vp.PageDown()
+		m.follow = m.vp.AtBottom()
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.in, cmd = m.in.Update(k)
+	return m, cmd
+}
+
+func (m *Model) submit() (tea.Model, tea.Cmd) {
+	text := strings.TrimSpace(m.in.Value())
+	if text == "" {
+		return m, nil
+	}
+	if handled, cmd := m.slash(text); handled {
+		m.in.Reset()
+		m.refresh()
+		return m, cmd
+	}
+	switch {
+	case m.running:
+		m.status = "上一轮还在生成，请等它结束，或按 Ctrl+C 取消"
+		return m, nil
+	case m.opts.Disabled != "":
+		m.status = "无法发送：" + firstLine(m.opts.Disabled)
+		return m, nil
+	}
+	m.in.Reset()
+	m.add(&entry{kind: kindUser, text: text})
+	m.running, m.follow = true, true
+	m.refresh()
+	return m, m.startTurn(text)
+}
+
+func firstLine(s string) string {
+	line, _, _ := strings.Cut(s, "\n")
+	return line
+}

@@ -1,0 +1,99 @@
+package tui
+
+import (
+	"context"
+	"strings"
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/shumengya/sprout/internal/agent/event"
+)
+
+// fakeRunner 按脚本发事件。只用于测试，不在任何默认运行路径里。
+type fakeRunner struct {
+	run func(ctx context.Context, prompt string, sink event.Sink) error
+}
+
+func (f fakeRunner) Run(ctx context.Context, prompt string, sink event.Sink) error {
+	return f.run(ctx, prompt, sink)
+}
+
+// scriptRunner 发出给定事件后返回。
+func scriptRunner(events ...event.Event) fakeRunner {
+	return fakeRunner{run: func(_ context.Context, _ string, sink event.Sink) error {
+		for _, e := range events {
+			sink.Emit(e)
+		}
+		return nil
+	}}
+}
+
+var testInfo = Info{
+	Model: "deepseek-chat", Provider: "deepseek", Cwd: `D:\SmyProjects\sprout`, DataDir: `D:\data\.sprout`,
+	Tools: []ToolInfo{{"powershell", "PowerShell 7+  C:\\pwsh.exe"}, {"bash", "Git Bash  C:\\bash.exe"}},
+}
+
+// newSized 构造一个已经收到窗口尺寸的 Model，可以直接调用 Update / View。
+func newSized(t *testing.T, o Options, w, h int) *Model {
+	t.Helper()
+	if o.Info.Model == "" {
+		o.Info = testInfo
+	}
+	m := New(o)
+	m.Init() // 与真实程序一致：Bubble Tea 启动时先调用 Init，输入框的焦点在这里设置
+	m.Update(tea.WindowSizeMsg{Width: w, Height: h})
+	return m
+}
+
+func press(code rune, mod tea.KeyMod) tea.KeyPressMsg { return tea.KeyPressMsg{Code: code, Mod: mod} }
+
+var (
+	keyEnter = press(tea.KeyEnter, 0)
+	keyCtrlC = press('c', tea.ModCtrl)
+	keyCtrlD = press('d', tea.ModCtrl)
+	keyPgUp  = press(tea.KeyPgUp, 0)
+	keyPgDn  = press(tea.KeyPgDown, 0)
+)
+
+func typed(s string) tea.KeyPressMsg {
+	r := []rune(s)
+	return tea.KeyPressMsg{Code: r[0], Text: s}
+}
+
+// plain 返回去掉 ANSI 样式后的整屏文本，便于断言。
+func plain(m *Model) string { return ansi.Strip(m.View().Content) }
+
+// apply 把一串事件直接喂给 Model（相当于 eventMsg 到达），并刷新视图。
+func apply(m *Model, events ...event.Event) {
+	for _, e := range events {
+		m.Update(eventMsg{turn: m.turn, ev: e})
+	}
+}
+
+// begin 模拟用户提交了一条消息，但不真正启动 agent。
+func begin(m *Model, text string) {
+	m.turn++
+	m.running, m.follow = true, true
+	m.add(&entry{kind: kindUser, text: text})
+	m.refresh()
+}
+
+func mustContain(t *testing.T, s string, wants ...string) {
+	t.Helper()
+	for _, w := range wants {
+		if !strings.Contains(s, w) {
+			t.Errorf("画面缺少 %q:\n%s", w, s)
+		}
+	}
+}
+
+func mustNotContain(t *testing.T, s string, nots ...string) {
+	t.Helper()
+	for _, n := range nots {
+		if strings.Contains(s, n) {
+			t.Errorf("画面不应出现 %q:\n%s", n, s)
+		}
+	}
+}
