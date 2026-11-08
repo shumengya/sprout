@@ -6,10 +6,10 @@
 ## 1. 目标
 
 - Windows 双击 `sprout.exe` 打开终端 TUI。
-- 输入一句话，模型通过 OpenAI Chat Completions 协议回答。
+- 输入一句话，模型通过 OpenAI Chat Completions 或 Responses 协议回答。
 - 需要时调用 `powershell` 或 `bash`，把结果回给模型，继续推理直到给出最终答案。
 - 会话按工作目录写入 JSONL，可事后查看。
-- 只支持一个 provider 协议：OpenAI Chat Completions。Responses 和 Anthropic 在后续里程碑补。
+- Provider 同时支持 OpenAI Chat Completions 和 Responses；Anthropic 在后续里程碑补。
 
 ## 2. 用户看到的样子
 
@@ -42,12 +42,21 @@
 | --- | --- |
 | Bubble Tea v2 TUI（主入口） | WebUI、JSON-RPC、daemon |
 | `sprout run "..."` 单次 CLI（调试/脚本用） | 交互式 CLI REPL |
-| OpenAI Chat Completions 流式 | OpenAI Responses、Anthropic Messages |
+| OpenAI Chat Completions + Responses 流式 | Anthropic Messages |
 | ReAct 循环，最多 10 次工具调用 | 上下文压缩、token 预算 |
 | `bash`、`powershell` 两个工具 | 文件读写、搜索、web、MCP、skills |
 | `models.jsonc` 用户配置 | 配置热加载、模型选择器 |
 | JSONL 会话，按工作目录分组 | 会话恢复、分支、搜索 |
 | Windows 控制台 UTF-8、双击运行 | 权限审批、沙箱 |
+
+### 3.1 两种 OpenAI 协议的归一化
+
+内部只维护一种消息模型：`system` / `user` / `assistant` / `tool`，工具调用统一为 `ToolCall{ID, Name, Arguments}`。provider 适配器负责在协议和内部模型之间转换：
+
+- **Chat Completions**：`messages[]` + `tools[].function`；流式读 `choices[0].delta.content` 和 `delta.tool_calls[]`；工具结果作为 `role:"tool"` 消息回传。
+- **Responses**：`instructions` + `input[]`；工具声明是扁平的 `{type:"function", name, description, parameters}`；文本流读 `response.output_text.delta`；函数调用读 `response.output_item.added` / `response.function_call_arguments.delta` / `response.function_call_arguments.done`，或直接从 `response.output_item.done` 拿完整 item；工具结果作为 `{type:"function_call_output", call_id, output}` 追加到 input。
+- Responses 使用 `store:false` + 完整 input，保持无服务端状态，和 Chat Completions 的“每次带全量 messages”行为一致。
+- 两个适配器都只向外发统一事件：`message.delta`、`tool.requested`、`tool.finished`、`turn.finished`；agent 循环不感知协议差异。
 
 ## 4. 配置格式约定
 
@@ -87,6 +96,19 @@
         "gpt-4o-mini": {
           "contextWindow": 128000,
           "maxOutput": 16384,
+          "tools": true
+        }
+      }
+    },
+
+    "openai-responses": {
+      "protocol": "openai-responses",
+      "baseUrl": "https://api.openai.com/v1",
+      "apiKeyEnv": "OPENAI_API_KEY",
+      "models": {
+        "gpt-5": {
+          "contextWindow": 400000,
+          "maxOutput": 32768,
           "tools": true
         }
       }
@@ -202,9 +224,11 @@ internal/agent/platform/shell_windows.go
 internal/agent/platform/shell_unix.go
 internal/agent/platform/console_windows.go
 internal/agent/platform/console_other.go
-internal/provider/openai/client.go    HTTP 请求
-internal/provider/openai/types.go     Chat Completions 类型
-internal/provider/openai/sse.go       SSE 解析
+internal/provider/openai/client.go    HTTP、鉴权、错误归一化
+internal/provider/openai/chat.go      Chat Completions 适配
+internal/provider/openai/responses.go Responses 适配
+internal/provider/openai/types.go     两种协议的线格式
+internal/provider/openai/sse.go       通用 SSE 读取
 internal/tui/model.go                 Bubble Tea 主模型
 internal/tui/update.go                消息处理
 internal/tui/view.go                  布局与渲染
@@ -222,11 +246,12 @@ models.example.jsonc                  示例配置
 - 先用假 agent 回显，验证双击运行、窗口尺寸、UTF-8、退出。
 - 验收：双击 `sprout.exe` 能看到完整界面并对话回显。
 
-### Step 2：接上 OpenAI
+### Step 2：接上两种 OpenAI 协议
 
-- `models.jsonc` 加载、provider 选择、Chat Completions 非流式请求。
-- TUI 显示最终回答。
-- 验收：输入“你好”，得到模型回答；401/网络错误显示在 transcript。
+- 2a：Chat Completions 非流式，跑通请求、响应、错误。
+- 2b：Responses 非流式，复用同一套内部消息模型。
+- TUI 显示最终回答；provider 由 `models.jsonc` 的 `protocol` 选择。
+- 验收：同一句“你好”分别用 `openai-chat` 和 `openai-responses` 得到回答；401/网络错误显示在 transcript。
 
 ### Step 3：接上两个终端工具
 
@@ -242,18 +267,19 @@ models.example.jsonc                  示例配置
 
 1. `go build -o bin/sprout.exe ./cmd/sprout` 成功，双击能打开 TUI。
 2. 输入消息后流式显示回答，生成期间可取消。
-3. “看看当前目录有哪些文件”触发 shell 工具，命令、退出码、截断输出可见，最终回答正确。
-4. Windows 同时检测 `powershell` 与 Git Bash 时两个工具都可用；只有 PowerShell 时 `bash` 不出现在工具列表。
-5. PowerShell 5.1 下模型不会生成 `&&` 等 7+ 语法；7+ 下正常。
-6. `models.jsonc` 支持注释和尾逗号，解析错误能定位到行列。
-7. 会话 JSONL + `meta.json` 落在对应工作目录下。
-8. 缺少 API Key、网络失败、工具超时不 panic，错误显示在 TUI。
-9. `go vet ./...` 通过；SSE 解析、tool call 拼接、shell 检测、配置解析有单元测试。
+3. 切换 `models.jsonc` 的 `protocol`，Chat Completions 与 Responses 都能完成一轮对话和工具调用。
+4. “看看当前目录有哪些文件”触发 shell 工具，命令、退出码、截断输出可见，最终回答正确。
+5. Windows 同时检测 `powershell` 与 Git Bash 时两个工具都可用；只有 PowerShell 时 `bash` 不出现在工具列表。
+6. PowerShell 5.1 下模型不会生成 `&&` 等 7+ 语法；7+ 下正常。
+7. `models.jsonc` 支持注释和尾逗号，解析错误能定位到行列。
+8. 会话 JSONL + `meta.json` 落在对应工作目录下。
+9. 缺少 API Key、网络失败、工具超时不 panic，错误显示在 TUI。
+10. `go vet ./...` 通过；SSE 解析、tool call 拼接、shell 检测、配置解析有单元测试。
 
 ## 11. 明确不做
 
 - WebUI、JSON-RPC、后台 daemon。
-- OpenAI Responses、Anthropic Messages。
+- Anthropic Messages。
 - MCP、skills、文件读写/搜索工具。
 - 权限审批、沙箱。
 - 会话恢复、上下文压缩、多 agent。
@@ -270,4 +296,5 @@ models.example.jsonc                  示例配置
 | pi `docs/session-format.md` | JSONL 会话、按 cwd 分目录、消息级记录 |
 | Crush `internal/ui/AGENTS.md` | Bubble Tea 单模型；`Update` 不做 IO；工具渲染器 |
 | OpenCode `packages/cli/src/config/config.ts` | 用户配置使用 JSONC，保留注释 |
+| OpenAI 官方 Responses streaming 文档 | 流式事件名、函数调用参数 delta、`function_call_output` 回传格式 |
 | Codex `app-server-client` | 协议优先、同进程运行的思路；MVP 先不做外部 server |

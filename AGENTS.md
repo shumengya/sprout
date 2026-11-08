@@ -6,7 +6,7 @@
 
 Sprout 是 Go 编写的跨平台通用型 agent runtime：内核是 ReAct 循环，TUI / WebUI / CLI / JSON-RPC 四种入口共用同一套会话与工具。模块路径 `github.com/shumengya/sprout`，Go 1.27+。
 
-当前处于 **M0（设计与文档）**，没有可运行代码。M1 范围：ReAct 循环、OpenAI Chat Completions、`bash` + `powershell` 两个工具、Bubble Tea v2 TUI、单次 CLI、JSONL 会话。详细计划见 `docs/m1-minimal.md`。未经用户确认，不要提前实现后续里程碑。
+当前处于 **M0（设计与文档）**，没有可运行代码。M1 范围：ReAct 循环、OpenAI Chat Completions + Responses、`bash` + `powershell` 两个工具、Bubble Tea v2 TUI、单次 CLI、JSONL 会话。详细计划见 `docs/m1-minimal.md`。未经用户确认，不要提前实现后续里程碑。
 
 ## 常用命令
 

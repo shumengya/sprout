@@ -115,7 +115,7 @@ TUI、WebUI、CLI、JSON-RPC 都只是这套协议的适配器。
 ## 路线图
 
 - **M0 设计**：README、AGENTS.md、M1 详细计划（`docs/m1-minimal.md`）。
-- **M1 内核 + TUI + CLI**：ReAct 循环、OpenAI Chat Completions、`bash` / `powershell`、Bubble Tea v2 TUI、单次 CLI、JSONL 会话。
+- **M1 内核 + TUI + CLI**：ReAct 循环、OpenAI Chat Completions + Responses、`bash` / `powershell`、Bubble Tea v2 TUI、单次 CLI、JSONL 会话。
 - **M2 JSON-RPC**：会话管理、流式事件、取消。
 - **M3 WebUI**：独立前端模块，复用 JSON-RPC 事件。
 - **M4 扩展**：更多工具、MCP、skills、子代理、更多 provider。
