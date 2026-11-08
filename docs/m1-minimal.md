@@ -30,7 +30,7 @@
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-- 启动后进入全屏 TUI，显示模型、工作目录、检测到的终端工具。
+- 启动后进入全屏 TUI，显示模型、工作目录、数据目录、检测到的终端工具。
 - 输入框回车发送；生成期间显示 spinner；流式追加回答。
 - 工具调用以一行标题 + 截断后的输出预览展示。
 - `Ctrl+C`：正在生成时取消本轮；空闲时退出。`Ctrl+D` 退出。
@@ -63,7 +63,8 @@
 - **用户会打开、编辑的文件一律 JSONC**：允许 `//`、`/* */` 注释和尾逗号。包括 `models.jsonc`，以及后续的 `config.jsonc`、`mcp.jsonc`、`skills.jsonc`。
 - **用户很少看、机器读写的文件用普通 JSON / JSONL**：`meta.json`、`sessions/*.jsonl`、缓存、临时状态。
 - 解析 JSONC 用 `github.com/tailscale/hujson`，解析失败时报告文件路径、行、列。
-- 首次运行如果 `~/.sprout/models.jsonc` 不存在，从内置模板生成一份带注释的配置，TUI 提示用户填入 API Key 后重启。
+- 首次运行如果 `<exeDir>/data/.sprout/models.jsonc` 不存在，从内置模板生成一份带注释的配置，TUI 提示用户填入 API Key 后重启。
+- 数据目录默认 `<exeDir>/data/.sprout`，是安装级/系统级目录，不跟随用户 home，也不跟随项目；`--data-dir` 或 `SPROUT_DATA_DIR` 可覆盖。
 
 示例：
 
@@ -113,6 +114,12 @@
         }
       }
     }
+  },
+
+  "shell": {
+    // 留空则自动探测；Windows 下可填 Git Bash / PowerShell 的绝对路径
+    "bashPath": "",
+    "powershellPath": ""
   }
 }
 ```
@@ -125,17 +132,18 @@
 
 PowerShell 检测顺序（参考 Claude Code / pi）：
 
-1. `pwsh.exe` on PATH
-2. `%ProgramFiles%\PowerShell\7\pwsh.exe`
-3. `powershell.exe` on PATH
-4. `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`
+1. 配置里的 `shell.powershellPath`
+2. `pwsh.exe` on PATH
+3. `%ProgramFiles%\PowerShell\7\pwsh.exe`
+4. `powershell.exe` on PATH
+5. `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`
 
 - 记录实际找到的路径和版本（`pwsh` = 7+，`powershell` = 5.1）。
 - 工具描述里带上版本差异：5.1 不支持 `&&` / `||` / 三元 / `??`，默认输出 UTF-16LE；7+ 支持现代语法。
 
 Bash 检测顺序（参考 pi）：
 
-1. 配置里的 `bashPath`（`models.jsonc` 或后续 `config.jsonc`）
+1. 配置里的 `shell.bashPath`（`models.jsonc`）
 2. `%ProgramFiles%\Git\bin\bash.exe`
 3. `%ProgramFiles(x86)%\Git\bin\bash.exe`
 4. PATH 里的 `bash.exe`（MSYS2 / Cygwin）
@@ -170,7 +178,7 @@ Bash 检测顺序（参考 pi）：
 
 ### 布局
 
-- 顶部：模型、cwd、可用工具。
+- 顶部：模型、cwd、数据目录、可用工具。
 - 中间：transcript viewport，自动跟随底部；用户上滚后暂停跟随。
 - 底部：状态行 + 输入框（`bubbles/textarea`）。
 
@@ -198,7 +206,7 @@ TUI 输入 → agent.Run(ctx, prompt) → event channel → tea.Cmd → TUI 更�
 
 ## 7. 会话存储
 
-- 路径：`~/.sprout/sessions/--<cwd>--/<timestamp>_<id>.jsonl`。
+- 路径：`<dataDir>/sessions/--<cwd>--/<timestamp>_<id>.jsonl`。
 - `<cwd>` 去掉开头分隔符，把 `/`、`\`、`:` 替换成 `-`（与 pi 的约定一致）。
 - 每行一个 JSON 对象，消息级记录：`user`、`assistant`、`tool`、`turn`。
 - 同目录 `meta.json` 存模型、provider、cwd、开始时间、工具列表。
@@ -215,6 +223,8 @@ internal/agent/provider.go            Provider 接口
 internal/agent/prompt.go              系统提示词
 internal/agent/event/event.go         事件类型与 Sink
 internal/agent/config/config.go       models.jsonc 解析与校验
+internal/agent/config/paths.go        数据目录解析
+internal/agent/config/template.go     配置模板
 internal/agent/session/jsonl.go       JSONL 写入 + meta.json
 internal/agent/tool/tool.go           工具接口与注册表
 internal/agent/tool/shell/shell.go    执行、超时、截断
@@ -233,18 +243,20 @@ internal/tui/model.go                 Bubble Tea 主模型
 internal/tui/update.go                消息处理
 internal/tui/view.go                  布局与渲染
 internal/tui/entries.go               transcript 条目与工具渲染
+internal/tui/commands.go              斜杠命令 /tools /tool
 internal/cli/run.go                   单次运行
 models.example.jsonc                  示例配置
 ```
 
 ## 9. 实现步骤
 
-### Step 1：TUI 骨架先跑起来
+### Step 1：TUI 骨架 + 真实 shell 工具
 
-- Bubble Tea 主模型、header、viewport、textarea、状态行。
-- 配置加载，显示模型/cwd/配置状态（终端工具检测放到 Step 3）。
-- 先用假 agent 回显，验证双击运行、窗口尺寸、UTF-8、退出。
-- 验收：双击 `sprout.exe` 能看到完整界面并对话回显。
+- 全屏 Bubble Tea 主模型、header、viewport、textarea、状态行。
+- 安装级数据目录、配置加载、首次生成 `models.jsonc`。
+- 真实 `bash` / `powershell` 检测、执行、超时、头尾截断；通过 `/tools`、`/tool` 手动调用。
+- 假 agent 只做流式回显，不伪造工具结果。
+- 验收：双击 `sprout.exe` 进入界面；`/tool powershell Get-Location` 返回真实输出；有 Git Bash 时 `/tool bash pwd` 可用。
 
 ### Step 2：接上两种 OpenAI 协议
 
@@ -253,9 +265,9 @@ models.example.jsonc                  示例配置
 - TUI 显示最终回答；provider 由 `models.jsonc` 的 `protocol` 选择。
 - 验收：同一句“你好”分别用 `openai-chat` 和 `openai-responses` 得到回答；401/网络错误显示在 transcript。
 
-### Step 3：接上两个终端工具
+### Step 3：把工具接进 ReAct 循环
 
-- shell 执行器、bash/powershell 检测、工具注册、ReAct 循环（仍非流式）。
+- 工具在 Step 1 已实现；本步把 Tool 定义喂给模型，解析 tool call，执行并回传结果。
 - 验收：Windows 上“列出当前目录文件”走 powershell；装了 Git Bash 时可走 bash；卸载/隐藏 Git Bash 后 bash 从工具列表消失。
 
 ### Step 4：流式、会话与收尾
@@ -266,15 +278,17 @@ models.example.jsonc                  示例配置
 ## 10. 验收标准
 
 1. `go build -o bin/sprout.exe ./cmd/sprout` 成功，双击能打开 TUI。
-2. 输入消息后流式显示回答，生成期间可取消。
-3. 切换 `models.jsonc` 的 `protocol`，Chat Completions 与 Responses 都能完成一轮对话和工具调用。
-4. “看看当前目录有哪些文件”触发 shell 工具，命令、退出码、截断输出可见，最终回答正确。
-5. Windows 同时检测 `powershell` 与 Git Bash 时两个工具都可用；只有 PowerShell 时 `bash` 不出现在工具列表。
-6. PowerShell 5.1 下模型不会生成 `&&` 等 7+ 语法；7+ 下正常。
-7. `models.jsonc` 支持注释和尾逗号，解析错误能定位到行列。
-8. 会话 JSONL + `meta.json` 落在对应工作目录下。
-9. 缺少 API Key、网络失败、工具超时不 panic，错误显示在 TUI。
-10. `go vet ./...` 通过；SSE 解析、tool call 拼接、shell 检测、配置解析有单元测试。
+2. 首次运行在 `bin/data/.sprout/models.jsonc` 生成带注释的配置；已有文件不覆盖。
+3. 输入消息后流式显示回答，生成期间可取消。
+4. 切换 `models.jsonc` 的 `protocol`，Chat Completions 与 Responses 都能完成一轮对话和工具调用。
+5. `/tool powershell Get-Location` 返回真实输出；有 Git Bash 时 `/tool bash pwd` 可用，无 Git Bash 时显示原因。
+6. “看看当前目录有哪些文件”触发 shell 工具，命令、退出码、截断输出可见，最终回答正确。
+7. Windows 同时检测 `powershell` 与 Git Bash 时两个工具都可用；只有 PowerShell 时 `bash` 不出现在工具列表。
+8. PowerShell 5.1 下模型不会生成 `&&` 等 7+ 语法；7+ 下正常。
+9. `models.jsonc` 支持注释和尾逗号，解析错误能定位到行列。
+10. 会话 JSONL + `meta.json` 落在 `<dataDir>/sessions/` 下。
+11. 缺少 API Key、网络失败、工具超时不 panic，错误显示在 TUI。
+12. `go vet ./...` 通过；SSE 解析、tool call 拼接、shell 检测、配置解析有单元测试。
 
 ## 11. 明确不做
 

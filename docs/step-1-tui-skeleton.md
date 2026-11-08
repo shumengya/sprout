@@ -1,21 +1,22 @@
-# Step 1：TUI 骨架 + 配置 + 假 Agent
+# Step 1：TUI 骨架 + 配置 + 真实 shell 工具
 
-> 范围：只做可运行的 TUI 外壳和事件链路，不接网络、不检测 shell、不写会话文件。
-> 目的：尽早暴露 Bubble Tea v2、Windows 终端、布局、取消、配置解析这些平台问题。
+> 范围：全屏 TUI、安装级数据目录、JSONC 配置、真实的 `bash` / `powershell` 工具。
+> 不接 LLM、不写会话、不做 `sprout run`；聊天部分先用假 agent 回显。
 
 ## 1. 这一步要得到什么
 
 双击 `bin/sprout.exe` 后：
 
-1. 进入全屏 TUI，显示模型、cwd、配置状态。
-2. 输入一句话回车，假 agent 以流式方式回显。
-3. 输入包含“工具”或 `tool` 的内容，显示一条假的工具调用卡片。
-4. `Ctrl+C` 能取消正在回显的回合；空闲时退出。
-5. `Ctrl+D` 退出；窗口缩放不花屏；中文和 emoji 正常显示。
-6. `~/.sprout/models.jsonc` 不存在时自动生成带注释的模板，并提示填入 API Key。
-7. 配置有语法错误时，显示文件名、行、列，而不是 panic。
+1. 进入全屏 TUI，显示模型、cwd、数据目录、已检测到的工具。
+2. 输入一句话回车，假 agent 流式回显，验证 TUI 事件链路。
+3. `/tools` 列出当前可用工具、路径和 PowerShell 版本。
+4. `/tool powershell Get-Location` 执行真实 PowerShell 命令，显示输出、退出码、耗时。
+5. 有 Git Bash 时 `/tool bash pwd` 执行真实 Bash 命令；没有时明确提示不可用及原因。
+6. `Ctrl+C` 取消正在执行的工具或回显；空闲时退出；`Ctrl+D` 退出。
+7. 首次运行在 `<exe目录>/data/.sprout/models.jsonc` 生成带注释的模板。
+8. 配置有语法错误时显示文件、行、列，不 panic。
 
-这一步**不验证**模型、工具执行、会话持久化。
+这一步**不验证**模型调用、ReAct 循环、会话持久化。
 
 ## 2. 技术栈与依赖
 
@@ -25,42 +26,176 @@
 | `charm.land/lipgloss/v2` | 样式与布局 |
 | `charm.land/bubbles/v2` | `viewport`、`textarea`、`spinner` |
 | `github.com/tailscale/hujson` | JSONC 解析 |
-| 标准库 | 其他全部 |
+| 标准库 | HTTP 之外的进程执行、配置、文件 |
 
-注意：Charm v2 的模块路径是 `charm.land/...`，不是 `github.com/charmbracelet/...`。版本先按 Crush 使用的组合锁定：`bubbletea/v2 v2.1.0`、`lipgloss/v2 v2.0.6`、`bubbles/v2 v2.2.1`。
+Charm v2 的模块路径是 `charm.land/...`。版本按 Crush 的组合锁定：`bubbletea/v2 v2.1.0`、`lipgloss/v2 v2.0.6`、`bubbles/v2 v2.2.1`。
 
-Bubble Tea v2 与 v1 的差异：
+Bubble Tea v2 关键差异：
 
-- `View()` 返回 `tea.View`，通过 `v.AltScreen = true` 开启全屏。
-- 键盘消息是 `tea.KeyPressMsg`，不是 `tea.KeyMsg`。
-- 程序用 `tea.NewProgram(m, tea.WithContext(ctx))` 启动。
+- `View()` 返回 `tea.View`，用 `v.AltScreen = true` 开启全屏。
+- 键盘消息是 `tea.KeyPressMsg`。
+- 启动：`tea.NewProgram(m, tea.WithContext(ctx))`。
 
-## 3. 文件清单
+## 3. 数据目录
+
+默认数据根目录：
+
+```text
+<二进制所在目录>/data/.sprout/
+├── models.jsonc
+├── sessions/          （Step 4 使用）
+└── logs/              （后续使用）
+```
+
+- 这是**安装级 / 系统级**数据目录，跟随二进制，不跟随用户 home，也不跟随项目。
+- 解析顺序：`--data-dir` > `SPROUT_DATA_DIR` > `<exeDir>/data/.sprout`。
+- 用 `os.Executable()` 取二进制路径，`filepath.Dir` 取目录。
+- 目录不存在时 `MkdirAll(0700)`；不可写时明确报错，并提示用 `--data-dir` 覆盖。
+- `go run` 时二进制在临时目录，开发时显式传 `--data-dir ./data/.sprout`。
+- 后续如需用户级/项目级覆盖，再在安装级之上叠加，不改变默认值。
+
+## 4. 文件清单
 
 ```text
 go.mod / go.sum
 .gitignore                            忽略 bin/
-cmd/sprout/main.go                    参数、配置加载、TUI 启动、错误暂停
+cmd/sprout/main.go                    参数、数据目录、配置、TUI 启动
 internal/agent/event/event.go         事件类型与 Sink
-internal/agent/runner.go              Runner 接口
-internal/agent/fake/fake.go           假 agent：流式回显 + 假工具卡片
-internal/agent/config/config.go       JSONC 解析、校验、默认模型解析
+internal/agent/runner.go              Runner 接口（本步只有 fake）
+internal/agent/fake/fake.go           假 agent：流式回显
+internal/agent/config/config.go       JSONC 解析、校验、默认模型
+internal/agent/config/paths.go        数据目录解析
 internal/agent/config/template.go     内置 models.jsonc 模板
 internal/agent/config/config_test.go
-internal/agent/fake/fake_test.go
+internal/agent/tool/tool.go           Tool 接口、Result、Registry
+internal/agent/tool/shell/shell.go    通用进程执行、超时、头尾截断
+internal/agent/tool/bash/bash.go      Bash 工具
+internal/agent/tool/powershell/powershell.go
+internal/agent/tool/shell/shell_test.go
+internal/agent/platform/shell_windows.go
+internal/agent/platform/shell_unix.go
 internal/agent/platform/console_windows.go
 internal/agent/platform/console_other.go
 internal/tui/model.go                 主模型与状态
-internal/tui/update.go                消息处理
+internal/tui/update.go                消息、斜杠命令、事件处理
 internal/tui/view.go                  布局与渲染
 internal/tui/entries.go               transcript 条目
 internal/tui/styles.go                lipgloss 样式
 internal/tui/model_test.go
 ```
 
-## 4. 事件与 Runner
+## 5. 工具系统
 
-### 事件
+### 接口
+
+```go
+type Result struct {
+    Output    string
+    ExitCode  int
+    Truncated bool
+    TimedOut  bool
+    Duration  time.Duration
+}
+
+type Tool interface {
+    Name() string
+    Description() string
+    Parameters() json.RawMessage
+    Run(ctx context.Context, args json.RawMessage) (Result, error)
+}
+```
+
+- `Run` 返回 `error` 只表示基础设施失败（如进程无法启动）；命令退出码非 0 属于正常结果。
+- 参数统一是 `{"command":"..."}`，为 Step 3 的 LLM 工具调用做准备。
+- Registry 提供 `Register`、`Get`、`List`，TUI 和后续 agent 共用。
+
+### 检测
+
+**Windows PowerShell**：
+
+1. 配置 `shell.powershellPath`
+2. `pwsh.exe` on PATH
+3. `%ProgramFiles%\PowerShell\7\pwsh.exe`
+4. `powershell.exe` on PATH
+5. `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`
+
+记录 edition：
+
+- `pwsh` → `core`（7+）：支持 `&&` / `||` / 三元 / `??`。
+- `powershell` → `desktop`（5.1）：不支持上述语法；默认输出编码不同。
+
+**Windows Bash**：
+
+1. 配置 `shell.bashPath`
+2. `%ProgramFiles%\Git\bin\bash.exe`
+3. `%ProgramFiles(x86)%\Git\bin\bash.exe`
+4. PATH 里的 `bash.exe`（MSYS2 / Cygwin）
+5. 只找到 `%SystemRoot%\System32\bash.exe` 时判定不可用，并说明那是 WSL 启动器，需要安装 Git for Windows
+
+**Linux / macOS / Termux**：
+
+- `bash` 从 PATH 查找。
+- 不注册 `powershell`（当前决策：PowerShell 工具只在 Windows 提供）。
+
+检测结果包含 `Name`、`Path`、`Kind`、`Edition`、`Available`、`Reason`。`/tools` 原样展示，便于排查。
+
+### 执行
+
+两个工具共用 `shell.Executor`：
+
+- `bash --noprofile --norc -c <command>`。
+- `powershell -NoProfile -NonInteractive -Command <command>`，`pwsh` 同理。
+- 工作目录固定为启动目录；每次新进程，`cd` 不跨调用保持。
+- 继承父进程环境；不接管 stdin；不支持后台任务。
+- 默认超时 120 秒，最大 600 秒。
+- `stdout` / `stderr` 分开收集；合并展示时标注来源。
+- 输出上限 50KB：保留头尾，中间插入 `... [truncated N bytes] ...`。
+- 超时通过 `exec.CommandContext` 取消；Windows 上只保证杀掉直接子进程，进程树清理留到后续。
+- PowerShell 5.1 先设置控制台 UTF-8；如果中文仍乱码，在命令前注入 `[Console]::OutputEncoding` 并 `exit $LASTEXITCODE`，作为已知风险测试。
+
+### 工具描述
+
+工具描述会原样进入 Step 3 的模型上下文，现在就写清楚：
+
+- `bash`：Windows 上是 Git Bash，路径用 `/d/...`；Linux/macOS 是系统 bash；每次新进程。
+- `powershell`：标明 edition；5.1 不要用 `&&`、`||`、`?:`、`??`；不要对原生程序用 `2>&1`。
+- 两者都注明：无状态、不要运行交互式命令、不要等待 stdin。
+
+## 6. 配置
+
+### 生成与路径
+
+- 路径：`<dataDir>/models.jsonc`。
+- 不存在时写入内置模板（`0600`），返回 warning，不退出。
+- 已存在时绝不覆盖。
+- `--config` 可单独指定配置文件路径。
+
+### 模板内容
+
+包含 `deepseek`（`openai-chat`）、`openai`（`openai-chat`）、`openai-responses` 三个 provider，以及：
+
+```jsonc
+"shell": {
+  // 留空则自动检测
+  "bashPath": "",
+  "powershellPath": ""
+}
+```
+
+### 解析与校验
+
+1. `hujson.Standardize` 去注释、去尾逗号。
+2. `json.Unmarshal` 到结构体；错误带 `Path` / `Line` / `Column` / `Message`。
+3. 校验：
+   - `default` 必须是 `provider/model` 且存在。
+   - `protocol` 只允许 `openai-chat`、`openai-responses`。
+   - `baseUrl` 必须是 http/https，去掉结尾 `/`。
+   - `apiKeyEnv` 优先，`apiKey` 兜底；都为空只 warning，不阻止 Step 1。
+   - `shell.*Path` 若非空，必须是存在的文件。
+
+## 7. 事件与假 Agent
+
+Step 1 没有 LLM，但事件结构按最终形态定义：
 
 ```go
 type Type string
@@ -74,197 +209,134 @@ const (
     Error         Type = "error"
 )
 
-type Tool struct {
-    Name      string
-    Command   string
-    Output    string
-    ExitCode  int
-    Truncated bool
-    Duration  time.Duration
-}
-
 type Event struct {
     Type      Type
     At        time.Time
     Text      string
-    Tool      *Tool
+    Tool      *ToolResult
     Error     string
     Cancelled bool
 }
-
-type Sink func(Event)
 ```
 
-Step 1 只要求 TUI 能消费这些事件；真实 agent 在 Step 2/3 替换 fake runner，事件结构不变。
+- `Runner` 接口：`Run(ctx, prompt, emit) error`。
+- Fake runner 按 rune 切块，每 20ms 发 `message.delta`；延迟可配置，测试设为 0。
+- 假 agent 只做文本回显，不伪造工具调用；工具通过 `/tool` 命令真实执行。
 
-### Runner
-
-```go
-type Runner interface {
-    Run(ctx context.Context, prompt string, emit event.Sink) error
-}
-```
-
-约定：
-
-- `Run` 可以在独立 goroutine 中执行。
-- 必须至少发出 `turn.started` 和 `turn.finished`；出错时先发 `error`。
-- 取消时返回 `ctx.Err()`，并发出 `turn.finished{Cancelled:true}`。
-- TUI 侧仍会兜底：如果 goroutine 返回但没收到 `turn.finished`，补一个错误条目并恢复空闲。
-
-### Fake Runner
-
-- 把回显文本按 rune 切块，每 20ms 发一个 `message.delta`，避免拆坏中文。
-- 文本包含“工具”或 `tool` 时，先发一对假的 `tool.requested` / `tool.finished`，再发最终文本。
-- 延迟可配置，测试里设为 0。
-
-## 5. 配置加载
-
-### 路径
-
-- 默认：`~/.sprout/models.jsonc`（`os.UserHomeDir()` + `filepath.Join`）。
-- 覆盖：`--config <path>` 或 `SPROUT_CONFIG`。
-- 首次运行：目录不存在则 `MkdirAll(0700)`；文件不存在则写入内置模板（`0600`），并返回一条 warning，不直接退出。
-
-### 解析
-
-1. `hujson.Standardize` 去注释、去尾逗号。
-2. `json.Unmarshal` 到结构体。
-3. 语法错误：`hujson` 的解析错误已经带行列，直接展示；类型错误只有字节偏移，再换算行列。错误类型带 `Path`、`Line`、`Column`、`Message`。
-4. 校验：
-   - `default` 必须是 `provider/model`，且两边都存在。
-   - `protocol` 只允许 `openai-chat`、`openai-responses`。
-   - `baseUrl` 必须是 http/https，去掉结尾 `/`。
-   - `apiKeyEnv` 优先；为空时用 `apiKey`；两者都空只产生 warning，Step 1 不阻止启动（fake agent 不需要 key）。
-
-### TUI 展示
-
-- 正常：`model: deepseek/deepseek-chat`、`cwd: ...`、`config: ...`。
-- 首次生成或缺少 key：黄色提示行，说明文件路径和下一步操作。
-- 解析失败：启动前打印错误到控制台，等待回车退出；不进入 TUI。
-
-## 6. TUI 设计
-
-### 主模型
-
-```go
-type Model struct {
-    cfg      *config.Config
-    runner   agent.Runner
-    width    int
-    height   int
-    ready    bool
-
-    entries  []entry
-    viewport viewport.Model
-    input    textarea.Model
-    spinner  spinner.Model
-
-    running  bool
-    follow   bool
-    cancel   context.CancelFunc
-    events   chan event.Event
-}
-```
+## 8. TUI
 
 ### 布局
 
-- Header：2 行（标题 + 模型/cwd/配置状态）。
+- Header：标题、模型、cwd、数据目录、可用工具数量。
 - Transcript：`viewport`，占据剩余高度。
-- Status：1 行，显示 spinner / 当前状态 / 快捷键提示。
-- Input：`textarea`，默认 1 行，最高 6 行，带边框。
+- Status：1 行，spinner / 当前操作 / 快捷键提示。
+- Input：`textarea`，默认 1 行，最高 6 行。
 
-每次 `tea.WindowSizeMsg` 或输入框高度变化时重算：
+高度计算：
 
 ```text
 viewportHeight = height - headerHeight - statusHeight - inputHeight
 ```
 
-所有高度 `max(1, ...)`，避免小窗口 panic。
+所有高度 `max(1, ...)`；超长行截断，避免小窗口负高度。
 
-### 事件流
+### 斜杠命令
+
+| 命令 | 行为 |
+| --- | --- |
+| `/tools` | 列出工具名、路径、edition、不可用原因 |
+| `/tool <name> <command...>` | 异步执行真实工具，生成 tool 条目 |
+| `/help` | 显示可用命令 |
+| `/quit` | 退出 |
+
+`/tool` 必须走 `tea.Cmd`，不能在 `Update` 里同步执行。执行期间状态栏显示工具名，`Ctrl+C` 取消。
+
+### 聊天与事件
 
 ```text
 输入回车
   → 追加 user 条目
   → 创建 ctx/cancel + 事件 channel
   → goroutine 调 runner.Run
-  → runner emit → channel → waitForEvent cmd → tea.Msg → Update
-  → message.delta 追加到当前 assistant 条目
-  → tool.* 生成或更新工具条目
+  → emit → channel → waitForEvent cmd → Update
+  → message.delta 追加到 assistant 条目
   → turn.finished 恢复空闲
 ```
 
-`waitForEvent` 每次只读一个事件，处理后重新挂起；channel 缓冲 64。取消时调用 `cancel()`，继续消费直到 `turn.finished`，避免 goroutine 卡住。
+`/tool` 复用同一套事件：先发 `tool.requested`，执行完发 `tool.finished`，TUI 只负责渲染。
 
 ### 按键
 
 | 按键 | 行为 |
 | --- | --- |
-| `Enter` | 发送；输入框为空或正在运行时忽略 |
-| `Ctrl+J` | 换行（先于 Enter 判断） |
+| `Enter` | 发送/执行命令；运行中忽略 |
+| `Ctrl+J` | 输入框换行 |
 | `Ctrl+C` | 运行中取消；空闲退出 |
 | `Ctrl+D` | 退出 |
-| `PgUp` / `PgDn` | 滚动 transcript，并暂停/恢复自动跟随 |
-
-注意：`textarea` 默认把 Enter 当换行，必须在 `Update` 中先拦截 Enter，再转发给 textarea。
+| `PgUp` / `PgDn` | 滚动 transcript |
 
 ### 条目渲染
 
 - `user`：`你> ` + 文本。
-- `assistant`：纯文本，流式追加；`turn.finished` 后标记完成。
-- `tool`：`⚙ <name> <command>`，下一行 `└ N 行，exit X`，最多显示 8 行输出。
-- `error`：红色，显示在 transcript 中。
+- `assistant`：流式文本。
+- `tool`：`⚙ <name> <command>`，下一行 `└ N 行，exit X，耗时 Y`；最多预览 8 行，截断时标注。
+- `error`：红色。
 
-Step 1 不做 Markdown、不做鼠标、不做代码高亮。
+不做 Markdown、鼠标、代码高亮。
 
-## 7. Windows 控制台
+## 9. Windows 控制台
 
-- `main` 启动前调用 `platform.InitConsole()`。
-- Windows 实现：`GetConsoleOutputCP` / `SetConsoleOutputCP(65001)`、`GetConsoleCP` / `SetConsoleCP(65001)`，返回 restore 函数，退出时恢复。
-- 非 Windows：no-op。
-- 双击启动且配置加载失败时，打印错误后 `按 Enter 退出`，避免窗口闪退。
-- 不加 `-H windowsgui`，保证双击有控制台。
+- `main` 启动 TUI 前调用 `platform.InitConsole()`。
+- Windows 设置输入/输出代码页为 65001，退出时恢复。
+- 非 Windows no-op。
+- 不加 `-H windowsgui`，双击保留控制台。
+- 配置/数据目录错误在进入 TUI 前打印，并等待回车退出，避免闪退。
 
-## 8. 实现顺序
+## 10. 实现顺序
 
-1. `go mod init github.com/shumengya/sprout`，加依赖，`.gitignore` 加 `/bin/`。
-2. `event` + `Runner` + `fake`，配单元测试。
-3. `config` 解析、模板、校验、行列错误、单元测试。
-4. TUI 主模型：header、viewport、textarea、status、窗口尺寸。
-5. 提交/流式事件/取消/假工具卡片。
-6. `main` 装配、Windows 控制台、双击错误暂停。
-7. 手工验收 + `go test ./...` + `go vet ./...`。
+1. `go mod init`、依赖、`.gitignore`。
+2. `config/paths` + `config` + 模板 + 测试。
+3. `tool` 接口/Registry + `shell.Executor` + 截断测试。
+4. `platform` shell 检测（Windows / Unix）+ 单元测试。
+5. `bash` / `powershell` 工具 + `/tools`、`/tool` 命令。
+6. TUI 主模型：header、viewport、textarea、status、窗口尺寸。
+7. Fake runner、流式回显、取消。
+8. Windows 控制台、main 装配、双击错误暂停。
+9. 手工验收 + `go test ./...` + `go vet ./...`。
 
-## 9. 验收清单
+## 11. 验收清单
 
-- [ ] `go build -o bin/sprout.exe ./cmd/sprout` 成功。
-- [ ] 双击 `bin/sprout.exe` 进入全屏 TUI，显示模型、cwd、配置路径。
-- [ ] 输入“你好”后逐字流式回显，不是一次性出现。
-- [ ] 输入“用一下工具”显示假工具卡片和截断输出。
-- [ ] 生成中 `Ctrl+C` 取消并恢复输入；空闲 `Ctrl+C`/`Ctrl+D` 退出。
-- [ ] 窗口缩放到很小不 panic；恢复尺寸后布局正常。
-- [ ] 终端里输入中文、emoji、长行不破坏布局。
-- [ ] 首次运行生成 `~/.sprout/models.jsonc`；已有文件不覆盖。
-- [ ] 配置加注释、尾逗号能解析；删掉一个逗号能报出行列。
+- [ ] `go build -o bin/sprout.exe ./cmd/sprout` 成功，双击进入全屏 TUI。
+- [ ] 首次运行创建 `bin/data/.sprout/models.jsonc`，内容带注释；已有文件不覆盖。
+- [ ] TUI 显示模型、cwd、数据目录、工具数量。
+- [ ] `/tools` 正确列出 PowerShell 路径和 edition；有 Git Bash 时列出 bash，没有时显示原因。
+- [ ] `/tool powershell Get-Location` 返回真实路径、exit 0、耗时。
+- [ ] `/tool bash pwd` 在 Git Bash 环境返回 POSIX 路径；无 Git Bash 时提示不可用。
+- [ ] 执行 `exit 1` 的命令，退出码正确显示，TUI 不崩溃。
+- [ ] 大输出被头尾截断并标注。
+- [ ] 超时命令能取消，状态恢复空闲。
+- [ ] 生成中 `Ctrl+C` 取消；空闲 `Ctrl+C`/`Ctrl+D` 退出。
+- [ ] 中文、emoji、窗口缩放正常。
+- [ ] 配置加注释/尾逗号可解析；删逗号能报行列。
 - [ ] `go test ./...`、`go vet ./...` 通过。
-- [ ] Step 1 全程不发起任何网络请求。
+- [ ] Step 1 全程不发起网络请求。
 
-## 10. 已知问题与风险
+## 12. 已知问题与风险
 
-1. **Bubble Tea v2 API 与网上示例不一致**：多数教程是 v1。按 Crush 的源码写，并锁版本；不要混用 `github.com/charmbracelet/...` 和 `charm.land/...`。
-2. **Enter 与中文输入法**：输入法组合期间的 Enter 不应发送。先手工测试；如果出现误发送，再按 Bubble Tea v2 的 key/paste 消息类型做过滤，不要在 textarea 外层用启发式判断。
-3. **双击时的 cwd**：Explorer 启动的工作目录不一定是 exe 所在目录。需要实测；如果落在 `System32`，回退到 exe 目录，并记录 warning。
-4. **legacy conhost 的 UTF-8**：`SetConsoleOutputCP(65001)` 能解决大部分情况，但旧字体可能缺字；Windows Terminal 优先。README 里写清楚。
-5. **goroutine/channel 泄漏**：取消后 runner 必须退出，TUI 必须继续读到 `turn.finished`；测试里用 `-race` 跑取消路径。
-6. **小窗口布局**：header + input 可能超过总高度。所有高度计算要 clamp，`View` 里对超长行做截断，避免 viewport 负高度。
-7. **JSONC 行列定位**：`hujson` 语法错误自带行列；`json.Unmarshal` 类型错误只有字节偏移，中文配置需要按 rune 换算列号。两步分别写测试。
-8. **TUI 里不能打日志到 stdout**：Bubble Tea 接管输出。Step 1 不引入日志；后续用 `~/.sprout/logs/` 文件。
+1. **Bubble Tea v2 与网上示例不同**：模块路径 `charm.land/...`，`View() tea.View`，`tea.KeyPressMsg`；按 Crush 源码写并锁版本。
+2. **PowerShell 5.1 输出编码**：重定向时可能是 UTF-16LE 或 OEM 代码页；先设控制台 UTF-8，再实测 `中文` 输出。必要时在命令前注入 `[Console]::OutputEncoding`。
+3. **Windows 超时只杀直接子进程**：`powershell` 启动的原生程序可能残留；Step 1 先记录限制，后续用 Job Object 解决。
+4. **Git Bash 路径**：Windows cwd 交给 bash 后显示为 `/d/...`；向模型描述清楚，不要混用 `C:\` 和 `/d/`。
+5. **Enter 与中文输入法**：输入法组合期间的 Enter 可能误发送；必须手工测试，再决定是否过滤 key/paste 消息。
+6. **双击 cwd**：Explorer 启动目录可能不是 exe 目录；数据目录用 exe 路径，不依赖 cwd；会话分组后续再处理。
+7. **数据目录不可写**：放在 `Program Files` 下会失败；明确报错并提示 `--data-dir`，不静默回退到 `~/.sprout`。
+8. **JSONC 行列定位**：`hujson` 语法错误自带行列；`json.Unmarshal` 类型错误只有字节偏移，需要按 rune 换算。
+9. **小窗口布局**：所有高度 clamp，超长行截断。
+10. **TUI 不能写 stdout 日志**：Step 1 不引入日志；后续写 `<dataDir>/logs/`。
 
-## 11. 需要确认的取舍
+## 13. 取舍
 
-- Step 1 不写会话 JSONL，放到 Step 4。
-- Step 1 不做 shell 检测，header 只显示配置状态。
-- Step 1 只做 TUI，不做 `sprout run`；单次 CLI 放到 Step 4。
-- 假 agent 用“工具”/`tool` 关键词触发假工具卡片，仅用于验证 UI。
-- 首次运行自动生成 `models.jsonc`，不覆盖已有文件。
+- 数据目录默认安装级：`<exeDir>/data/.sprout`，不写 `~/.sprout`。
+- Step 1 实现真实 bash/powershell，但只通过 `/tool` 手动调用；接入 ReAct 在 Step 3。
+- 聊天仍是假 agent 回显，不发起网络请求。
+- 不写会话、不做 `sprout run`、不做权限审批。
