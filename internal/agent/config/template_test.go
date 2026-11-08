@@ -21,8 +21,15 @@ func TestTemplateIsValidConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sel.Ref() != "deepseek/deepseek-chat" || sel.Provider.Protocol != ProtocolChat {
+	if sel.Ref() != "deepseek/deepseek-flash" || sel.Provider.Protocol != ProtocolChat {
 		t.Fatalf("默认选择不对: %+v", sel)
+	}
+	// 参数来自 DeepSeek 官方文档（模型 & 价格）：上下文 1M，最大输出 384K，支持工具调用。
+	if sel.Model.ContextWindow != 1000000 || sel.Model.MaxOutput != 384000 || !sel.Model.SupportsTools() {
+		t.Errorf("deepseek-flash 的参数不对: %+v", sel.Model)
+	}
+	if sel.Provider.BaseURL != "https://api.deepseek.com" {
+		t.Errorf("baseUrl = %q", sel.Provider.BaseURL)
 	}
 	// 模板必须同时展示两种协议。
 	protocols := map[string]bool{}

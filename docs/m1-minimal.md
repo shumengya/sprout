@@ -15,7 +15,7 @@
 
 ```text
 ┌ Sprout ─────────────────────────────────────────────────────────────┐
-│ model: deepseek-chat   cwd: D:\SmyProjects\sprout                    │
+│ model: deepseek-flash  cwd: D:\SmyProjects\sprout                    │
 │ tools: powershell, bash                                              │
 ├──────────────────────────────────────────────────────────────────────┤
 │ 你> 看看当前目录有哪些文件                                            │
@@ -71,19 +71,19 @@
 ```jsonc
 {
   // 默认使用的 provider/model
-  "default": "deepseek/deepseek-chat",
+  "default": "deepseek/deepseek-flash",
 
   "providers": {
     "deepseek": {
       "protocol": "openai-chat",
-      "baseUrl": "https://api.deepseek.com/v1",
+      "baseUrl": "https://api.deepseek.com",
       // 优先读环境变量；也可以直接写 apiKey，文件仅在本机使用
       "apiKeyEnv": "DEEPSEEK_API_KEY",
       "apiKey": "",
       "models": {
-        "deepseek-chat": {
-          "contextWindow": 128000,
-          "maxOutput": 8192,
+        "deepseek-flash": {
+          "contextWindow": 1000000,
+          "maxOutput": 384000,
           "tools": true
         }
       }

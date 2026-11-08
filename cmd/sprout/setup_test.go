@@ -125,7 +125,7 @@ func TestEnvKeyEnablesAgentWithToolsAndPrompt(t *testing.T) {
 	if a.ag == nil || a.rec == nil || a.disabled != "" {
 		t.Fatalf("环境变量里有 Key 应可对话: disabled=%q", a.disabled)
 	}
-	if a.sel.Ref() != "deepseek/deepseek-chat" || toolNames(a) != "powershell,bash" {
+	if a.sel.Ref() != "deepseek/deepseek-flash" || toolNames(a) != "powershell,bash" {
 		t.Errorf("sel=%s tools=%s", a.sel.Ref(), toolNames(a))
 	}
 	// 首次运行但 Key 已就绪：不禁用，只在启动提示里说明配置文件位置。
@@ -216,7 +216,7 @@ func TestBadConfigIsFatalWithLocation(t *testing.T) {
 
 func TestResponsesProtocolSelectable(t *testing.T) {
 	dir := t.TempDir()
-	writeConfig(t, dir, strings.Replace(config.Template, `"default": "deepseek/deepseek-chat"`, `"default": "openai-responses/gpt-5"`, 1))
+	writeConfig(t, dir, strings.Replace(config.Template, `"default": "deepseek/deepseek-flash"`, `"default": "openai-responses/gpt-5"`, 1))
 	a, err := buildApp(dir, testEnv(map[string]string{"OPENAI_API_KEY": "k"}, shellSet(false, true)), nil)
 	if err != nil || a.ag == nil || a.sel.Provider.Protocol != config.ProtocolResponses {
 		t.Fatalf("应能选用 Responses 协议: err=%v sel=%+v", err, a.sel)

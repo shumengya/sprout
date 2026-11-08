@@ -74,19 +74,19 @@ bin/
 
 ```jsonc
 {
-  "default": "deepseek/deepseek-chat",
+  "default": "deepseek/deepseek-flash",
 
   "providers": {
     "deepseek": {
       "protocol": "openai-chat",
-      "baseUrl": "https://api.deepseek.com/v1",
+      "baseUrl": "https://api.deepseek.com",
       // 优先读环境变量；也可以直接写 apiKey
       "apiKeyEnv": "DEEPSEEK_API_KEY",
       "apiKey": "",
       "models": {
-        "deepseek-chat": {
-          "contextWindow": 128000,
-          "maxOutput": 8192,
+        "deepseek-flash": {
+          "contextWindow": 1000000,
+          "maxOutput": 384000,
           "tools": true
         }
       }

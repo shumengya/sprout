@@ -66,9 +66,13 @@ func newModelServerStatus(t *testing.T, status int, body string) *httptest.Serve
 func writeServerConfig(t *testing.T, dir, baseURL string) {
 	t.Helper()
 	cfg := strings.NewReplacer(
-		`"baseUrl": "https://api.deepseek.com/v1"`, `"baseUrl": "`+baseURL+`/v1"`,
+		`"baseUrl": "https://api.deepseek.com"`, `"baseUrl": "`+baseURL+`"`,
 		`"apiKey": ""`, `"apiKey": "sk-e2e"`,
 	).Replace(config.Template)
+	// 模板改动后替换可能静默失效，那样测试会去请求真实的 DeepSeek，所以必须显式检查。
+	if !strings.Contains(cfg, `"baseUrl": "`+baseURL+`"`) || !strings.Contains(cfg, "sk-e2e") {
+		t.Fatal("模板里的 deepseek baseUrl / apiKey 没有被替换，请同步更新本测试的替换规则")
+	}
 	if err := os.WriteFile(config.ModelsPath(dir), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
