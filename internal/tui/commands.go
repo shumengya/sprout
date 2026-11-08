@@ -40,7 +40,7 @@ func (m *Model) slash(text string) (handled bool, cmd tea.Cmd) {
 func (m *Model) toolsReport() string {
 	info := m.opts.Info
 	var b strings.Builder
-	fmt.Fprintf(&b, "模型: %s\n工作目录: %s\n数据目录: %s\n", info.Model, info.Cwd, info.DataDir)
+	fmt.Fprintf(&b, "模型: %s（%s）\n工作目录: %s\n数据目录: %s\n", info.Model, info.Provider, info.Cwd, info.DataDir)
 	if len(info.Tools) == 0 {
 		b.WriteString("可用终端工具: 无")
 	} else {
