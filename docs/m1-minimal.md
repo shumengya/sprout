@@ -242,7 +242,7 @@ models.example.jsonc                  示例配置
 ### Step 1：TUI 骨架先跑起来
 
 - Bubble Tea 主模型、header、viewport、textarea、状态行。
-- 配置加载，显示模型/cwd/工具检测结果。
+- 配置加载，显示模型/cwd/配置状态（终端工具检测放到 Step 3）。
 - 先用假 agent 回显，验证双击运行、窗口尺寸、UTF-8、退出。
 - 验收：双击 `sprout.exe` 能看到完整界面并对话回显。
 
