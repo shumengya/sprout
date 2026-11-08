@@ -1,0 +1,125 @@
+// Command sprout 是 Sprout agent 的入口：无参数启动终端界面，`sprout run "..."` 单次运行。
+package main
+
+import (
+	"bufio"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"os/signal"
+	"runtime/debug"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/shumengya/sprout/internal/agent/config"
+	"github.com/shumengya/sprout/internal/agent/platform"
+	"github.com/shumengya/sprout/internal/cli"
+	"github.com/shumengya/sprout/internal/tui"
+)
+
+// version 由构建时 -ldflags "-X main.version=..." 注入。
+var version = "dev"
+
+func main() {
+	owns := platform.OwnsConsole() // 双击 exe 启动时为 true：窗口会随进程退出而消失
+	restore := platform.InitConsole()
+	code := realMain(os.Args[1:], os.Stdout, os.Stderr)
+	if code != 0 && owns {
+		// 出错时先停住让用户看清错误，否则双击启动的窗口一闪而过。
+		fmt.Fprint(os.Stderr, "\n按回车键退出…")
+		_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
+	}
+	restore() // 在暂停提示之后执行；os.Exit 不会运行 defer，所以显式调用
+	os.Exit(code)
+}
+
+// realMain 是不带控制台副作用的主流程，返回进程退出码，便于测试。
+func realMain(argv []string, stdout, stderr io.Writer) (code int) {
+	log := slog.New(slog.DiscardHandler)
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Fprintf(stderr, "内部错误: %v\n详细信息已写入日志。\n", r)
+			log.Error("panic", "panic", r, "stack", string(debug.Stack()))
+			code = cli.ExitError
+		}
+	}()
+
+	a, err := parseArgs(argv)
+	switch {
+	case err != nil:
+		fmt.Fprintf(stderr, "%v\n\n%s", err, usage)
+		return 2
+	case a.help:
+		fmt.Fprint(stdout, usage)
+		return 0
+	case a.version:
+		fmt.Fprintln(stdout, "sprout", version)
+		return 0
+	}
+
+	dataDir, err := config.ResolveDataDir(a.dataDir)
+	if err != nil {
+		fmt.Fprintln(stderr, "错误:", err)
+		return cli.ExitError
+	}
+	logger, closer := openLogger(config.LogsDir(dataDir), time.Now())
+	log = logger
+	defer closer.Close()
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintln(stderr, "错误: 无法获取当前目录:", err)
+		return cli.ExitError
+	}
+	ap, err := buildApp(dataDir, env{
+		getenv: os.Getenv, cwd: cwd, version: version, now: time.Now, detect: platform.DetectShells,
+	}, log)
+	if err != nil {
+		log.Error("startup failed", "error", err.Error())
+		fmt.Fprintln(stderr, "错误:", err)
+		return cli.ExitError
+	}
+	defer ap.close()
+	log.Info("start", "version", version, "data_dir", dataDir, "model", ap.sel.Ref(),
+		"protocol", ap.sel.Provider.Protocol, "enabled", ap.ag != nil, "tools", len(ap.info.Tools))
+
+	if a.runPrompt != nil {
+		return runOnce(ap, *a.runPrompt, stdout, stderr)
+	}
+	return runTUI(ap, stderr)
+}
+
+// runOnce 实现 sprout run：答案写 stdout，其余写 stderr。
+func runOnce(ap *app, prompt string, stdout, stderr io.Writer) int {
+	for _, n := range append(append([]string{}, ap.notices...), ap.info.Unavailable...) {
+		fmt.Fprintln(stderr, "提示:", n)
+	}
+	if ap.ag == nil {
+		fmt.Fprintln(stderr, "错误:", ap.disabled)
+		return cli.ExitError
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	return cli.Run(ctx, ap.ag, prompt, stdout, stderr)
+}
+
+// runTUI 启动终端界面。
+func runTUI(ap *app, stderr io.Writer) int {
+	opts := tui.Options{Info: ap.info, Disabled: ap.disabled, Notices: ap.notices}
+	if ap.ag != nil { // 不能直接赋值：nil 指针放进接口后接口本身不为 nil
+		opts.Runner = ap.ag
+	}
+	m := tui.New(opts)
+	_, err := tea.NewProgram(m).Run()
+	// 取消进行中的一轮并等 agent 收尾，保证最后的 TurnFinished 也写进会话记录。
+	m.Shutdown(5 * time.Second)
+	if err != nil && !errors.Is(err, tea.ErrInterrupted) {
+		fmt.Fprintln(stderr, "错误: 终端界面异常退出:", err)
+		return cli.ExitError
+	}
+	return 0
+}

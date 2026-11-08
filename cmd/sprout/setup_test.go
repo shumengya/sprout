@@ -1,0 +1,224 @@
+package main
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/shumengya/sprout/internal/agent/config"
+	"github.com/shumengya/sprout/internal/agent/platform"
+)
+
+// shellSet 构造一个固定的检测结果，让装配逻辑的测试不依赖本机装了什么。
+// 路径是否真实存在无所谓：这里只验证注册了哪些工具，不会执行它们。
+func shellSet(bashOK, psOK bool) func(string, string) platform.Shells {
+	return func(string, string) platform.Shells {
+		var s platform.Shells
+		if bashOK {
+			s.Bash = &platform.Shell{Kind: platform.KindBash, Path: "/fake/bash", Label: "Git Bash"}
+		} else {
+			s.Problems = append(s.Problems, platform.Problem{Kind: platform.KindBash, Reason: "未找到 Git Bash"})
+		}
+		if psOK {
+			s.PowerShell = &platform.Shell{Kind: platform.KindPowerShell, Path: "/fake/pwsh", Label: "PowerShell 7+", Edition: "7+"}
+		}
+		return s
+	}
+}
+
+func testEnv(vars map[string]string, detect func(string, string) platform.Shells) env {
+	return env{
+		getenv:  func(k string) string { return vars[k] },
+		cwd:     filepath.Join("work", "dir"),
+		version: "test",
+		now:     func() time.Time { return time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC) },
+		detect:  detect,
+	}
+}
+
+func toolNames(a *app) string {
+	var n []string
+	for _, t := range a.info.Tools {
+		n = append(n, t.Name)
+	}
+	return strings.Join(n, ",")
+}
+
+func TestFirstRunCreatesTemplateAndDisablesWithGuidance(t *testing.T) {
+	dir := t.TempDir()
+	a, err := buildApp(dir, testEnv(nil, shellSet(true, true)), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := config.ModelsPath(dir)
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("首次运行应生成 models.jsonc: %v", err)
+	}
+	if a.ag != nil || a.rec != nil {
+		t.Fatal("没有 API Key 时不应构造 agent")
+	}
+	for _, want := range []string{path, "DEEPSEEK_API_KEY", "重启"} {
+		if !strings.Contains(a.disabled, want) {
+			t.Errorf("提示缺少 %q: %s", want, a.disabled)
+		}
+	}
+	// 即使不能对话，工具检测结果仍要展示给用户。
+	if toolNames(a) != "powershell,bash" {
+		t.Errorf("工具 = %q", toolNames(a))
+	}
+}
+
+func TestExistingConfigIsNeverOverwritten(t *testing.T) {
+	dir := t.TempDir()
+	path := config.ModelsPath(dir)
+	custom := strings.Replace(config.Template, `"apiKey": ""`, `"apiKey": "sk-mine"`, 1)
+	if err := os.WriteFile(path, []byte(custom), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a, err := buildApp(dir, testEnv(nil, shellSet(true, true)), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != custom {
+		t.Fatal("已有配置被改动")
+	}
+	if a.ag == nil || a.disabled != "" {
+		t.Fatalf("配置里写了 apiKey，应可对话: disabled=%q", a.disabled)
+	}
+}
+
+func TestMissingKeyOnExistingConfigPointsToConfigAndRestart(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := config.EnsureTemplate(config.ModelsPath(dir)); err != nil {
+		t.Fatal(err)
+	}
+	a, err := buildApp(dir, testEnv(nil, shellSet(true, true)), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.ag != nil {
+		t.Fatal("应禁用对话")
+	}
+	for _, want := range []string{"未配置 API Key", "DEEPSEEK_API_KEY", config.ModelsPath(dir), "重启"} {
+		if !strings.Contains(a.disabled, want) {
+			t.Errorf("提示缺少 %q: %s", want, a.disabled)
+		}
+	}
+}
+
+func writeConfig(t *testing.T, dir, content string) {
+	t.Helper()
+	if err := os.WriteFile(config.ModelsPath(dir), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEnvKeyEnablesAgentWithToolsAndPrompt(t *testing.T) {
+	dir := t.TempDir()
+	a, err := buildApp(dir, testEnv(map[string]string{"DEEPSEEK_API_KEY": "sk-env"}, shellSet(true, true)), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.ag == nil || a.rec == nil || a.disabled != "" {
+		t.Fatalf("环境变量里有 Key 应可对话: disabled=%q", a.disabled)
+	}
+	if a.sel.Ref() != "deepseek/deepseek-chat" || toolNames(a) != "powershell,bash" {
+		t.Errorf("sel=%s tools=%s", a.sel.Ref(), toolNames(a))
+	}
+	// 首次运行但 Key 已就绪：不禁用，只在启动提示里说明配置文件位置。
+	if len(a.notices) != 1 || !strings.Contains(a.notices[0], config.ModelsPath(dir)) {
+		t.Errorf("notices = %v", a.notices)
+	}
+	// 一条消息都没发时不应创建会话文件。
+	if a.rec.Path() != "" {
+		t.Error("会话文件应懒创建")
+	}
+}
+
+func TestOnlyAvailableToolsAreRegistered(t *testing.T) {
+	cases := []struct {
+		name        string
+		bash, ps    bool
+		wantTools   string
+		wantUnavail string
+	}{
+		{"两者都有", true, true, "powershell,bash", ""},
+		{"只有 powershell", false, true, "powershell", "bash 不可用：未找到 Git Bash"},
+		{"只有 bash", true, false, "bash", ""},
+		{"都没有", false, false, "", "bash 不可用：未找到 Git Bash"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			a, err := buildApp(t.TempDir(), testEnv(map[string]string{"DEEPSEEK_API_KEY": "k"}, shellSet(c.bash, c.ps)), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := toolNames(a); got != c.wantTools {
+				t.Errorf("工具 = %q，期望 %q", got, c.wantTools)
+			}
+			if strings.Join(a.info.Unavailable, "|") != c.wantUnavail {
+				t.Errorf("Unavailable = %v，期望 %q", a.info.Unavailable, c.wantUnavail)
+			}
+			if a.ag == nil {
+				t.Error("没有工具也应能对话，只是系统提示里不提工具")
+			}
+		})
+	}
+}
+
+func TestShellPathsFromConfigReachDetector(t *testing.T) {
+	dir := t.TempDir()
+	cfg := strings.Replace(config.Template, `"bashPath": ""`, `"bashPath": "/my/bash"`, 1)
+	writeConfig(t, dir, strings.Replace(cfg, `"powershellPath": ""`, `"powershellPath": "/my/pwsh"`, 1))
+	var gotBash, gotPS string
+	_, err := buildApp(dir, testEnv(nil, func(b, p string) platform.Shells { gotBash, gotPS = b, p; return platform.Shells{} }), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotBash != "/my/bash" || gotPS != "/my/pwsh" {
+		t.Fatalf("探测器收到 bash=%q ps=%q", gotBash, gotPS)
+	}
+}
+
+func TestToolsFalseModelGetsNoTools(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, strings.Replace(config.Template, `"tools": true`, `"tools": false`, 1))
+	a, err := buildApp(dir, testEnv(map[string]string{"DEEPSEEK_API_KEY": "k"}, shellSet(true, true)), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if toolNames(a) != "" || a.ag == nil {
+		t.Fatalf("tools=false 时不应注册工具: %q", toolNames(a))
+	}
+	if len(a.notices) == 0 || !strings.Contains(strings.Join(a.notices, "\n"), "tools=false") {
+		t.Errorf("应告知用户原因: %v", a.notices)
+	}
+}
+
+func TestBadConfigIsFatalWithLocation(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, "{\n  \"default\": \"a/b\"\n  \"providers\": {}\n}\n")
+	_, err := buildApp(dir, testEnv(nil, shellSet(true, true)), nil)
+	var pe *config.ParseError
+	if !errors.As(err, &pe) || pe.Line != 3 {
+		t.Fatalf("语法错误应带行号: %v", err)
+	}
+	writeConfig(t, dir, `{"default":"x/y","providers":{"p":{"protocol":"anthropic","baseUrl":"https://x"}}}`)
+	_, err = buildApp(dir, testEnv(nil, shellSet(true, true)), nil)
+	var ve *config.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("内容错误应是 ValidationError: %v", err)
+	}
+}
+
+func TestResponsesProtocolSelectable(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, strings.Replace(config.Template, `"default": "deepseek/deepseek-chat"`, `"default": "openai-responses/gpt-5"`, 1))
+	a, err := buildApp(dir, testEnv(map[string]string{"OPENAI_API_KEY": "k"}, shellSet(false, true)), nil)
+	if err != nil || a.ag == nil || a.sel.Provider.Protocol != config.ProtocolResponses {
+		t.Fatalf("应能选用 Responses 协议: err=%v sel=%+v", err, a.sel)
+	}
+}
