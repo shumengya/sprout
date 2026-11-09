@@ -370,3 +370,25 @@ func TestRestoreReplacesStateAndResetsCalibration(t *testing.T) {
 		t.Error("Restore 后应复位校准")
 	}
 }
+
+func TestSummaryRequestOutputCapHasAFloor(t *testing.T) {
+	// 真实 DeepSeek 上发现的问题：用户的 maxOutput 很小时，思考模式的推理 token 把摘要的输出额度吃光，摘要被截断。
+	for configured, want := range map[int]int{0: 0, 600: minSummaryOutput, 8192: 8192, 384000: 384000} {
+		if got := summaryMaxOutput(configured); got != want {
+			t.Errorf("summaryMaxOutput(%d) = %d，期望 %d", configured, got, want)
+		}
+	}
+	p := &scripted{steps: []scriptStep{say("摘要"), say("回答")}}
+	a := newAgentCfg(t, Config{Provider: p, ContextWindow: 800, Retry: &RetryPolicy{}})
+	a.cfg.MaxOutputTokens = 123
+	a.Restore(textTurns(8, 100), "")
+	if err := a.Run(context.Background(), "q", &collector{}); err != nil {
+		t.Fatal(err)
+	}
+	if !isSummaryReq(p.reqs[0]) || p.reqs[0].MaxOutputTokens != minSummaryOutput {
+		t.Errorf("摘要请求的输出上限 = %d，应不低于 %d", p.reqs[0].MaxOutputTokens, minSummaryOutput)
+	}
+	if p.reqs[1].MaxOutputTokens != 123 {
+		t.Errorf("正式请求仍应使用用户配置的上限: %d", p.reqs[1].MaxOutputTokens)
+	}
+}

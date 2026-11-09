@@ -59,29 +59,35 @@ func TestToolsRunConcurrently(t *testing.T) {
 func TestResultsKeepCallOrderRegardlessOfCompletionOrder(t *testing.T) {
 	// 第 1 个调用最慢、第 3 个最快：完成顺序是 3,2,1，历史里仍必须是 1,2,3，
 	// 因为 tool 消息要和 assistant 的 tool_calls 一一对应。
-	mk := func(name string, wait <-chan struct{}, release func()) tool.Tool {
+	// 不能在工具里直接放行下一个：那时完成消息还没发给主 goroutine，事件先后不确定（之前就因此偶发失败）。
+	// 改成等前一个调用的 ToolFinished 事件真正被 sink 收到，顺序才是确定的。
+	emitted := map[string]chan struct{}{"2": make(chan struct{}), "3": make(chan struct{})}
+	mk := func(name, waitFor string) tool.Tool {
 		return fakeTool{name: name, run: func(context.Context, json.RawMessage) (tool.Result, error) {
-			if wait != nil {
-				<-wait
-			}
-			if release != nil {
-				release()
+			if waitFor != "" {
+				select {
+				case <-emitted[waitFor]:
+				case <-time.After(5 * time.Second):
+					t.Errorf("%s 等待 %s 的完成事件超时", name, waitFor)
+				}
 			}
 			return tool.Result{Command: name, Stdout: name}, nil
 		}}
 	}
-	c3Done, c2Done := make(chan struct{}), make(chan struct{})
 	p := &scripted{steps: []scriptStep{
 		callTools(call("1", "t1", `{}`), call("2", "t2", `{}`), call("3", "t3", `{}`)),
 		say("好"),
 	}}
-	a := parallelAgent(t, p, 0,
-		mk("t1", c2Done, nil),                      // 等 t2 完成
-		mk("t2", c3Done, func() { close(c2Done) }), // 等 t3 完成
-		mk("t3", nil, func() { close(c3Done) }),
-	)
+	a := parallelAgent(t, p, 0, mk("t1", "2"), mk("t2", "3"), mk("t3", ""))
 	var c collector
-	if err := a.Run(context.Background(), "q", &c); err != nil {
+	gate := event.SinkFunc(func(e event.Event) {
+		if f, ok := e.(event.ToolFinished); ok {
+			if ch := emitted[f.ID]; ch != nil {
+				close(ch)
+			}
+		}
+	})
+	if err := a.Run(context.Background(), "q", event.Multi(&c, gate)); err != nil {
 		t.Fatal(err)
 	}
 

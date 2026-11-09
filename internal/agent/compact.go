@@ -15,6 +15,18 @@ const summarySystemPrompt = `你是对话摘要助手。把给出的对话压缩
 省略寒暄和重复内容。用要点列表，不超过 800 字。如果输入里已有“此前的摘要”，把它和新对话合并成一份完整的新摘要。
 只输出摘要本身，不要任何开场白。`
 
+// minSummaryOutput 是摘要请求的输出上限下限。思考模式模型的推理 token 也计入输出上限，
+// 用户为对话设置的 maxOutput 偏小时（真实测试里 600 就被截断了），摘要会在写完前被截断而失败。
+const minSummaryOutput = 4000
+
+// summaryMaxOutput 返回摘要请求的输出上限：未设置（0）时保持不发该参数，已设置则至少 minSummaryOutput。
+func summaryMaxOutput(configured int) int {
+	if configured <= 0 {
+		return 0
+	}
+	return max(configured, minSummaryOutput)
+}
+
 func (a *Agent) resetCalibration() { a.calibTokens, a.calibLen = 0, 0 }
 
 // requestTokens 估算下一次请求的输入 token。
@@ -114,7 +126,7 @@ func (t *turn) summarize(head []Message) (string, error) {
 		limit = 60000
 	}
 	req := Request{
-		Model: a.cfg.Model, System: summarySystemPrompt, MaxOutputTokens: a.cfg.MaxOutputTokens,
+		Model: a.cfg.Model, System: summarySystemPrompt, MaxOutputTokens: summaryMaxOutput(a.cfg.MaxOutputTokens),
 		Messages: []Message{{Role: RoleUser, Content: renderForSummary(a.summary, head, limit)}},
 	}
 	resp, err := t.retrying(func(func()) (Response, error) {
