@@ -45,6 +45,11 @@ type Options struct {
 	Disabled string
 	// Notices 是启动时显示在 transcript 顶部的提示。
 	Notices []string
+	// Sessions 提供会话列表与恢复；为 nil 时 /resume 不可用。
+	Sessions Sessions
+	// Replay 是启动时就恢复了会话（--continue）时要重放的事件流，ResumeNotice 是对应的说明。
+	Replay       []event.Event
+	ResumeNotice string
 }
 
 const (
@@ -74,10 +79,11 @@ type Model struct {
 	showThink bool // 是否展开思维链全文（/think 切换）
 	mouse     bool // 是否开启鼠标上报（/mouse 切换）；开启后滚轮可滚动，但终端自带的拖选需要按住 Shift
 
-	running bool
-	started time.Time // 本轮开始时间，状态行显示已耗时
-	status  string    // 状态行的临时提示，下次按键时清除
-	tokens  int       // 本会话累计 token
+	running  bool
+	resuming bool      // 正在恢复会话：此时不能发送，否则新提问会和恢复的历史交错
+	started  time.Time // 本轮开始时间，状态行显示已耗时
+	status   string    // 状态行的临时提示，下次按键时清除
+	tokens   int       // 本会话累计 token
 
 	turn     int
 	events   chan event.Event
@@ -127,6 +133,12 @@ func New(o Options) *Model {
 	}
 	if o.Disabled != "" {
 		m.add(&entry{kind: kindError, text: o.Disabled})
+	}
+	if len(o.Replay) > 0 {
+		m.replay(o.Replay)
+	}
+	if o.ResumeNotice != "" {
+		m.add(&entry{kind: kindNotice, text: o.ResumeNotice})
 	}
 	return m
 }

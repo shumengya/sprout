@@ -31,6 +31,7 @@ type env struct {
 // app 是装配好的运行时。ag 为 nil 表示当前不能对话，原因在 disabled 里。
 type app struct {
 	dataDir  string
+	cwd      string
 	sel      config.Selection
 	ag       *agent.Agent
 	rec      *session.Recorder
@@ -64,7 +65,7 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 		return nil, err
 	}
 
-	a := &app{dataDir: dataDir, sel: sel}
+	a := &app{dataDir: dataDir, cwd: e.cwd, sel: sel}
 	a.info = tui.Info{
 		Model: sel.ModelName, Provider: sel.ProviderName + "，" + sel.Provider.Protocol,
 		Cwd: e.cwd, DataDir: dataDir,

@@ -23,6 +23,7 @@ const helpText = `快捷键
   滚到底部后会自动跟随新内容；上滚期间状态行会提示“有新内容”
 
 命令
+  /resume         列出当前目录的历史会话；/resume 序号 恢复其中一个
   /think          展开 / 折叠模型的思考过程
   /mouse          开关鼠标滚轮（关闭后可直接用鼠标选中文字复制）
   /tools          查看检测到的终端工具
@@ -32,8 +33,11 @@ const helpText = `快捷键
 // slash 处理本地斜杠命令。只匹配第一个词，且仅限已知命令：
 // 其他以 / 开头的输入（比如路径）会原样交给模型。
 func (m *Model) slash(text string) (handled bool, cmd tea.Cmd) {
-	name, _, _ := strings.Cut(text, " ")
+	name, arg, _ := strings.Cut(text, " ")
 	switch name {
+	case "/resume":
+		m.follow = true
+		return true, m.resumeCmd(strings.TrimSpace(arg))
 	case "/help":
 		m.add(&entry{kind: kindNotice, text: helpText})
 	case "/tools":

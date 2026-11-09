@@ -39,6 +39,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh()
 		return m, waitEvent(msg.turn, m.events)
 
+	case resumeDoneMsg:
+		m.onResumed(msg)
+		m.refresh()
+		return m, nil
+
 	case turnClosedMsg:
 		if msg.turn != m.turn {
 			return m, nil
@@ -100,6 +105,9 @@ func (m *Model) submit() (tea.Model, tea.Cmd) {
 	switch {
 	case m.running:
 		m.status = "上一轮还在生成，请等它结束，或按 Ctrl+C 取消"
+		return m, nil
+	case m.resuming:
+		m.status = "正在恢复会话，请稍候"
 		return m, nil
 	case m.opts.Disabled != "":
 		m.status = "无法发送：" + firstLine(m.opts.Disabled)

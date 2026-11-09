@@ -88,13 +88,15 @@ func realMain(argv []string, stdout, stderr io.Writer) (code int) {
 		"protocol", ap.sel.Provider.Protocol, "enabled", ap.ag != nil, "tools", len(ap.info.Tools))
 
 	if a.runPrompt != nil {
-		return runOnce(ap, *a.runPrompt, stdout, stderr)
+		return runOnce(ap, *a.runPrompt, a.resume, stdout, stderr)
 	}
-	return runTUI(ap, stderr)
+	return runTUI(ap, a.resume, stderr)
 }
 
 // runOnce 实现 sprout run：答案写 stdout，其余写 stderr。
-func runOnce(ap *app, prompt string, stdout, stderr io.Writer) int {
+// 带 -c / --resume 时先恢复会话；找不到可恢复的会话是错误而不是悄悄开新会话——
+// 在脚本里，用户期望的是“接着上次的上下文”，静默开新会话会得到完全不同的答案。
+func runOnce(ap *app, prompt, resume string, stdout, stderr io.Writer) int {
 	for _, n := range append(append([]string{}, ap.notices...), ap.info.Unavailable...) {
 		fmt.Fprintln(stderr, "提示:", n)
 	}
@@ -102,16 +104,32 @@ func runOnce(ap *app, prompt string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "错误:", ap.disabled)
 		return cli.ExitError
 	}
+	if resume != "" {
+		_, notice, err := ap.resume(resume)
+		if err != nil {
+			fmt.Fprintln(stderr, "错误: 恢复会话失败:", err)
+			return cli.ExitError
+		}
+		fmt.Fprintln(stderr, "提示:", notice)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	return cli.Run(ctx, ap.ag, prompt, stdout, stderr)
 }
 
-// runTUI 启动终端界面。
-func runTUI(ap *app, stderr io.Writer) int {
+// runTUI 启动终端界面。resume 非空时先恢复会话；失败不致命，只提示并开新会话。
+func runTUI(ap *app, resume string, stderr io.Writer) int {
 	opts := tui.Options{Info: ap.info, Disabled: ap.disabled, Notices: ap.notices}
 	if ap.ag != nil { // 不能直接赋值：nil 指针放进接口后接口本身不为 nil
 		opts.Runner = ap.ag
+		opts.Sessions = sessionStore{ap}
+		if resume != "" {
+			if st, notice, err := ap.resume(resume); err != nil {
+				opts.Notices = append(opts.Notices, "恢复会话失败，已开启新会话："+err.Error())
+			} else {
+				opts.Replay, opts.ResumeNotice = st.Events, notice
+			}
+		}
 	}
 	m := tui.New(opts)
 	_, err := tea.NewProgram(m).Run()
