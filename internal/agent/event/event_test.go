@@ -11,6 +11,7 @@ func TestKinds(t *testing.T) {
 		KindToolRequested:    ToolRequested{},
 		KindToolFinished:     ToolFinished{},
 		KindUsage:            Usage{},
+		KindRetrying:         Retrying{},
 		KindTurnFinished:     TurnFinished{},
 		KindError:            Error{},
 	}

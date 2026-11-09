@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // ToolSpec 是下发给模型的工具声明。
@@ -62,7 +63,9 @@ type ProviderError struct {
 	Code      string // 服务端给出的错误码，如 context_length_exceeded
 	Message   string // 服务端给出的原始错误信息
 	Retryable bool
-	Err       error // 底层错误（网络、解析等）
+	// RetryAfter 是服务端通过 Retry-After 头建议的等待时间，0 表示没有给出。
+	RetryAfter time.Duration
+	Err        error // 底层错误（网络、解析等）
 }
 
 func (e *ProviderError) Unwrap() error { return e.Err }

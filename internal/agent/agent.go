@@ -26,8 +26,9 @@ type Config struct {
 	System          string
 	Tools           *tool.Registry // 可为 nil，表示没有工具
 	MaxOutputTokens int
-	MaxSteps        int        // <= 0 时取 DefaultMaxSteps
-	Recorder        event.Sink // 可为 nil；与调用方的 sink 收到完全相同的事件，用于会话落盘
+	MaxSteps        int          // <= 0 时取 DefaultMaxSteps
+	Recorder        event.Sink   // 可为 nil；与调用方的 sink 收到完全相同的事件，用于会话落盘
+	Retry           *RetryPolicy // nil 表示使用 DefaultRetry；&RetryPolicy{} 表示不重试
 	Logger          *slog.Logger
 }
 
@@ -35,6 +36,7 @@ type Config struct {
 type Agent struct {
 	cfg     Config
 	specs   []ToolSpec
+	retry   RetryPolicy
 	log     *slog.Logger
 	mu      sync.Mutex
 	history []Message
@@ -51,7 +53,10 @@ func New(cfg Config) (*Agent, error) {
 	if cfg.MaxSteps <= 0 {
 		cfg.MaxSteps = DefaultMaxSteps
 	}
-	a := &Agent{cfg: cfg, log: cfg.Logger}
+	a := &Agent{cfg: cfg, log: cfg.Logger, retry: DefaultRetry}
+	if cfg.Retry != nil {
+		a.retry = *cfg.Retry
+	}
 	if a.log == nil {
 		a.log = slog.New(slog.DiscardHandler)
 	}

@@ -95,6 +95,7 @@ func (c *client) post(ctx context.Context, path string, body any) (*http.Respons
 		defer resp.Body.Close()
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 		pe := parseAPIError(resp.StatusCode, raw)
+		pe.RetryAfter = parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
 		c.log.Warn("provider http error", "path", path, "status", resp.StatusCode, "code", pe.Code, "message", pe.Message)
 		return nil, pe
 	}

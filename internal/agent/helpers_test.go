@@ -125,7 +125,15 @@ func registry(t *testing.T, tools ...tool.Tool) *tool.Registry {
 
 func newAgent(t *testing.T, p Provider, r *tool.Registry, rec event.Sink) *Agent {
 	t.Helper()
-	a, err := New(Config{Provider: p, Model: "test-model", System: "SYS", Tools: r, Recorder: rec, MaxOutputTokens: 123})
+	// 默认关闭重试：否则可重试错误的用例会真的退避等待。需要重试的用例用 newAgentCfg 自己配置。
+	return newAgentCfg(t, Config{Provider: p, Tools: r, Recorder: rec, Retry: &RetryPolicy{}})
+}
+
+// newAgentCfg 在公共默认值（模型名、提示词、输出上限）之上应用 cfg 的字段。
+func newAgentCfg(t *testing.T, cfg Config) *Agent {
+	t.Helper()
+	cfg.Model, cfg.System, cfg.MaxOutputTokens = "test-model", "SYS", 123
+	a, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

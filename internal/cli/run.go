@@ -57,6 +57,8 @@ func (p *printer) Emit(e event.Event) {
 		p.status("  └ %s", toolSummary(e))
 	case event.Error:
 		p.status("错误: %s", firstLine(clean(e.Message)))
+	case event.Retrying:
+		p.status("请求失败，%d 秒后重试（%d/%d）：%s", max(int((e.Delay+time.Second-1)/time.Second), 1), e.Attempt, e.Max, clean(e.Reason))
 	case event.TurnFinished:
 		switch e.Reason {
 		case event.ReasonCancelled:

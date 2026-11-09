@@ -141,3 +141,17 @@ func TestEmptyAnswerPrintsNothingOnStdout(t *testing.T) {
 		t.Fatalf("stdout = %q", out)
 	}
 }
+
+func TestRetryingGoesToStderrOnly(t *testing.T) {
+	code, out, errOut := run(context.Background(), fakeRunner{events: []event.Event{
+		event.Retrying{Attempt: 1, Max: 3, Delay: time.Second, Reason: "HTTP 503"},
+		event.MessageDelta{Text: "好了"},
+		event.TurnFinished{Reason: event.ReasonStop},
+	}})
+	if code != ExitOK || out != "好了\n" {
+		t.Fatalf("stdout 只应有答案: code=%d stdout=%q", code, out)
+	}
+	if !strings.Contains(errOut, "1 秒后重试（1/3）：HTTP 503") {
+		t.Errorf("stderr = %q", errOut)
+	}
+}

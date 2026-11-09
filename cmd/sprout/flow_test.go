@@ -1,12 +1,17 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/shumengya/sprout/internal/agent"
 	"github.com/shumengya/sprout/internal/agent/config"
+	"github.com/shumengya/sprout/internal/cli"
 )
 
 func TestVersionAndHelp(t *testing.T) {
@@ -91,8 +96,37 @@ func TestNetworkFailureIsReadableAndExits1(t *testing.T) {
 	srv.Close() // 之后连接必然失败
 	dir := t.TempDir()
 	writeServerConfig(t, dir, srv.URL)
-	code, _, errOut := run("--data-dir", dir, "run", "你好")
-	if code != 1 || !strings.Contains(errOut, "通信失败") {
-		t.Fatalf("code=%d stderr=%q", code, errOut)
+	// 不走 realMain：它用默认重试策略，会真的退避等待几秒。这里注入关闭重试的策略。
+	e := testEnv(nil, shellSet(false, false))
+	e.retry = &agent.RetryPolicy{}
+	ap, err := buildApp(dir, e, nil)
+	if err != nil || ap.ag == nil {
+		t.Fatalf("buildApp: %v disabled=%q", err, ap.disabled)
+	}
+	defer ap.close() // 会话文件开着的话，Windows 清理临时目录会失败
+	var out, errOut bytes.Buffer
+	code := cli.Run(context.Background(), ap.ag, "你好", &out, &errOut)
+	if code != 1 || !strings.Contains(errOut.String(), "通信失败") {
+		t.Fatalf("code=%d stderr=%q", code, errOut.String())
+	}
+}
+
+func TestNetworkFailureRetriesBeforeGivingUp(t *testing.T) {
+	// 网络层失败是可重试错误：用极短的退避验证确实重试了、并且告诉了用户。
+	srv := newModelServerStatus(t, 200, "")
+	srv.Close()
+	dir := t.TempDir()
+	writeServerConfig(t, dir, srv.URL)
+	e := testEnv(nil, shellSet(false, false))
+	e.retry = &agent.RetryPolicy{MaxRetries: 2, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond}
+	ap, err := buildApp(dir, e, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ap.close()
+	var out, errOut bytes.Buffer
+	code := cli.Run(context.Background(), ap.ag, "你好", &out, &errOut)
+	if code != 1 || strings.Count(errOut.String(), "后重试") != 2 || !strings.Contains(errOut.String(), "（2/2）") {
+		t.Fatalf("应重试 2 次后报错: code=%d stderr=%q", code, errOut.String())
 	}
 }

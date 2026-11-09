@@ -76,6 +76,15 @@ type errorRec struct {
 	Retryable bool   `json:"retryable,omitempty"`
 }
 
+// retryRec 记录一次退避重试，便于事后审计网络或服务端问题；恢复会话时忽略。
+type retryRec struct {
+	header
+	Attempt int    `json:"attempt"`
+	Max     int    `json:"max"`
+	DelayMS int64  `json:"delay_ms"`
+	Reason  string `json:"reason"`
+}
+
 // toRecord 把内核事件转成会话记录。不需要落盘的事件返回 false：
 // MessageDelta 只是增量（完整内容在 MessageCompleted 里），ToolRequested 的信息已含在 assistant 记录的 tool_calls 里。
 func toRecord(e event.Event, now time.Time) (any, bool) {
@@ -102,6 +111,8 @@ func toRecord(e event.Event, now time.Time) (any, bool) {
 		return turnRec{h("turn"), e.Reason}, true
 	case event.Error:
 		return errorRec{h("error"), e.Message, e.Retryable}, true
+	case event.Retrying:
+		return retryRec{h("retry"), e.Attempt, e.Max, e.Delay.Milliseconds(), e.Reason}, true
 	}
 	return nil, false
 }

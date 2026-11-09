@@ -96,3 +96,8 @@ func fmtDur(d time.Duration) string {
 	}
 	return fmt.Sprintf("%.1fs", d.Seconds())
 }
+
+// fmtWait 把等待时间格式化成“3 秒”这样的中文，不足一秒按一秒算。
+func fmtWait(d time.Duration) string {
+	return fmt.Sprintf("%d 秒", max(int((d+time.Second-1)/time.Second), 1))
+}

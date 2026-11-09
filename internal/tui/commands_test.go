@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/shumengya/sprout/internal/agent/event"
 )
@@ -165,4 +166,14 @@ func TestUsageAccumulatesInStatusLine(t *testing.T) {
 	begin(m, "q")
 	apply(m, event.Usage{TotalTokens: 120}, event.Usage{TotalTokens: 30})
 	mustContain(t, plain(m), "150 tokens")
+}
+
+func TestRetryingShowsNoticeWithCountdown(t *testing.T) {
+	m := newSized(t, Options{Runner: scriptRunner()}, 100, 30)
+	begin(m, "q")
+	apply(m, event.Retrying{Attempt: 2, Max: 3, Delay: 2300 * time.Millisecond, Reason: "服务端过载"})
+	mustContain(t, plain(m), "请求失败，3 秒后重试（2/3）：服务端过载")
+	if !m.running {
+		t.Error("重试期间这一轮仍在进行")
+	}
 }

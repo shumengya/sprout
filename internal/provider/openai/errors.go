@@ -4,7 +4,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"net/http"
+	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/shumengya/sprout/internal/agent"
@@ -32,7 +35,26 @@ func parseAPIError(status int, body []byte) *agent.ProviderError {
 	if pe.Message == "" {
 		pe.Message = clipText(strings.TrimSpace(string(body)), 500)
 	}
+	// 额度用尽之类的错误即使状态码是 429，重试也不会好，白等只会拖慢报错。
+	if pe.Code == "insufficient_quota" {
+		pe.Retryable = false
+	}
 	return pe
+}
+
+// parseRetryAfter 解析 Retry-After 头：秒数或 HTTP 日期。解析失败或为负返回 0。
+func parseRetryAfter(v string, now time.Time) time.Duration {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(v); err == nil {
+		return time.Duration(max(secs, 0)) * time.Second
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		return max(t.Sub(now), 0)
+	}
+	return 0
 }
 
 func retryableStatus(status int) bool {

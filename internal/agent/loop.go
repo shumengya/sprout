@@ -26,14 +26,18 @@ func (t *turn) loop() error {
 			return t.cancelled()
 		}
 
-		resp, err := a.cfg.Provider.Stream(t.ctx, a.request(), func(c Chunk) error {
-			if c.ReasoningDelta != "" {
-				t.out.Emit(event.ReasoningDelta{Text: c.ReasoningDelta})
-			}
-			if c.TextDelta != "" {
-				t.out.Emit(event.MessageDelta{Text: c.TextDelta})
-			}
-			return t.ctx.Err()
+		resp, err := t.retrying(func(started func()) (Response, error) {
+			return a.cfg.Provider.Stream(t.ctx, a.request(), func(c Chunk) error {
+				if c.ReasoningDelta != "" {
+					started()
+					t.out.Emit(event.ReasoningDelta{Text: c.ReasoningDelta})
+				}
+				if c.TextDelta != "" {
+					started()
+					t.out.Emit(event.MessageDelta{Text: c.TextDelta})
+				}
+				return t.ctx.Err()
+			})
 		})
 		if err != nil {
 			if t.ctx.Err() != nil {

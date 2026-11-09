@@ -2,8 +2,12 @@ package openai
 
 import (
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/shumengya/sprout/internal/agent"
 	"github.com/shumengya/sprout/internal/agent/config"
@@ -134,5 +138,49 @@ func TestNewCallIDUnique(t *testing.T) {
 			t.Fatalf("id %q 重复或前缀不对", id)
 		}
 		seen[id] = true
+	}
+}
+
+func TestParseRetryAfter(t *testing.T) {
+	now := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
+	cases := map[string]time.Duration{
+		"":                              0,
+		"5":                             5 * time.Second,
+		" 12 ":                          12 * time.Second,
+		"-3":                            0,
+		"abc":                           0,
+		"Mon, 27 Jul 2026 12:00:09 GMT": 9 * time.Second,
+		"Mon, 27 Jul 2026 11:00:00 GMT": 0, // 已经过去的时间
+	}
+	for in, want := range cases {
+		if got := parseRetryAfter(in, now); got != want {
+			t.Errorf("parseRetryAfter(%q) = %v，期望 %v", in, got, want)
+		}
+	}
+}
+
+func TestRetryAfterHeaderReachesProviderError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "4")
+		w.WriteHeader(429)
+		io.WriteString(w, `{"error":{"message":"slow down","code":"rate_limit_exceeded"}}`)
+	}))
+	defer srv.Close()
+	p, _ := New(Config{Protocol: config.ProtocolChat, BaseURL: srv.URL, APIKey: "k"})
+	_, _, err := collect(p, userReq("q"))
+	var pe *agent.ProviderError
+	if !errors.As(err, &pe) || pe.RetryAfter != 4*time.Second || !pe.Retryable {
+		t.Fatalf("得到 %+v", pe)
+	}
+}
+
+func TestInsufficientQuotaIsNotRetryable(t *testing.T) {
+	// 额度用尽即使是 429，重试也不会好。
+	pe := parseAPIError(429, []byte(`{"error":{"message":"You exceeded your current quota","code":"insufficient_quota"}}`))
+	if pe.Retryable {
+		t.Fatal("insufficient_quota 不应重试")
+	}
+	if rl := parseAPIError(429, []byte(`{"error":{"message":"rate","code":"rate_limit_exceeded"}}`)); !rl.Retryable {
+		t.Fatal("普通限流应可重试")
 	}
 }

@@ -17,6 +17,7 @@ const (
 	KindToolRequested    Kind = "tool.requested"
 	KindToolFinished     Kind = "tool.finished"
 	KindUsage            Kind = "usage"
+	KindRetrying         Kind = "retrying"
 	KindTurnFinished     Kind = "turn.finished"
 	KindError            Kind = "error"
 )
@@ -96,6 +97,15 @@ type Usage struct {
 	TotalTokens  int
 }
 
+// Retrying 在一次模型调用失败、即将退避重试前发出。只有在这次调用还没有向界面输出任何内容时才会重试，
+// 所以不会出现半截答案被重复输出的情况。
+type Retrying struct {
+	Attempt int           // 第几次重试，从 1 开始
+	Max     int           // 最多重试几次
+	Delay   time.Duration // 等多久再试
+	Reason  string        // 失败原因（首行）
+}
+
 // TurnFinished 在一轮结束时发出，每轮必有且仅有一次，是 surface 判断“这一轮结束了”的唯一依据。
 type TurnFinished struct {
 	Reason string
@@ -114,5 +124,6 @@ func (MessageCompleted) Kind() Kind { return KindMessageCompleted }
 func (ToolRequested) Kind() Kind    { return KindToolRequested }
 func (ToolFinished) Kind() Kind     { return KindToolFinished }
 func (Usage) Kind() Kind            { return KindUsage }
+func (Retrying) Kind() Kind         { return KindRetrying }
 func (TurnFinished) Kind() Kind     { return KindTurnFinished }
 func (Error) Kind() Kind            { return KindError }

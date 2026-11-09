@@ -24,7 +24,8 @@ type env struct {
 	version string
 	now     func() time.Time
 	detect  func(cfgBash, cfgPS string) platform.Shells
-	http    *http.Client // nil 表示使用 provider 的默认客户端
+	http    *http.Client       // nil 表示使用 provider 的默认客户端
+	retry   *agent.RetryPolicy // nil 表示使用 agent 的默认重试策略；测试用它避免真的退避等待
 }
 
 // app 是装配好的运行时。ag 为 nil 表示当前不能对话，原因在 disabled 里。
@@ -139,7 +140,7 @@ func (a *app) enable(key string, reg *tool.Registry, e env, log *slog.Logger) {
 		System: agent.BuildSystemPrompt(agent.PromptInfo{
 			OS: platform.OSName(), Cwd: e.cwd, Now: e.now(), Tools: reg.Names(),
 		}),
-		MaxOutputTokens: a.sel.Model.MaxOutput, Recorder: rec, Logger: log,
+		MaxOutputTokens: a.sel.Model.MaxOutput, Recorder: rec, Retry: e.retry, Logger: log,
 	})
 	if err != nil {
 		a.disabled = "无法初始化 agent: " + err.Error()

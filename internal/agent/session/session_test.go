@@ -265,3 +265,15 @@ func TestFilePermissionsAreRestricted(t *testing.T) {
 		t.Errorf("会话文件权限 = %o，不应对其他用户开放", perm)
 	}
 }
+
+func TestRetryIsRecordedForAudit(t *testing.T) {
+	r, _ := newRec(t)
+	r.Emit(event.TurnStarted{Prompt: "q"})
+	r.Emit(event.Retrying{Attempt: 1, Max: 3, Delay: 1500 * time.Millisecond, Reason: "HTTP 503"})
+	r.Close()
+	recs := readRecords(t, r.Path())
+	last := recs[len(recs)-1]
+	if last["type"] != "retry" || last["attempt"] != float64(1) || last["delay_ms"] != float64(1500) || last["reason"] != "HTTP 503" {
+		t.Fatalf("retry 记录 = %v", last)
+	}
+}
