@@ -1,0 +1,122 @@
+# TODOS
+
+M1（最小可用闭环）已实现并提交。本文件区分三类状态：**已实现**、**已实现但未验证**、**未实现**。
+验收清单的逐项状态见 `docs/m1-implementation.md` §12，与原计划的差异见 §15。
+
+## 一、已实现
+
+### 内核（`internal/agent`）
+- [x] ReAct 循环：模型调用 → 工具执行 → 结果回传，最多 10 次模型调用（`max_steps`）。
+- [x] 事件协议（`event`）：`turn.started` / `message.delta` / `reasoning.delta` / `message.completed` / `tool.requested` / `tool.finished` / `usage` / `turn.finished` / `error`；每轮必以 `turn.finished` 收尾。
+- [x] 取消：`context` 贯穿 HTTP 请求与工具进程；取消时为未执行的 tool call 补“未执行”结果，保证历史合法。
+- [x] 失败回滚：首次模型调用失败/取消时撤销本轮用户消息；panic 被 recover 并还原历史。
+- [x] 空工具参数规范化为 `{}`；工具的任何失败都转成 tool 消息回给模型，不终止 agent。
+- [x] 系统提示词只描述实际可用的工具；两个 shell 都可用时说明选择规则。
+- [x] 思维链：保存 `reasoning_content` 并在后续请求中回传。
+
+### Provider（`internal/provider/openai`）
+- [x] OpenAI Chat Completions 流式：按 index 拼 tool call（兼容同 index 不同 id 的服务）、`include_usage`、`finish_reason`。
+- [x] OpenAI Responses 流式：`store:false` + 完整 input，扁平工具声明且 `strict:false`，多来源拼装 `function_call`，文本不重复。
+- [x] 错误归一化为 `ProviderError`（带 `Retryable`），中文提示；流被截断视为可重试错误；API Key 不进入任何错误信息。
+
+### 工具（`internal/agent/tool`）
+- [x] `bash`（Git Bash / MSYS2 / Cygwin / 系统 bash）与 `powershell`（pwsh 7+ 优先，回退 5.1）。
+- [x] 平台探测：按文档顺序查找；`System32\bash.exe`（WSL 启动器）判为不可用并提示安装 Git for Windows。
+- [x] 执行契约：每次新进程、工作目录固定、默认超时 120s（上限 600s，模型可传 `timeout_seconds`）、输出上限 50KB（头尾保留）、stdin 置空。
+- [x] 超时/取消终止整个进程树（Unix 进程组，Windows `taskkill /T`），`WaitDelay` 防止孙进程占管道。
+- [x] PowerShell 注入 UTF-8 输出编码前导；工具描述按 edition 区分语法。
+
+### 配置与数据目录（`internal/agent/config`）
+- [x] `models.jsonc`（JSONC，注释与尾逗号）；语法/类型错误定位到 `文件:行:列`（列按字符计）。
+- [x] 校验一次汇总所有问题；API Key 环境变量优先、`apiKey` 兜底；`tools:false` 的模型不下发工具。
+- [x] 数据目录 `--data-dir` > `SPROUT_DATA_DIR` > `<exeDir>/data/.sprout`；`go run` 临时二进制或不可写时报错，不回退 `~/.sprout`。
+- [x] 首次运行生成带注释的模板（不覆盖已有文件）；模板与 `models.example.jsonc` 由测试保证一致。
+
+### 会话（`internal/agent/session`）
+- [x] JSONL 记录器（`event.Sink`）：`session` / `user` / `assistant` / `tool` / `usage` / `turn` / `error`；文件懒创建，权限 0600。
+- [x] 路径 `sessions/--<cwd slug>--/<时间戳>_<id>.jsonl`；同目录 `meta.json` 为会话索引（原子替换，损坏重建）。
+
+### TUI（`internal/tui`）
+- [x] 全屏 Bubble Tea v2；`Update` 不做 IO，agent 在 `tea.Cmd` 的独立 goroutine 里运行。
+- [x] 流式输出、工具卡片（命令、退出码、耗时、最多 8 行预览）、输出里的 ANSI/控制字符清理。
+- [x] 历史滚动：鼠标滚轮、PgUp/PgDn、Ctrl+↑↓、Ctrl+Home/End；输入框为空时 ↑↓ Home End 同样滚动；状态行显示位置与“有新内容”。
+- [x] 轻量 Markdown：标题、列表、引用、围栏代码块、行内代码/粗体、对齐的表格（按显示宽度）。
+- [x] 思维链淡色显示：流式预览最后 3 行，结束折叠为摘要，`/think` 展开。
+- [x] `/help` `/tools` `/think` `/mouse` `/quit`；缺 API Key 时禁止发送并显示配置提示。
+- [x] 真实终端光标（输入法候选窗跟随）；退出时 `Shutdown` 等 agent 收尾，保证 `turn.finished` 被记录。
+
+### CLI 与入口（`internal/cli`、`cmd/sprout`）
+- [x] `sprout`（TUI）、`sprout run "..."`（答案写 stdout，进度/错误写 stderr；退出码 0 / 1 / 130）。
+- [x] 模型输出与命令内容写终端前去除控制字符（含 ESC）。
+- [x] Windows：控制台 UTF-8 并在退出时恢复；双击启动出错时等待回车；日志写 `logs/sprout-YYYYMMDD.log`（不记录 Key、请求体、用户输入）。
+
+### 工程
+- [x] `go build` / `go vet` / `go test` 通过；测试替身只出现在 `_test.go`。
+- [x] 交叉编译（`CGO_ENABLED=0`）：linux/amd64、darwin/arm64、android/arm64 的 build + vet 通过（仅编译，未运行）。
+
+## 二、已实现，但尚未验证
+
+这些功能代码和测试都在，但没有在真实环境里确认过，使用时请留意。
+
+- [ ] **真实终端里的 TUI 手工操作**：目前只有模型级渲染测试和 `tea.Program`（禁用输入）测试。尤其是：
+  - 中文输入法下 Enter 是否在组合期误发送；
+  - Windows 控制台里 Ctrl+C 是否按键事件送达；
+  - 鼠标滚轮是否被送达（有的终端不上报）、Ctrl+Home/End 等组合键是否被识别；
+  - `─` `│` `•` `⚙` `└` 在 CJK 终端设置下是否按两列显示导致错位；
+  - 流式渲染观感、窗口缩放。
+- [ ] **OpenAI 官方服务**（Chat 与 Responses）：只验证过 DeepSeek。Responses 的 `function_call` 不带 `id` 是依据文档推断，带 reasoning 的 gpt-5 / o 系列可能不同。
+- [ ] **Linux / macOS / Termux 实际运行**：只验证过能编译；`bash` 探测、进程组终止等 Unix 路径只有单元测试（fake probe）。
+- [ ] **双击 `sprout.exe` 启动**（含出错后等待回车）。
+- [ ] `go test -race`：本机没有 gcc，未跑过。
+
+## 三、未实现
+
+### 后续里程碑（见 README 路线图，需用户确认后再做）
+- [ ] **M2 JSON-RPC**（`internal/rpc`，目前只有占位目录）：会话管理、流式事件、取消；`sprout serve`。
+- [ ] **M3 WebUI**（`internal/webui`，占位）：独立前端模块，复用 JSON-RPC 事件；`sprout web`。
+- [ ] **M4 扩展**：
+  - [ ] Anthropic Messages 协议（`internal/provider/anthropic`，占位）；
+  - [ ] MCP 客户端与工具接入（`internal/agent/mcp`，占位）；
+  - [ ] skills 发现与加载（`internal/agent/skills`，占位）；
+  - [ ] 子代理 / 多 agent 编排；
+  - [ ] 文件读写、搜索、web 等更多工具（M1 只有 `bash` 和 `powershell`，其余由用户后续决定）；
+  - [ ] 权限模块（审批流、allow/deny、沙箱）——目前默认完全权限，不要提前加。
+
+### M1 范围内有意没做
+- [ ] 会话恢复、分支、搜索（每次启动都是新会话；`event` 协议里预留的 `resume` 命令没有实现）。
+- [ ] 上下文管理：压缩、token 预算、超出窗口时的处理（目前直接把服务端的错误显示出来；`contextWindow` 只是配置记录，不参与任何逻辑）。
+- [ ] 请求自动重试（`ProviderError.Retryable` 已区分，但没有重试逻辑）。
+- [ ] 并行工具调用（工具串行执行）。
+- [ ] 配置热加载、模型选择器、运行中切换模型（改 `models.jsonc` 需重启）。
+- [ ] 交互式 CLI REPL；`sprout run` 不支持从 stdin 读提问。
+- [ ] 代码高亮、完整 CommonMark（链接、图片、斜体、嵌套列表等）；TUI 的文本选择/复制辅助。
+- [ ] Responses 协议下的思维链（reasoning item）处理。
+- [ ] 会话与日志的清理/轮转（`sessions/`、`logs/` 只增不减）。
+
+## 四、已知限制与风险
+
+- **环境变量泄露给模型**：工具子进程继承 `sprout` 的环境变量，包括 `DEEPSEEK_API_KEY` 等；模型可以让命令读到它。没有权限模块前是已知取舍。
+- **非终端启动 TUI 不退出**：stdin 重定向到 `/dev/null` 时 TUI 会一直挂到被外部终止。
+- **思维链回传**：DeepSeek 文档要求带 `tools` 的请求回传历史 `reasoning_content`，已实现；实测当前服务端尚未强制，之后可能变严。
+- **`max_tokens`**：直接取 `models.jsonc` 的 `maxOutput`。个别新 OpenAI 模型（o 系列）在 Chat 协议下拒绝 `max_tokens`，需改用 Responses 协议；没有按模型切换参数名的机制。
+- **PowerShell 退出码**：`-Command` 模式下失败通常是 1，不一定等于原生程序自己的退出码（已写进工具描述）。
+- **`meta.json` 并发**：读-改-写不加跨进程锁，两个实例同时在同一目录启动可能丢一条索引登记；JSONL 本身不受影响。
+- **Windows 进程树终止**：用 `taskkill /T`，没有使用 Job Object。
+
+## 五、待你决定
+
+- [ ] **会话路径与 `AGENTS.md` 不一致**：`AGENTS.md` 决策表写 `sessions/<工作目录 slug>/<session-id>.jsonl`，实际按 `m1-minimal.md` 实现为 `sessions/--<cwd slug>--/<时间戳>_<id>.jsonl`。要改代码还是改决策表？
+- [ ] **`meta.json` 语义**：现在是工作目录分组下所有会话的索引；如果你想要“每个会话一份元数据”，需要改格式。
+- [ ] **是否提供关闭思考的开关**：DeepSeek 默认开启思考模式，会增加延迟和 token。可以给模型加一个配置项，请求时发 `thinking: {"type":"disabled"}`。
+- [ ] **按模型切换 `max_tokens` / `max_completion_tokens`**：要不要在 `models.jsonc` 里加字段，解决 o 系列在 Chat 协议下的参数名问题。
+- [ ] **输出上限的默认值**：`deepseek-flash` 的 `maxOutput` 现为官方上限 384000，是否过大；不填则不发该参数。
+
+## 六、工程与文档
+
+- [ ] 没有 CI（无 `.github/`）：至少跑 `go build` / `go vet` / `go test`，最好覆盖 Windows 与 Linux。
+- [ ] 没有 LICENSE（README 写的是 TBD）。
+- [ ] `README.md` 的“项目结构”缺少 `internal/agent/tool/shell`（bash / powershell 共用的执行器）。
+- [ ] `docs/` 只有两份 M1 计划；`AGENTS.md` 约定的架构 / 协议 / 决策记录文档还没有单独成文（事件协议和会话格式目前散落在 `m1-implementation.md` §10、§15）。
+- [ ] 部分测试里仍用旧模型名 `deepseek-chat` 作为随意的字符串（`session_test.go`、`tui/helpers_test.go`），不影响功能，可顺手统一。
+
+
