@@ -84,6 +84,14 @@ type turnRec struct {
 	Reason string `json:"reason"`
 }
 
+// resumeRec 标记会话在这里被恢复续接，并记录续接时用的模型。恢复重放时忽略，仅供审计。
+type resumeRec struct {
+	header
+	Provider string   `json:"provider"`
+	Model    string   `json:"model"`
+	Tools    []string `json:"tools"`
+}
+
 type errorRec struct {
 	header
 	Message   string `json:"message"`

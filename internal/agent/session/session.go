@@ -74,6 +74,25 @@ func (r *Recorder) Err() error {
 	return r.err
 }
 
+// Attach 让记录器改为向已有的会话文件追加，用于恢复会话：恢复后的对话和原来的在同一个文件里。
+// 先关掉当前打开的文件（如果有），再以追加方式打开目标，并写一条 resume 记录标明这次续接。
+// 调用方必须保证此时没有 Run 在进行。
+func (r *Recorder) Attach(path string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.f != nil {
+		r.f.Close()
+		r.f = nil
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return fmt.Errorf("打开会话文件失败: %w", err)
+	}
+	r.f, r.path, r.failed, r.err, r.closed = f, f.Name(), false, nil, false
+	r.write(resumeRec{header{Type: "resume", Time: r.now()}, r.info.Provider, r.info.Model, r.info.Tools})
+	return nil
+}
+
 // Emit 实现 event.Sink。
 func (r *Recorder) Emit(e event.Event) {
 	r.mu.Lock()
