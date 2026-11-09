@@ -18,6 +18,7 @@ const (
 	KindToolFinished     Kind = "tool.finished"
 	KindUsage            Kind = "usage"
 	KindRetrying         Kind = "retrying"
+	KindCompacted        Kind = "compacted"
 	KindTurnFinished     Kind = "turn.finished"
 	KindError            Kind = "error"
 )
@@ -86,6 +87,9 @@ type ToolFinished struct {
 	TimedOut  bool
 	Cancelled bool
 	Duration  time.Duration
+	// Content 是回给模型的完整文本（含命令、退出码、stdout/stderr 的格式化结果，或失败说明）。
+	// 会话记录保存它，恢复会话时原样还原，模型看到的就和当初一模一样。
+	Content string
 	// Err 非空表示工具没能产出正常结果（参数无效、进程起不来等）。
 	Err string
 }
@@ -106,6 +110,23 @@ type Retrying struct {
 	Reason  string        // 失败原因（首行）
 }
 
+// Compacted 在上下文被压缩后发出。压缩有两种：裁剪旧的工具输出（prune），
+// 或把更早的对话总结成一段摘要（summary）。压缩从不静默发生，历史被改动就一定有这个事件。
+type Compacted struct {
+	Mode         string // CompactPrune 或 CompactSummary
+	TokensBefore int    // 估算值
+	TokensAfter  int    // 估算值
+	Dropped      int    // summary：被摘要替代的消息条数；prune：被裁剪的工具输出条数
+	Summary      string // summary：压缩后的完整摘要文本（会话记录保存它，恢复时用）
+	Err          string // 非空表示摘要失败，历史未改动，本轮照常继续
+}
+
+// 压缩的种类。
+const (
+	CompactPrune   = "prune"
+	CompactSummary = "summary"
+)
+
 // TurnFinished 在一轮结束时发出，每轮必有且仅有一次，是 surface 判断“这一轮结束了”的唯一依据。
 type TurnFinished struct {
 	Reason string
@@ -125,5 +146,6 @@ func (ToolRequested) Kind() Kind    { return KindToolRequested }
 func (ToolFinished) Kind() Kind     { return KindToolFinished }
 func (Usage) Kind() Kind            { return KindUsage }
 func (Retrying) Kind() Kind         { return KindRetrying }
+func (Compacted) Kind() Kind        { return KindCompacted }
 func (TurnFinished) Kind() Kind     { return KindTurnFinished }
 func (Error) Kind() Kind            { return KindError }

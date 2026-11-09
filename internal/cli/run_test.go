@@ -155,3 +155,21 @@ func TestRetryingGoesToStderrOnly(t *testing.T) {
 		t.Errorf("stderr = %q", errOut)
 	}
 }
+
+func TestCompactedGoesToStderrOnly(t *testing.T) {
+	code, out, errOut := run(context.Background(), fakeRunner{events: []event.Event{
+		event.Compacted{Mode: event.CompactPrune, Dropped: 2},
+		event.Compacted{Mode: event.CompactSummary, Dropped: 9},
+		event.Compacted{Mode: event.CompactSummary, Err: "空摘要"},
+		event.MessageDelta{Text: "答"},
+		event.TurnFinished{Reason: event.ReasonStop},
+	}})
+	if code != ExitOK || out != "答\n" {
+		t.Fatalf("stdout 只应有答案: code=%d stdout=%q", code, out)
+	}
+	for _, want := range []string{"已裁剪 2 条", "更早的 9 条消息总结成摘要", "生成摘要失败"} {
+		if !strings.Contains(errOut, want) {
+			t.Errorf("stderr 缺少 %q: %q", want, errOut)
+		}
+	}
+}

@@ -125,6 +125,8 @@ func (m *Model) onEvent(e event.Event) {
 		t.touch()
 	case event.Usage:
 		m.tokens += e.TotalTokens
+	case event.Compacted:
+		m.add(&entry{kind: kindNotice, text: describeCompacted(e)})
 	case event.Retrying:
 		m.add(&entry{kind: kindNotice, text: fmt.Sprintf("请求失败，%s后重试（%d/%d）：%s",
 			fmtWait(e.Delay), e.Attempt, e.Max, e.Reason)})

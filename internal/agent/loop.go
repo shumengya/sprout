@@ -16,34 +16,60 @@ type turn struct {
 	out    event.Sink
 	base   int // 本轮开始前的历史长度，不含本轮的用户消息
 	reason string
+	// compactFailed：本轮已经尝试过摘要且失败，不再每一步都重试（否则每次模型调用前都多一次失败的摘要请求）。
+	compactFailed bool
+}
+
+// stream 向模型发一次请求并把增量转成事件。
+func (t *turn) stream() (Response, error) {
+	return t.retrying(func(started func()) (Response, error) {
+		return t.a.cfg.Provider.Stream(t.ctx, t.a.request(), func(c Chunk) error {
+			if c.ReasoningDelta != "" {
+				started()
+				t.out.Emit(event.ReasoningDelta{Text: c.ReasoningDelta})
+			}
+			if c.TextDelta != "" {
+				started()
+				t.out.Emit(event.MessageDelta{Text: c.TextDelta})
+			}
+			return t.ctx.Err()
+		})
+	})
 }
 
 // loop 是 ReAct 主循环：调用模型 → 有 tool call 就执行并把结果回给模型 → 直到没有 tool call。
 func (t *turn) loop() error {
 	a := t.a
+	reactive := false // 本步是否已经因“服务端报告超长”压缩过一次
 	for step := 0; step < a.cfg.MaxSteps; step++ {
 		if t.ctx.Err() != nil {
 			return t.cancelled()
 		}
+		if !reactive && !t.compactFailed {
+			t.compact(false) // 主动压缩：历史接近窗口时先压缩再发
+		}
 
-		resp, err := t.retrying(func(started func()) (Response, error) {
-			return a.cfg.Provider.Stream(t.ctx, a.request(), func(c Chunk) error {
-				if c.ReasoningDelta != "" {
-					started()
-					t.out.Emit(event.ReasoningDelta{Text: c.ReasoningDelta})
-				}
-				if c.TextDelta != "" {
-					started()
-					t.out.Emit(event.MessageDelta{Text: c.TextDelta})
-				}
-				return t.ctx.Err()
-			})
-		})
+		resp, err := t.stream()
 		if err != nil {
 			if t.ctx.Err() != nil {
 				return t.cancelled()
 			}
+			// 服务端说上下文超长（我们的估算偏低，或窗口没配置）：压缩一次再试，这次不占步数。
+			var pe *ProviderError
+			if !reactive && errors.As(err, &pe) && pe.ContextTooLong() && t.compact(true) {
+				reactive = true
+				step--
+				continue
+			}
 			return t.fail(err)
+		}
+		reactive = false
+
+		// 用服务端报告的真实输入 token 校准估算；这一刻历史还不含本次的 assistant 消息。
+		if resp.Usage.InputTokens > 0 {
+			a.calibTokens, a.calibLen = resp.Usage.InputTokens, len(a.history)
+		} else {
+			a.resetCalibration()
 		}
 
 		msg := resp.Message
@@ -123,5 +149,6 @@ func (t *turn) fail(err error) error {
 func (t *turn) rollbackUnanswered() {
 	if len(t.a.history) == t.base+1 {
 		t.a.history = t.a.history[:t.base]
+		t.a.resetCalibration()
 	}
 }

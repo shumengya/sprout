@@ -277,3 +277,24 @@ func TestRetryIsRecordedForAudit(t *testing.T) {
 		t.Fatalf("retry 记录 = %v", last)
 	}
 }
+
+func TestCompactionAndToolContentAreRecorded(t *testing.T) {
+	r, _ := newRec(t)
+	r.Emit(event.TurnStarted{Prompt: "q"})
+	r.Emit(event.ToolFinished{ID: "c1", Name: "bash", Command: "ls", Content: "command: ls\nexit_code: 0\n"})
+	r.Emit(event.Compacted{Mode: event.CompactSummary, TokensBefore: 9000, TokensAfter: 2000, Dropped: 12, Summary: "摘要全文"})
+	r.Emit(event.Compacted{Mode: event.CompactPrune, Dropped: 3})
+	r.Close()
+
+	recs := readRecords(t, r.Path())
+	tool, sum, prune := recs[2], recs[3], recs[4]
+	if tool["content"] != "command: ls\nexit_code: 0\n" {
+		t.Errorf("tool 记录应保存回给模型的完整文本: %v", tool)
+	}
+	if sum["type"] != "compact" || sum["mode"] != "summary" || sum["dropped"] != float64(12) || sum["summary"] != "摘要全文" {
+		t.Errorf("summary 压缩记录 = %v", sum)
+	}
+	if prune["mode"] != "prune" || prune["dropped"] != float64(3) {
+		t.Errorf("prune 压缩记录 = %v", prune)
+	}
+}

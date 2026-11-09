@@ -59,6 +59,15 @@ func (p *printer) Emit(e event.Event) {
 		p.status("错误: %s", firstLine(clean(e.Message)))
 	case event.Retrying:
 		p.status("请求失败，%d 秒后重试（%d/%d）：%s", max(int((e.Delay+time.Second-1)/time.Second), 1), e.Attempt, e.Max, clean(e.Reason))
+	case event.Compacted:
+		switch {
+		case e.Err != "":
+			p.status("提示: 上下文接近上限，但生成摘要失败，历史保持原样继续：%s", firstLine(clean(e.Err)))
+		case e.Mode == event.CompactPrune:
+			p.status("提示: 上下文接近上限，已裁剪 %d 条较早的工具输出", e.Dropped)
+		default:
+			p.status("提示: 上下文接近上限，已把更早的 %d 条消息总结成摘要", e.Dropped)
+		}
 	case event.TurnFinished:
 		switch e.Reason {
 		case event.ReasonCancelled:

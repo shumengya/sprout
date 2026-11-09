@@ -140,7 +140,8 @@ func (a *app) enable(key string, reg *tool.Registry, e env, log *slog.Logger) {
 		System: agent.BuildSystemPrompt(agent.PromptInfo{
 			OS: platform.OSName(), Cwd: e.cwd, Now: e.now(), Tools: reg.Names(),
 		}),
-		MaxOutputTokens: a.sel.Model.MaxOutput, Recorder: rec, Retry: e.retry, Logger: log,
+		MaxOutputTokens: a.sel.Model.MaxOutput, ContextWindow: a.sel.Model.ContextWindow,
+		Recorder: rec, Retry: e.retry, Logger: log,
 	})
 	if err != nil {
 		a.disabled = "无法初始化 agent: " + err.Error()

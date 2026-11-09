@@ -56,6 +56,20 @@ type toolRec struct {
 	Cancelled  bool   `json:"cancelled,omitempty"`
 	DurationMS int64  `json:"duration_ms"`
 	Error      string `json:"error,omitempty"`
+	// Content 是回给模型的完整文本。恢复会话时原样还原，模型看到的就和当初一模一样。
+	Content string `json:"content,omitempty"`
+}
+
+// compactRec 记录一次上下文压缩。恢复会话时按它重放：summary 丢弃前 dropped 条消息并换上摘要，
+// prune 重新执行同样的裁剪（PruneToolOutputs 是纯函数，结果和当初一致）。
+type compactRec struct {
+	header
+	Mode         string `json:"mode"`
+	TokensBefore int    `json:"tokens_before"`
+	TokensAfter  int    `json:"tokens_after"`
+	Dropped      int    `json:"dropped"`
+	Summary      string `json:"summary,omitempty"`
+	Error        string `json:"error,omitempty"`
 }
 
 type usageRec struct {
@@ -103,8 +117,10 @@ func toRecord(e event.Event, now time.Time) (any, bool) {
 			header: h("tool"), ToolCallID: e.ID, Name: e.Name, Command: e.Command,
 			Stdout: e.Stdout, Stderr: e.Stderr, ExitCode: e.ExitCode,
 			Truncated: e.Truncated, TimedOut: e.TimedOut, Cancelled: e.Cancelled,
-			DurationMS: e.Duration.Milliseconds(), Error: e.Err,
+			DurationMS: e.Duration.Milliseconds(), Error: e.Err, Content: e.Content,
 		}, true
+	case event.Compacted:
+		return compactRec{h("compact"), e.Mode, e.TokensBefore, e.TokensAfter, e.Dropped, e.Summary, e.Err}, true
 	case event.Usage:
 		return usageRec{h("usage"), e.InputTokens, e.OutputTokens, e.TotalTokens}, true
 	case event.TurnFinished:

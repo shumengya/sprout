@@ -177,3 +177,17 @@ func TestRetryingShowsNoticeWithCountdown(t *testing.T) {
 		t.Error("重试期间这一轮仍在进行")
 	}
 }
+
+func TestCompactedNoticesExplainWhatHappened(t *testing.T) {
+	m := newSized(t, Options{Runner: scriptRunner()}, 120, 40)
+	begin(m, "q")
+	apply(m,
+		event.Compacted{Mode: event.CompactPrune, Dropped: 3, TokensBefore: 9000, TokensAfter: 4000},
+		event.Compacted{Mode: event.CompactSummary, Dropped: 12, TokensBefore: 8000, TokensAfter: 2500},
+		event.Compacted{Mode: event.CompactSummary, TokensBefore: 8000, Err: "模型返回了空摘要"},
+	)
+	mustContain(t, plain(m),
+		"已裁剪 3 条较早的工具输出", "9000 → 4000",
+		"更早的 12 条消息总结成摘要", "8000 → 2500",
+		"生成摘要失败，历史保持原样继续", "模型返回了空摘要")
+}

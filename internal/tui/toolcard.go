@@ -101,3 +101,14 @@ func fmtDur(d time.Duration) string {
 func fmtWait(d time.Duration) string {
 	return fmt.Sprintf("%d 秒", max(int((d+time.Second-1)/time.Second), 1))
 }
+
+// describeCompacted 把压缩事件写成一句中文提示。压缩从不静默发生，用户总能看到历史被动过。
+func describeCompacted(e event.Compacted) string {
+	switch {
+	case e.Err != "":
+		return fmt.Sprintf("上下文接近上限（约 %d token），但生成摘要失败，历史保持原样继续：%s", e.TokensBefore, e.Err)
+	case e.Mode == event.CompactPrune:
+		return fmt.Sprintf("上下文接近上限，已裁剪 %d 条较早的工具输出（约 %d → %d token）", e.Dropped, e.TokensBefore, e.TokensAfter)
+	}
+	return fmt.Sprintf("上下文接近上限，已把更早的 %d 条消息总结成摘要（约 %d → %d token）", e.Dropped, e.TokensBefore, e.TokensAfter)
+}

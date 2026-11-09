@@ -100,6 +100,9 @@ func (e *ProviderError) Error() string {
 	return hint + "：" + detail
 }
 
+// ContextTooLong 报告这是不是“输入超出模型上下文窗口”的错误，调用方据此可以压缩历史后重试。
+func (e *ProviderError) ContextTooLong() bool { return e.contextTooLong() }
+
 // contextTooLong 识别各家对“输入超长”的不同表述。
 func (e *ProviderError) contextTooLong() bool {
 	if e.Status != 400 && e.Status != 413 {
