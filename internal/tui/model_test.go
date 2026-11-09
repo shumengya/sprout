@@ -36,17 +36,105 @@ func TestLayoutFillsTerminalExactly(t *testing.T) {
 	}
 }
 
-func TestHeaderShowsModelCwdDataDirAndTools(t *testing.T) {
+func TestInfoLineIsAtTheBottomInChinese(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 100, 24)
-	mustContain(t, plain(m), "Sprout", "model: deepseek-chat", `cwd: D:\SmyProjects\sprout`,
-		`data: D:\data\.sprout`, "tools: powershell, bash")
+	lines := strings.Split(plain(m), "\n")
+	last := strings.TrimRight(lines[len(lines)-1], " ")
+	for _, want := range []string{"模型 deepseek-chat", `目录 D:\SmyProjects\sprout`, "工具 powershell、bash"} {
+		if !strings.Contains(last, want) {
+			t.Errorf("最后一行应是中文信息栏，缺少 %q: %q", want, last)
+		}
+	}
+	// 英文标签和数据目录都不再占信息栏；数据目录在 /tools 里看。
+	mustNotContain(t, last, "model:", "cwd:", "tools:", "data:", `D:\data`)
 }
 
-func TestHeaderWithNoTools(t *testing.T) {
+func TestTopOfScreenIsNowTheTranscript(t *testing.T) {
+	m := newSized(t, Options{Runner: scriptRunner()}, 100, 24)
+	first := strings.Split(plain(m), "\n")[0]
+	if !strings.Contains(first, "输入问题后按 Enter 发送") {
+		t.Fatalf("顶部第一行应直接是对话区内容，不再有信息栏: %q", first)
+	}
+	// 去掉顶部 4 行后，对话区更高。
+	if want := 24 - footerH; m.vp.Height() != want {
+		t.Errorf("对话区高度 = %d，期望 %d", m.vp.Height(), want)
+	}
+}
+
+func TestInfoLineWithNoTools(t *testing.T) {
 	info := testInfo
 	info.Tools = nil
 	m := newSized(t, Options{Runner: scriptRunner(), Info: info}, 100, 24)
-	mustContain(t, plain(m), "tools: 无")
+	lines := strings.Split(plain(m), "\n")
+	if last := lines[len(lines)-1]; !strings.Contains(last, "工具 无") {
+		t.Errorf("没有可用工具时显示“无”: %q", last)
+	}
+}
+
+func TestInfoLineFieldsHaveDistinctColors(t *testing.T) {
+	m := newSized(t, Options{Runner: scriptRunner()}, 100, 24)
+	line := m.infoLine()
+	// 三个值各用一种前景色，标签是淡色：模型绿、目录亮蓝、工具洋红。
+	for name, sgr := range map[string]string{"模型": "\x1b[32m", "目录": "\x1b[94m", "工具": "\x1b[35m"} {
+		if !strings.Contains(line, sgr) {
+			t.Errorf("%s 的值缺少颜色 %q: %q", name, sgr, line)
+		}
+	}
+	if !strings.Contains(line, "\x1b[2m") {
+		t.Errorf("标签应是淡色: %q", line)
+	}
+}
+
+func TestInfoLineTruncatesLongDirectoryFromTheLeft(t *testing.T) {
+	long := `D:\Projects\very\deep\nested\folder\structure\that\goes\on\and\on\myproject`
+	info := testInfo
+	info.Cwd = long
+	m := newSized(t, Options{Runner: scriptRunner(), Info: info}, 70, 24)
+	lines := strings.Split(plain(m), "\n")
+	last := strings.TrimRight(lines[len(lines)-1], " ")
+	if !strings.Contains(last, "…") || !strings.HasSuffix(strings.Split(last, "  工具")[0], `\myproject`) {
+		t.Errorf("过长的目录应从左边截断，保留末尾: %q", last)
+	}
+	if strings.Contains(last, `D:\Projects`) {
+		t.Errorf("开头部分应被截掉: %q", last)
+	}
+	// 模型和工具不能为了让路给目录而被截掉。
+	if !strings.Contains(last, "模型 deepseek-chat") || !strings.Contains(last, "工具 powershell、bash") {
+		t.Errorf("模型和工具应完整保留: %q", last)
+	}
+}
+
+func TestInfoLineNeverExceedsWidth(t *testing.T) {
+	info := testInfo
+	info.Cwd = strings.Repeat(`很长的目录\`, 20)
+	for _, w := range []int{10, 20, 30, 40, 60, 80, 120} {
+		m := newSized(t, Options{Runner: scriptRunner(), Info: info}, w, 24)
+		if got := ansi.StringWidth(m.infoLine()); got > w {
+			t.Errorf("宽度 %d 下信息栏宽 %d 超出终端宽度", w, got)
+		}
+	}
+}
+
+func TestTruncateLeft(t *testing.T) {
+	cases := []struct {
+		in   string
+		w    int
+		want string
+	}{
+		{"short", 10, "short"},
+		{"exactly10!", 10, "exactly10!"},
+		{`D:\a\b\c\d`, 6, `…\c\d`},
+		{"目录很长很长很长", 7, "…长很长"},
+	}
+	for _, c := range cases {
+		got := truncateLeft(c.in, c.w)
+		if ansi.StringWidth(got) > c.w || !(got == c.in || strings.HasPrefix(got, "…")) {
+			t.Errorf("truncateLeft(%q, %d) = %q，宽度或形式不对", c.in, c.w, got)
+		}
+	}
+	if got := truncateLeft(`D:\a\b\c\d`, 6); !strings.HasSuffix(got, `\c\d`) {
+		t.Errorf("应保留末尾: %q", got)
+	}
 }
 
 func TestUnavailableToolsAndStartupNoticesShown(t *testing.T) {
@@ -72,7 +160,7 @@ func TestOnlyFirstInputLineHasPrompt(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 80, 24)
 	m.in.SetValue("第一行\n第二行\n第三行")
 	lines := strings.Split(plain(m), "\n")
-	input := lines[len(lines)-inputH:]
+	input := lines[len(lines)-1-inputH : len(lines)-1] // 最后一行是信息栏
 	prompts := 0
 	for _, l := range input {
 		if strings.HasPrefix(l, ">") {
@@ -92,13 +180,15 @@ func TestCursorLandsInsideInputBox(t *testing.T) {
 		if c == nil {
 			t.Fatalf("h=%d: 输入框有焦点时应设置真实光标", h)
 		}
-		if c.Y != h-inputH || c.X != 2 {
-			t.Errorf("h=%d: 空输入时光标 = (%d,%d)，期望 (2,%d)：提示符之后、输入框首行", h, c.X, c.Y, h-inputH)
+		// 输入框在信息栏上面：光标 Y = 总高 - 信息栏 1 行 - 输入框 inputH 行。
+		wantY := h - 1 - inputH
+		if c.Y != wantY || c.X != 2 {
+			t.Errorf("h=%d: 空输入时光标 = (%d,%d)，期望 (2,%d)：提示符之后、输入框首行", h, c.X, c.Y, wantY)
 		}
 		m.Update(typed("你"))
 		m.Update(typed("a"))
-		if c := m.View().Cursor; c.X != 2+2+1 || c.Y != h-inputH { // 汉字占 2 列
-			t.Errorf("h=%d: 输入“你a”后光标 = (%d,%d)，期望 (5,%d)", h, c.X, c.Y, h-inputH)
+		if c := m.View().Cursor; c.X != 2+2+1 || c.Y != wantY { // 汉字占 2 列
+			t.Errorf("h=%d: 输入“你a”后光标 = (%d,%d)，期望 (5,%d)", h, c.X, c.Y, wantY)
 		}
 	}
 }

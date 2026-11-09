@@ -30,7 +30,6 @@ var (
 	styFaint = lipgloss.NewStyle().Faint(true)
 	styErr   = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
 	styWarn  = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-	styTitle = lipgloss.NewStyle().Bold(true)
 )
 
 // entry 是 transcript 里的一个条目。渲染结果按宽度缓存，流式追加时只重绘当前条目。

@@ -53,9 +53,9 @@ type Options struct {
 }
 
 const (
-	headerH = 4 // 三行信息 + 分隔线
-	inputH  = 3
-	footerH = 2 + inputH // 分隔线 + 状态行 + 输入框
+	inputH = 3
+	// 底部依次是：分隔线、状态行、输入框、信息栏。顶部不再占行，整块上方都留给对话。
+	footerH = 1 + 1 + inputH + 1
 )
 
 // Model 是 Bubble Tea 的主模型，子组件不各自跑 Update。
@@ -167,7 +167,7 @@ func (m *Model) layout() {
 	m.in.SetWidth(max(m.w, 1))
 	m.in.SetHeight(inputH)
 	m.vp.SetWidth(max(m.w, 1))
-	m.vp.SetHeight(max(m.h-headerH-footerH, 1))
+	m.vp.SetHeight(max(m.h-footerH, 1))
 	m.refresh()
 }
 

@@ -310,7 +310,7 @@ type Tool interface {
 ## 9. TUI
 
 - 全屏 Bubble Tea v2 + lipgloss + bubbles。
-- Header：模型、cwd、数据目录、可用工具。
+- 信息栏（最底部一行，不占对话区）：模型、当前目录、可用工具，中文标签、不同颜色；目录过长时从左边截断。数据目录不在此显示，用 `/tools` 查看。
 - Transcript：viewport，流式文本、工具卡片、错误。
 - Status：spinner / 当前工具 / 快捷键。
 - Input：textarea，Enter 发送，Ctrl+J 换行，Ctrl+C 取消/退出，Ctrl+D 退出。
