@@ -7,12 +7,16 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 
 ### 内核（`internal/agent`）
 - [x] ReAct 循环：模型调用 → 工具执行 → 结果回传，最多 10 次模型调用（`max_steps`）。
-- [x] 事件协议（`event`）：`turn.started` / `message.delta` / `reasoning.delta` / `message.completed` / `tool.requested` / `tool.finished` / `usage` / `turn.finished` / `error`；每轮必以 `turn.finished` 收尾。
+- [x] 事件协议（`event`）：`turn.started` / `message.delta` / `reasoning.delta` / `message.completed` / `tool.requested` / `tool.finished` / `usage` / `retrying` / `compacted` / `turn.finished` / `error`；每轮必以 `turn.finished` 收尾。
 - [x] 取消：`context` 贯穿 HTTP 请求与工具进程；取消时为未执行的 tool call 补“未执行”结果，保证历史合法。
 - [x] 失败回滚：首次模型调用失败/取消时撤销本轮用户消息；panic 被 recover 并还原历史。
 - [x] 空工具参数规范化为 `{}`；工具的任何失败都转成 tool 消息回给模型，不终止 agent。
 - [x] 系统提示词只描述实际可用的工具；两个 shell 都可用时说明选择规则。
 - [x] 思维链：保存 `reasoning_content` 并在后续请求中回传。
+- [x] 并行工具：同一批 tool call 并发执行（`MaxParallelTools` 默认 4，1 为串行）；事件与历史写入留在主 goroutine，历史里的 tool 消息始终按调用顺序；工具 panic 只算该次调用失败。真实 DeepSeek 验证过两个各睡 4 秒的命令重叠执行。
+- [x] 自动重试：网络失败、408/409/425/429/5xx、流被截断按指数退避重试（默认 3 次、±25% 抖动），听 `Retry-After`（超过 30 秒不等）；`insufficient_quota` 不重试；本次调用已向界面输出内容后不再重试，避免重复输出；退避期间可取消。
+- [x] 上下文管理：`contextWindow` 接近预算时先裁剪旧工具输出，不够再把更早的对话总结成摘要（只在用户消息处切，不拆 tool call 与结果）；服务端报告超长时压缩一次再重试；摘要失败不丢历史；每次压缩都有事件和提示。真实 DeepSeek 验证过（调小窗口后连续压缩 4 次、暗号未丢）。
+- [x] 会话恢复：`-c` / `--resume`（`run` 与 TUI 都支持）和 TUI 的 `/resume`；重放规则与运行时一致（并行工具结果按调用顺序、被杀留下的未完成调用补“未执行”、首次调用失败撤销用户消息、压缩按当初方式重做），换模型时丢弃旧思维链；恢复后接着写原会话文件。真实 DeepSeek 验证过 `run -c` 能记住上文。
 
 ### Provider（`internal/provider/openai`）
 - [x] OpenAI Chat Completions 流式：按 index 拼 tool call（兼容同 index 不同 id 的服务）、`include_usage`、`finish_reason`。
@@ -83,10 +87,9 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
   - [ ] 权限模块（审批流、allow/deny、沙箱）——目前默认完全权限，不要提前加。
 
 ### M1 范围内有意没做
-- [ ] 会话恢复、分支、搜索（每次启动都是新会话；`event` 协议里预留的 `resume` 命令没有实现）。
-- [ ] 上下文管理：压缩、token 预算、超出窗口时的处理（目前直接把服务端的错误显示出来；`contextWindow` 只是配置记录，不参与任何逻辑）。
-- [ ] 请求自动重试（`ProviderError.Retryable` 已区分，但没有重试逻辑）。
-- [ ] 并行工具调用（工具串行执行）。
+- [ ] 会话分支、搜索（恢复已实现，见上）。
+- [ ] 会话压缩的细化：按 token 精确裁剪、分层摘要、让用户手动触发 `/compact`；目前只有自动触发。
+- [ ] 按工具声明“是否可并行”：现在同批调用一律并行（上限 4），靠系统提示词要求模型不要把有依赖的命令放同一批。
 - [ ] 配置热加载、模型选择器、运行中切换模型（改 `models.jsonc` 需重启）。
 - [ ] 交互式 CLI REPL；`sprout run` 不支持从 stdin 读提问。
 - [ ] 代码高亮、完整 CommonMark（链接、图片、斜体、嵌套列表等）；TUI 的文本选择/复制辅助。
@@ -99,6 +102,9 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - **非终端启动 TUI 不退出**：stdin 重定向到 `/dev/null` 时 TUI 会一直挂到被外部终止。
 - **思维链回传**：DeepSeek 文档要求带 `tools` 的请求回传历史 `reasoning_content`，已实现；实测当前服务端尚未强制，之后可能变严。
 - **`max_tokens`**：直接取 `models.jsonc` 的 `maxOutput`。个别新 OpenAI 模型（o 系列）在 Chat 协议下拒绝 `max_tokens`，需改用 Responses 协议；没有按模型切换参数名的机制。
+- **并行工具的前提**：同批调用并行、互相看不到结果，靠系统提示词让模型把有依赖的命令合并或分回合；模型不听话时（比如先建目录再写文件放同一批）会得到失败结果，由它自己纠正。工具实现必须并发安全。
+- **token 估算是近似值**：ASCII 约 3 字符/token、宽字符约 1 字符/token，并用服务端上次报告的用量校准；窗口配置错误（比实际大）时靠“服务端报超长后压缩重试”兜底。裁剪会改动历史前缀，使服务端的前缀缓存失效一次。
+- **恢复会话不回放增量**：TUI 恢复时对话区由落盘的完整消息重建，看不到当初的逐字流式过程；思维链在恢复后是折叠摘要。
 - **PowerShell 退出码**：`-Command` 模式下失败通常是 1，不一定等于原生程序自己的退出码（已写进工具描述）。
 - **`meta.json` 并发**：读-改-写不加跨进程锁，两个实例同时在同一目录启动可能丢一条索引登记；JSONL 本身不受影响。
 - **Windows 进程树终止**：用 `taskkill /T`，没有使用 Job Object。

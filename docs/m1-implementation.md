@@ -45,7 +45,7 @@
 | 真实 ReAct 循环 | 多 agent 编排 |
 | 真实 `bash` / `powershell` | 文件读写、搜索、web、MCP、skills |
 | `models.jsonc` + 安装级数据目录 | 配置热加载、GUI 设置 |
-| JSONL 会话 | 会话恢复、分支、压缩 |
+| JSONL 会话 | 会话分支、搜索 |
 | `sprout run "..."` 单次 CLI | 交互式 CLI REPL |
 | Windows 控制台 UTF-8、双击运行 | 权限审批、沙箱 |
 
@@ -236,7 +236,7 @@ if step == 10 且仍有 tool call:
 
 规则：
 
-- 工具串行执行，MVP 不做并行。
+- 同一批工具调用并发执行（见 §15）；事件发送和历史写入始终在 agent 主 goroutine。
 - 每个 tool result 必须包含命令、退出码、stdout、stderr、是否截断。
 - 工具返回 error（进程起不来）也转成 tool result，让模型知道失败原因。
 - 支持 `context` 取消；取消时停止 HTTP 请求和正在执行的工具。
@@ -391,7 +391,7 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
 - Anthropic Messages。
 - MCP、skills、文件读写/搜索工具。
 - 权限审批、沙箱。
-- 会话恢复、上下文压缩、多 agent。
+- 多 agent。（会话恢复与上下文压缩是后补的，见 §15。）
 - 图片、完整的 CommonMark 渲染、代码高亮。
 
 ## 15. 实现与计划的差异
@@ -453,6 +453,16 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
 - `agent.Message` 增加 `Reasoning`；Chat 适配器解析流里的 `delta.reasoning_content`，并在后续请求里把历史 assistant 消息的 `reasoning_content` 原样回传（没有思维链时不发该字段）。DeepSeek 官方文档要求带 `tools` 的请求回传它，否则可能返回 400；实测当前服务端尚未强制，但随时可能变严。
 - 新增 `reasoning.delta` 事件（仅用于展示，不落盘）；`message.completed` 与会话 `assistant` 记录带完整 `reasoning`。
 - Responses 适配器不处理思维链。
+
+**重试、并行、上下文管理、会话恢复（后补）**
+
+- 事件新增 `retrying`（第几次、最多几次、等多久、原因）和 `compacted`（`mode` 为 `prune` / `summary`，估算的前后 token、被丢弃的条数、完整摘要、失败原因）。`tool.finished` 新增 `Content`：回给模型的完整文本。
+- **重试**：`ProviderError.Retryable` 的错误按指数退避重试，默认 3 次（约 1s、2s、4s，±25% 抖动，单次上限 16s），`Retry-After` 优先但超过 30 秒就不等；`insufficient_quota` 不重试。**本次调用一旦向界面输出过内容就不再重试**，否则已显示（CLI 里已写进 stdout）的半截答案会被重复输出。`Config.Retry` 为 nil 用默认策略，`&RetryPolicy{}` 关闭。
+- **并行工具**：同一批 tool call 并发执行，上限 `Config.MaxParallelTools`（默认 4，1 为串行）。worker 只执行工具，事件发送和历史写入都在 agent 主 goroutine，所以 `event.Sink` 不要求线程安全。`tool.requested` 按调用顺序、`tool.finished` 按完成顺序，历史里的 tool 消息始终按调用顺序。`Tool.Run` 必须并发安全。工具 panic 只算该次调用失败，不再作废整轮。
+- **上下文管理**：`Config.ContextWindow` > 0 时，每次调用模型前估算输入 token，超过预算（窗口减去至多 25% 的输出预留，再取 80%）就压缩：先把较早的、较长的工具输出裁成“开头 200 字符 + 标记”（幂等），不够再把更早的对话总结成摘要。摘要附在系统提示词后，历史只保留切点之后的内容；切点只选在用户消息处，不拆 assistant 的 tool_calls 与它的结果，本轮的用户消息和最近一轮总是保留。服务端报告超长时压缩一次再重试，不占步数、每步只做一次。摘要失败（出错、被截断、为空）历史保持原样、本轮继续、同一轮不再重试。摘要请求的输出上限不低于 4000：思考模式的推理 token 也计入上限，沿用用户较小的 `maxOutput` 会让摘要被截断（真实 DeepSeek 上发现）。
+- **会话记录**：`tool` 记录新增 `content`；新增 `compact`（`mode`、`tokens_before/after`、`dropped`、`summary`、`error`）、`retry`、`resume` 记录。
+- **会话恢复**：`session.Load` 重放出历史、摘要和给 TUI 的事件流，规则与运行时一致——并行工具结果按调用顺序而非完成顺序；进程被杀留下的未完成 tool call 补“未执行”；首次模型调用失败或被取消时撤销用户消息；panic 整轮作废；压缩按当初方式重做，裁剪复用纯函数 `agent.PruneToolOutputs`。损坏的行跳过并计数。`Recorder.Attach` 让恢复后的对话接在原会话文件后面。选择器：`latest`（`-c`）、列表序号（≤3 位数字）、ID 前缀；列表按文件修改时间排序，因为恢复后继续追加不会改文件名。模型或服务商与原会话不同时丢弃旧思维链。`sprout run -c` 找不到会话是错误（退出码 1）；TUI 里则提示并开新会话。恢复期间 TUI 禁止发送。
+- 关键测试是“黄金对照”：用真实 agent 跑含并行工具、思维链、裁剪、摘要的长对话，重放出的历史与摘要必须与运行时逐条一致，并带前提断言和变异检查。
 
 **尚未验证**
 

@@ -105,7 +105,7 @@ docs/                    设计文档
 内核与所有 surface 共用一套类型化协议，定义在 `internal/agent/event`：
 
 - **Command**（界面 → 内核）：`prompt`、`cancel`、`resume`。
-- **Event**（内核 → 界面）：`turn.started`、`message.delta`、`reasoning.delta`、`message.completed`、`tool.requested`、`tool.finished`、`usage`、`turn.finished`、`error`。
+- **Event**（内核 → 界面）：`turn.started`、`message.delta`、`reasoning.delta`、`message.completed`、`tool.requested`、`tool.finished`、`usage`、`retrying`、`compacted`、`turn.finished`、`error`。
 
 TUI、WebUI、CLI、JSON-RPC 都只是这套协议的适配器。
 
@@ -128,6 +128,7 @@ go build -o bin/sprout.exe ./cmd/sprout
 
 sprout                 # 终端界面
 sprout run "..."       # 单次非交互，答案写 stdout，进度写 stderr
+sprout -c              # 恢复当前目录最近的会话（也可 sprout run -c "..."；TUI 里用 /resume 选择）
 ```
 
 首次运行会在 `<程序所在目录>/data/.sprout/models.jsonc` 生成带注释的配置，填入 API Key（或设置对应环境变量，如 `DEEPSEEK_API_KEY`）后重启即可。可用 `--data-dir` 或 `SPROUT_DATA_DIR` 指定数据目录；用 `go run` 开发时必须显式指定，例如 `go run ./cmd/sprout --data-dir ./data/.sprout`。
