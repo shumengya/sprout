@@ -75,7 +75,7 @@ func TestThinkingBeforeToolCallIsCollapsed(t *testing.T) {
 	if m.think != nil || countThink(m) != 1 {
 		t.Fatalf("工具调用前思维链应折叠且不重复: think=%v 数量=%d", m.think, countThink(m))
 	}
-	mustContain(t, plain(m), "思考过程 · 5 字", "⚙ bash")
+	mustContain(t, plain(m), "思考过程 · 5 字", "bash")
 }
 
 func TestEachStepGetsItsOwnThinkingEntry(t *testing.T) {

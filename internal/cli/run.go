@@ -52,7 +52,7 @@ func (p *printer) Emit(e event.Event) {
 	case event.MessageDelta:
 		p.write(clean(e.Text))
 	case event.ToolRequested:
-		p.status("⚙ %s  %s", e.Call.Name, firstLine(clean(commandOf(e.Call.Arguments))))
+		p.status("[%s] %s", e.Call.Name, firstLine(clean(commandOf(e.Call.Arguments))))
 	case event.ToolFinished:
 		p.status("  └ %s", toolSummary(e))
 	case event.Error:

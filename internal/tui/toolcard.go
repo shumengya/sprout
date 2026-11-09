@@ -32,7 +32,7 @@ func (e *entry) drawTool(w int) string {
 	if multi && strings.TrimSpace(rest) != "" {
 		first += " …"
 	}
-	head := styTool.Render("⚙ "+e.name) + "  " + ansi.Truncate(first, max(w-ansi.StringWidth(e.name)-4, 1), "…")
+	head := styTool.Render(e.name) + "  " + ansi.Truncate(first, max(w-ansi.StringWidth(e.name)-2, 1), "…")
 
 	var b strings.Builder
 	b.WriteString(head)

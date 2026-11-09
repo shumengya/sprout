@@ -121,7 +121,7 @@ func TestRunOnceEndToEnd(t *testing.T) {
 	if code != 0 || out != "命令输出了 "+e2eMarker+"\n" {
 		t.Fatalf("code=%d\nstdout=%q\nstderr=%q", code, out, errOut)
 	}
-	for _, want := range []string{"⚙ " + toolName + "  echo " + e2eMarker, "exit 0"} {
+	for _, want := range []string{"[" + toolName + "] echo " + e2eMarker, "exit 0"} {
 		if !strings.Contains(errOut, want) {
 			t.Errorf("stderr 缺少 %q: %q", want, errOut)
 		}

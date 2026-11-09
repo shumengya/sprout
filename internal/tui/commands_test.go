@@ -27,7 +27,7 @@ func TestSlashToolsReport(t *testing.T) {
 	info.Unavailable = []string{"bash 不可用：未找到 Git Bash"}
 	m := newSized(t, Options{Runner: scriptRunner(), Info: info}, 120, 40)
 	submit(m, "/tools")
-	mustContain(t, plain(m), "可用终端工具:", "powershell  PowerShell 7+", "bash  Git Bash", "✗ bash 不可用：未找到 Git Bash")
+	mustContain(t, plain(m), "可用终端工具:", "powershell  PowerShell 7+", "bash  Git Bash", "bash 不可用：未找到 Git Bash")
 }
 
 func TestSlashToolsWithNoToolsSaysSo(t *testing.T) {
@@ -114,7 +114,7 @@ func TestSubmitResumesFollow(t *testing.T) {
 	if !m.follow {
 		t.Fatal("发送新消息应回到底部")
 	}
-	mustContain(t, plain(m), "你> 再问一个")
+	mustContain(t, plain(m), "再问一个")
 }
 
 func TestStaleTurnEventsAreIgnored(t *testing.T) {

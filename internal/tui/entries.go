@@ -25,8 +25,8 @@ const (
 
 // 颜色用 ANSI 基础色，跟随终端主题，深浅色背景下都可读。
 var (
-	styUser  = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
-	styTool  = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
+	styUser  = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+	styTool  = lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true)
 	styFaint = lipgloss.NewStyle().Faint(true)
 	styErr   = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
 	styWarn  = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
@@ -67,7 +67,8 @@ func (e *entry) render(w int, expandThink bool) string {
 func (e *entry) draw(w int, expandThink bool) string {
 	switch e.kind {
 	case kindUser:
-		return hang(styUser.Render("你> "), 4, wrap(sanitize(e.text), w-4))
+		// 不加前缀，靠颜色和助手回答区分；助手回答保持终端默认前景色。
+		return styUser.Render(wrap(sanitize(e.text), w))
 	case kindAssistant:
 		return renderMarkdown(sanitize(e.text), w)
 	case kindTool:

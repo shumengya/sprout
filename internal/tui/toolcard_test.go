@@ -17,7 +17,7 @@ func TestToolRunningThenFinished(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 100, 30)
 	begin(m, "看目录")
 	apply(m, requested("c1", "powershell", `{"command":"Get-ChildItem"}`))
-	mustContain(t, plain(m), "⚙ powershell", "Get-ChildItem", "运行中", "执行 powershell")
+	mustContain(t, plain(m), "powershell", "Get-ChildItem", "运行中", "执行 powershell")
 
 	apply(m, event.ToolFinished{ID: "c1", Name: "powershell", Command: "Get-ChildItem",
 		Stdout: "a.go\nb.go\n", ExitCode: 0, Duration: 1500 * time.Millisecond})
@@ -72,7 +72,7 @@ func TestSkippedToolWithoutRequestStillShown(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 100, 30)
 	begin(m, "q")
 	apply(m, event.ToolFinished{ID: "never", Name: "bash", Cancelled: true, Err: "未执行"})
-	mustContain(t, plain(m), "⚙ bash", "已取消")
+	mustContain(t, plain(m), "bash", "已取消")
 }
 
 func TestToolOutputIsSanitized(t *testing.T) {

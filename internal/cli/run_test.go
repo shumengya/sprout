@@ -50,7 +50,7 @@ func TestToolProgressGoesToStderrOnly(t *testing.T) {
 	if code != ExitOK || out != "入口是 main.go\n" {
 		t.Fatalf("stdout 只应有答案: code=%d stdout=%q", code, out)
 	}
-	for _, want := range []string{"⚙ powershell  Get-ChildItem", "exit 0，1.2s"} {
+	for _, want := range []string{"[powershell] Get-ChildItem", "exit 0，1.2s"} {
 		if !strings.Contains(errOut, want) {
 			t.Errorf("stderr 缺少 %q: %q", want, errOut)
 		}

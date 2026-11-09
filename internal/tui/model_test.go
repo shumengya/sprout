@@ -103,6 +103,52 @@ func TestCursorLandsInsideInputBox(t *testing.T) {
 	}
 }
 
+func TestUserAndAssistantDifferByColorNotPrefix(t *testing.T) {
+	m := newSized(t, Options{Runner: scriptRunner()}, 80, 30)
+	begin(m, "用户的话")
+	apply(m, event.MessageDelta{Text: "助手的话"})
+
+	var user, assistant string
+	for _, e := range m.entries {
+		switch e.kind {
+		case kindUser:
+			user = e.render(80, false)
+		case kindAssistant:
+			assistant = e.render(80, false)
+		}
+	}
+	// 两者都不带前缀，纯文本就是原话。
+	if ansi.Strip(user) != "用户的话" || ansi.Strip(assistant) != "助手的话" {
+		t.Fatalf("不应有前缀: %q / %q", ansi.Strip(user), ansi.Strip(assistant))
+	}
+	// 区分只靠颜色：用户消息带颜色转义，助手回答不带前景色转义。
+	if !strings.Contains(user, "\x1b[") {
+		t.Errorf("用户消息应带颜色: %q", user)
+	}
+	if strings.Contains(assistant, "\x1b[3") {
+		t.Errorf("助手回答应使用终端默认前景色，不应带前景色转义: %q", assistant)
+	}
+	if user == assistant {
+		t.Error("两种消息的渲染不应相同")
+	}
+}
+
+func TestNoEmojiOrChatPrefixesInInterface(t *testing.T) {
+	m := newSized(t, Options{Runner: scriptRunner(), Info: Info{
+		Model: "m", Tools: []ToolInfo{{"bash", "x"}}, Unavailable: []string{"powershell 不可用：原因"},
+	}}, 100, 40)
+	begin(m, "问题")
+	apply(m, requested("c", "bash", `{"command":"ls"}`),
+		event.ToolFinished{ID: "c", Name: "bash", Stdout: "a\n"}, event.MessageDelta{Text: "答"})
+	submit(m, "/tools")
+	s := plain(m)
+	for _, bad := range []string{"⚙", "✗", "你> ", "🔧", "✅", "❌"} {
+		if strings.Contains(s, bad) {
+			t.Errorf("界面里不应出现 %q:\n%s", bad, s)
+		}
+	}
+}
+
 func TestStreamingDeltasAppendToOneAssistantEntry(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 80, 24)
 	begin(m, "你好")
@@ -110,7 +156,7 @@ func TestStreamingDeltasAppendToOneAssistantEntry(t *testing.T) {
 	if n := countKind(m, kindAssistant); n != 1 {
 		t.Fatalf("流式增量应追加到同一个条目，得到 %d 个", n)
 	}
-	mustContain(t, plain(m), "你> 你好", "你好呀")
+	mustContain(t, plain(m), "你好", "你好呀")
 	apply(m, event.MessageCompleted{Content: "你好呀"})
 	if m.cur != nil || countKind(m, kindAssistant) != 1 {
 		t.Fatal("完成后不应再追加，也不应重复创建条目")

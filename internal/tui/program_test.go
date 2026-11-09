@@ -66,7 +66,7 @@ func TestProgramFullTurnThroughRealEventLoop(t *testing.T) {
 	runProgram(t, m, func(send func(tea.Msg)) { send(keyEnter) }, finishedOneTurn)
 
 	s := plain(m)
-	mustContain(t, s, "你> 看一下目录", "我来看看", "⚙ powershell", "Get-ChildItem", "1 行，exit 0", "main.go", "入口是 main.go", "空闲")
+	mustContain(t, s, "看一下目录", "我来看看", "powershell", "Get-ChildItem", "1 行，exit 0", "main.go", "入口是 main.go", "空闲")
 	if countKind(m, kindAssistant) != 2 || countKind(m, kindTool) != 1 {
 		t.Errorf("条目数不对: assistant=%d tool=%d", countKind(m, kindAssistant), countKind(m, kindTool))
 	}

@@ -74,7 +74,7 @@ func (m *Model) toolsReport() string {
 		}
 	}
 	for _, u := range info.Unavailable {
-		b.WriteString("\n  ✗ " + u)
+		b.WriteString("\n  " + u)
 	}
 	return b.String()
 }
