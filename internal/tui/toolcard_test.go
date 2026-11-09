@@ -24,8 +24,8 @@ func TestToolRunningThenFinished(t *testing.T) {
 	s := plain(m)
 	mustContain(t, s, "2 行，exit 0，1.5s", "a.go", "b.go")
 	mustNotContain(t, s, "运行中")
-	if m.curTool != "" {
-		t.Error("工具结束后状态行不应再显示工具名")
+	if n := m.runningTools(); len(n) != 0 {
+		t.Errorf("工具结束后状态行不应再显示工具名: %v", n)
 	}
 }
 
@@ -121,4 +121,37 @@ func TestLongChineseOutputNeverOverflowsWidth(t *testing.T) {
 			t.Errorf("第 %d 行 %d 个字符，疑似超出终端宽度: %q", i, w, l)
 		}
 	}
+}
+
+func TestParallelToolsShownTogether(t *testing.T) {
+	m := newSized(t, Options{Runner: scriptRunner()}, 100, 40)
+	begin(m, "q")
+	apply(m, requested("1", "bash", `{"command":"ls"}`), requested("2", "powershell", `{"command":"dir"}`))
+	mustContain(t, plain(m), "并行执行 2 个工具")
+
+	// 先结束一个：另一个还在跑，状态行要变成它的名字，而不是被清空。
+	apply(m, event.ToolFinished{ID: "2", Name: "powershell", Command: "dir", Stdout: "x\n"})
+	if names := m.runningTools(); len(names) != 1 || names[0] != "bash" {
+		t.Fatalf("仍在运行的应只有 bash: %v", names)
+	}
+	mustContain(t, plain(m), "执行 bash")
+
+	apply(m, event.ToolFinished{ID: "1", Name: "bash", Command: "ls", Stdout: "y\n"})
+	if len(m.runningTools()) != 0 {
+		t.Fatal("全部结束后不应再有运行中的工具")
+	}
+	mustNotContain(t, plain(m), "运行中", "并行执行")
+}
+
+func TestRunningToolsAreSweptWhenTurnEnds(t *testing.T) {
+	// 轮次结束（比如通道提前关闭）时，没收到 ToolFinished 的卡片不能一直显示“运行中…”。
+	m := newSized(t, Options{Runner: scriptRunner()}, 100, 30)
+	begin(m, "q")
+	apply(m, requested("1", "bash", `{"command":"sleep 99"}`), event.TurnFinished{Reason: event.ReasonCancelled})
+	if len(m.runningTools()) != 0 {
+		t.Fatal("轮次结束后不应还有运行中的工具")
+	}
+	s := plain(m)
+	mustContain(t, s, "已取消")
+	mustNotContain(t, s, "运行中…")
 }

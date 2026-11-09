@@ -61,6 +61,8 @@ func (r Result) ForModel() string {
 
 // Tool 是模型可调用的一个工具。
 //
+// Run 可能被并发调用（同一批 tool call 会并行执行），实现必须并发安全。
+//
 // Run 返回 error 仅表示“没能得到结果”（参数无效、进程起不来、被取消）；
 // 命令本身失败应通过 Result.ExitCode 表达。ctx 被取消时应返回 ctx.Err()，
 // 并尽量带上已收集的部分输出。

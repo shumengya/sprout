@@ -85,9 +85,11 @@ func (m *Model) activity() string {
 		return styFaint.Render("空闲")
 	}
 	label := "生成中"
-	switch {
-	case m.curTool != "":
-		label = "执行 " + m.curTool
+	switch names := m.runningTools(); {
+	case len(names) == 1:
+		label = "执行 " + names[0]
+	case len(names) > 1:
+		label = fmt.Sprintf("并行执行 %d 个工具", len(names))
 	case m.think != nil:
 		label = "思考中"
 	}

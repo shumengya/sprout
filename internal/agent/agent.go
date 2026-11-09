@@ -26,10 +26,13 @@ type Config struct {
 	System          string
 	Tools           *tool.Registry // 可为 nil，表示没有工具
 	MaxOutputTokens int
-	MaxSteps        int          // <= 0 时取 DefaultMaxSteps
-	Recorder        event.Sink   // 可为 nil；与调用方的 sink 收到完全相同的事件，用于会话落盘
-	Retry           *RetryPolicy // nil 表示使用 DefaultRetry；&RetryPolicy{} 表示不重试
-	Logger          *slog.Logger
+	MaxSteps        int // <= 0 时取 DefaultMaxSteps
+	// MaxParallelTools 是同一批 tool call 同时执行的上限：<= 0 取 DefaultMaxParallelTools，1 表示串行。
+	// 工具的 Run 因此必须能被并发调用。
+	MaxParallelTools int
+	Recorder         event.Sink   // 可为 nil；与调用方的 sink 收到完全相同的事件，用于会话落盘
+	Retry            *RetryPolicy // nil 表示使用 DefaultRetry；&RetryPolicy{} 表示不重试
+	Logger           *slog.Logger
 }
 
 // Agent 持有一个会话的对话历史。同一时刻只允许一个 Run 在执行。

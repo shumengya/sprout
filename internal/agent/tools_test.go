@@ -101,6 +101,7 @@ func TestToolSeesRawArguments(t *testing.T) {
 }
 
 func TestToolCallsRunSerially(t *testing.T) {
+	// MaxParallelTools=1 时严格按调用顺序一个接一个执行。
 	var order []string
 	mk := func(name string) fakeTool {
 		return fakeTool{name: name, run: func(context.Context, json.RawMessage) (tool.Result, error) {
@@ -112,7 +113,7 @@ func TestToolCallsRunSerially(t *testing.T) {
 		callTools(call("1", "a", `{}`), call("2", "b", `{}`), call("3", "a", `{}`)),
 		say("ok"),
 	}}
-	a := newAgent(t, p, registry(t, mk("a"), mk("b")), nil)
+	a := newAgentCfg(t, Config{Provider: p, Tools: registry(t, mk("a"), mk("b")), Retry: &RetryPolicy{}, MaxParallelTools: 1})
 	if err := a.Run(context.Background(), "q", &collector{}); err != nil {
 		t.Fatal(err)
 	}

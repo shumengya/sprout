@@ -112,7 +112,6 @@ func (m *Model) onEvent(e event.Event) {
 		m.tools[e.Call.ID] = m.add(&entry{
 			kind: kindTool, name: e.Call.Name, command: commandOf(e.Call.Arguments), running: true,
 		})
-		m.curTool = e.Call.Name
 	case event.ToolFinished:
 		t := m.tools[e.ID]
 		if t == nil { // 被取消而没来得及执行的调用没有 ToolRequested
@@ -124,7 +123,6 @@ func (m *Model) onEvent(e event.Event) {
 			t.command = e.Command
 		}
 		t.touch()
-		m.curTool = ""
 	case event.Usage:
 		m.tokens += e.TotalTokens
 	case event.Retrying:
@@ -151,7 +149,14 @@ func (m *Model) finishTurn(reason string) {
 	// 一轮结束，“正在取消…”这类针对本轮的临时提示也该消失。
 	m.endThink()
 	m.thinkShown = false
-	m.running, m.cur, m.curTool, m.status = false, nil, "", ""
+	m.running, m.cur, m.status = false, nil, ""
+	// 轮次异常结束时（通道提前关闭等）可能还有工具卡片停在“运行中…”，不能让它一直转下去。
+	for _, e := range m.entries {
+		if e.kind == kindTool && e.running {
+			e.running, e.fin.Cancelled, e.fin.Err = false, true, "已取消"
+			e.touch()
+		}
+	}
 	if m.cancel != nil {
 		m.cancel() // 释放 context
 		m.cancel = nil

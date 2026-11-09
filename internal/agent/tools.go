@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -15,37 +16,20 @@ const maxLoggedCommand = 200
 
 const cancelledToolReply = "未执行：用户取消了本轮对话。"
 
-// runTools 串行执行一批 tool call，并把结果按顺序追加到历史。
-// 只在本轮被取消时返回 error；此时尚未执行的调用也会补上“未执行”结果，
-// 保证每个 assistant tool call 在历史里都有对应的 tool 消息，否则下一次请求会被服务端拒绝。
-func (t *turn) runTools(calls []ToolCall) error {
-	for i, call := range calls {
-		if t.ctx.Err() != nil {
-			t.skip(calls[i:])
-			return t.cancelled()
+// execTool 执行单个调用，返回 ToolFinished 事件和回给模型的文本。工具的任何失败（未知工具、参数无效、
+// 进程起不来、被取消、甚至 panic）都转成文本返回给模型，让它看到失败原因，不会终止 agent。
+//
+// 它不发事件、不碰历史，所以可以在多个 goroutine 里并发调用；事件和历史由 runTools 在主 goroutine 里统一处理。
+func (t *turn) execTool(call ToolCall) (fin event.ToolFinished, content string) {
+	fin = event.ToolFinished{ID: call.ID, Name: call.Name}
+	defer func() {
+		if r := recover(); r != nil {
+			// 工具实现的 bug 不能拖垮整个进程，也不该作废整轮：当作一次工具失败告诉模型。
+			fin.Err = fmt.Sprintf("内部错误: %v", r)
+			content = "工具执行失败: " + fin.Err
+			t.a.log.Error("tool panic", "name", call.Name, "panic", r, "stack", string(debug.Stack()))
 		}
-		t.a.history = append(t.a.history, t.runTool(call))
-	}
-	if t.ctx.Err() != nil { // 最后一个工具执行期间被取消
-		return t.cancelled()
-	}
-	return nil
-}
-
-// skip 为没来得及执行的调用补上“已取消”的结果。
-func (t *turn) skip(calls []ToolCall) {
-	for _, c := range calls {
-		t.out.Emit(event.ToolFinished{ID: c.ID, Name: c.Name, Cancelled: true, Err: cancelledToolReply})
-		t.a.history = append(t.a.history, Message{Role: RoleTool, ToolID: c.ID, Content: cancelledToolReply})
-	}
-}
-
-// runTool 执行单个调用。工具的任何失败（未知工具、参数无效、进程起不来、被取消）
-// 都转成 tool 消息返回给模型，让它看到失败原因，不会终止 agent。
-func (t *turn) runTool(call ToolCall) Message {
-	t.out.Emit(event.ToolRequested{Call: event.ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments}})
-	fin := event.ToolFinished{ID: call.ID, Name: call.Name}
-	var content string
+	}()
 
 	tl, ok := t.lookup(call.Name)
 	if !ok {
@@ -72,8 +56,7 @@ func (t *turn) runTool(call ToolCall) Message {
 			"exit_code", res.ExitCode, "timed_out", res.TimedOut, "duration", fin.Duration, "error", fin.Err)
 	}
 
-	t.out.Emit(fin)
-	return Message{Role: RoleTool, ToolID: call.ID, Content: content}
+	return fin, content
 }
 
 func fillFinished(fin *event.ToolFinished, res tool.Result, wall time.Duration) {

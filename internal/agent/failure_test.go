@@ -114,7 +114,8 @@ func TestCancelDuringToolPadsRemainingCalls(t *testing.T) {
 		callTools(call("a", "slow", `{}`), call("b", "never", `{}`)),
 		say("收到"),
 	}}
-	a := newAgent(t, p, registry(t, slow, never), nil)
+	// 取消阻断后续调用是串行语义（并发时第二个也会同时开始），所以显式固定为 1。
+	a := newAgentCfg(t, Config{Provider: p, Tools: registry(t, slow, never), Retry: &RetryPolicy{}, MaxParallelTools: 1})
 	var c collector
 
 	if err := a.Run(ctx, "q", &c); !errors.Is(err, context.Canceled) {
@@ -123,13 +124,14 @@ func TestCancelDuringToolPadsRemainingCalls(t *testing.T) {
 	if c.finishedReason(t) != event.ReasonCancelled {
 		t.Fatalf("reason = %q", c.finishedReason(t))
 	}
-	var fins []event.ToolFinished
+	// ToolFinished 按完成顺序发出（被跳过的 b 先于还在收尾的 a），所以按 ID 取，不依赖事件顺序。
+	fins := map[string]event.ToolFinished{}
 	for _, e := range c.events {
 		if f, ok := e.(event.ToolFinished); ok {
-			fins = append(fins, f)
+			fins[f.ID] = f
 		}
 	}
-	if len(fins) != 2 || !fins[0].Cancelled || !fins[1].Cancelled || fins[0].Stdout != "部分输出" {
+	if len(fins) != 2 || !fins["a"].Cancelled || !fins["b"].Cancelled || fins["a"].Stdout != "部分输出" {
 		t.Fatalf("两个调用都应标记为已取消，第一个保留部分输出: %+v", fins)
 	}
 
@@ -146,10 +148,36 @@ func TestCancelDuringToolPadsRemainingCalls(t *testing.T) {
 	}
 }
 
-func TestPanicIsRecoveredAndHistoryRestored(t *testing.T) {
+func TestToolPanicBecomesToolFailureAndTurnContinues(t *testing.T) {
+	// 工具实现的 bug 只算这一次工具调用失败，告诉模型，不作废整轮，也不影响同批的其他调用。
 	boom := fakeTool{name: "boom", run: func(context.Context, json.RawMessage) (tool.Result, error) { panic("炸了") }}
-	p := &scripted{steps: []scriptStep{callTools(call("x", "boom", `{}`)), say("ok")}}
-	a := newAgent(t, p, registry(t, boom), nil)
+	fine := okTool("fine", tool.Result{Command: "ok", Stdout: "好的"})
+	p := &scripted{steps: []scriptStep{
+		callTools(call("x", "boom", `{}`), call("y", "fine", `{}`)),
+		say("收到"),
+	}}
+	a := newAgent(t, p, registry(t, boom, fine), nil)
+	var c collector
+
+	if err := a.Run(context.Background(), "q", &c); err != nil {
+		t.Fatalf("工具 panic 不应让整轮失败: %v", err)
+	}
+	h := a.History()
+	if len(h) != 5 || !strings.Contains(h[2].Content, "内部错误: 炸了") || !strings.Contains(h[3].Content, "好的") {
+		t.Fatalf("历史 = %+v", h)
+	}
+	if c.finishedReason(t) != event.ReasonStop {
+		t.Errorf("reason = %q", c.finishedReason(t))
+	}
+}
+
+func TestProviderPanicIsRecoveredAndHistoryRestored(t *testing.T) {
+	// Run 顶层的 recover：provider 的 panic 作废整轮，历史还原，仍以 TurnFinished 收尾。
+	p := &scripted{steps: []scriptStep{
+		{hook: func(context.Context) { panic("炸了") }},
+		say("ok"),
+	}}
+	a := newAgent(t, p, nil, nil)
 	var c collector
 
 	err := a.Run(context.Background(), "q", &c)

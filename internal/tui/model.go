@@ -76,7 +76,6 @@ type Model struct {
 
 	running bool
 	started time.Time // 本轮开始时间，状态行显示已耗时
-	curTool string    // 正在执行的工具名，状态行显示用
 	status  string    // 状态行的临时提示，下次按键时清除
 	tokens  int       // 本会话累计 token
 
@@ -138,6 +137,17 @@ func (m *Model) add(e *entry) *entry {
 	e.dirty = true
 	m.entries = append(m.entries, e)
 	return e
+}
+
+// runningTools 返回当前仍在执行的工具名。同一批 tool call 并行时可能有多个。
+func (m *Model) runningTools() []string {
+	var names []string
+	for _, e := range m.entries {
+		if e.kind == kindTool && e.running {
+			names = append(names, e.name)
+		}
+	}
+	return names
 }
 
 // layout 按窗口尺寸重排各区域。

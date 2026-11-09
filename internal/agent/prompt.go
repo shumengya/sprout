@@ -39,7 +39,10 @@ func BuildSystemPrompt(info PromptInfo) string {
 		}
 		b.WriteString("- 工具是无状态的：每次调用都启动全新进程，工作目录固定为上面的工作目录，")
 		b.WriteString("cd、环境变量等状态不会保留到下一次调用，需要时在同一条命令里完成。\n")
-		b.WriteString("- 不要运行需要交互输入的命令。\n\n")
+		b.WriteString("- 不要运行需要交互输入的命令。\n")
+		b.WriteString("- 同一次回复里发出的多个工具调用会并行执行，彼此没有先后顺序，也看不到对方的结果。")
+		b.WriteString("互相独立的命令可以一起发；后一条依赖前一条的结果或副作用时（比如先建目录再写文件），")
+		b.WriteString("要么合并成一条命令，要么分到不同的回合里。\n\n")
 	}
 
 	b.WriteString("## 工作方式\n")
