@@ -83,7 +83,16 @@ type Model struct {
 	resuming bool      // 正在恢复会话：此时不能发送，否则新提问会和恢复的历史交错
 	started  time.Time // 本轮开始时间，状态行显示已耗时
 	status   string    // 状态行的临时提示，下次按键时清除
+	statusOK bool      // status 是成功提示（如已复制），用绿色而不是警告色显示
 	tokens   int       // 本会话累计 token
+
+	// 对话区的拖选。选区用内容坐标记录；content 是当前送进 viewport 的完整文本，
+	// plain 是它去掉样式后的逐行文本（按需计算，plainSrc 记录算的是哪一版）。
+	sel      selection
+	content  string
+	plain    []string
+	plainSrc string
+	clip     func(string) error // 写系统剪贴板；测试里替换成替身
 
 	turn     int
 	events   chan event.Event
@@ -98,7 +107,7 @@ func New(o Options) *Model {
 	if o.Runner == nil && o.Disabled == "" {
 		o.Disabled = "没有可用的 agent，无法发起对话。"
 	}
-	m := &Model{opts: o, follow: true, mouse: true, tools: map[string]*entry{}, quit: make(chan struct{})}
+	m := &Model{opts: o, follow: true, mouse: true, tools: map[string]*entry{}, quit: make(chan struct{}), clip: defaultClip}
 
 	m.vp = viewport.New()
 	m.vp.FillHeight = true
@@ -182,7 +191,10 @@ func (m *Model) refresh() {
 	for i, e := range m.entries {
 		parts[i] = e.render(m.w, m.showThink)
 	}
-	m.vp.SetContent(strings.Join(parts, "\n\n"))
+	content := strings.Join(parts, "\n\n")
+	m.syncSel(content) // 内容对不上了就取消选区，必须在更新 m.content 之前
+	m.content = content
+	m.vp.SetContent(content)
 	if m.follow {
 		m.vp.GotoBottom()
 		m.unseen = false

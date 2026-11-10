@@ -25,7 +25,7 @@ func (m *Model) View() tea.View {
 	}
 
 	sep := styFaint.Render(strings.Repeat("─", m.w))
-	v.Content = m.vp.View() + "\n" + sep + "\n" + m.statusLine() + "\n" + m.in.View() + "\n" + m.infoLine()
+	v.Content = m.body() + "\n" + sep + "\n" + m.statusLine() + "\n" + m.in.View() + "\n" + m.infoLine()
 
 	// 把输入框的光标位置换算到整个界面里：它在对话区、分隔线、状态行之后。
 	if c := m.in.Cursor(); c != nil {
@@ -96,6 +96,8 @@ func (m *Model) statusLine() string {
 // activity 是状态行左侧：当前在做什么。
 func (m *Model) activity() string {
 	switch {
+	case m.status != "" && m.statusOK:
+		return styOK.Render(m.status)
 	case m.status != "":
 		return styWarn.Render(m.status)
 	case !m.running:

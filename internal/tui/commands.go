@@ -22,10 +22,14 @@ const helpText = `快捷键
   ↑ ↓ Home End            输入框为空时同上
   滚到底部后会自动跟随新内容；上滚期间状态行会提示“有新内容”
 
+复制
+  在对话区按住鼠标左键拖动选中文字，松开自动复制；拖到对话区上下边缘会自动滚动
+  按任意键或点击别处取消选中
+
 命令
   /resume         列出当前目录的历史会话；/resume 序号 恢复其中一个
   /think          展开 / 折叠模型的思考过程
-  /mouse          开关鼠标滚轮（关闭后可直接用鼠标选中文字复制）
+  /mouse          开关鼠标上报（滚轮与拖选复制；关闭后改用终端自带的选中）
   /tools          查看检测到的终端工具
   /help           显示本帮助
   /quit           退出`
@@ -51,9 +55,10 @@ func (m *Model) slash(text string) (handled bool, cmd tea.Cmd) {
 		m.add(&entry{kind: kindNotice, text: "模型的思考过程" + state + "。"})
 	case "/mouse":
 		m.mouse = !m.mouse
+		m.clearSel()
 		msg := "鼠标滚轮已关闭，现在可以直接用鼠标选中文字复制；翻页请用 PgUp / PgDn。"
 		if m.mouse {
-			msg = "鼠标滚轮已开启，可滚动对话。此时选中文字需要按住 Shift 再拖动（取决于终端）。"
+			msg = "鼠标滚轮已开启，可滚动对话；在对话区拖动可选中并复制。\n终端自带的选中需要按住 Shift 再拖动（取决于终端）。"
 		}
 		m.add(&entry{kind: kindNotice, text: msg})
 	case "/quit", "/exit":

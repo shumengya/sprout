@@ -27,8 +27,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case tea.MouseClickMsg:
+		m.onMouseClick(msg)
+		return m, nil
+
+	case tea.MouseMotionMsg:
+		m.onMouseMotion(msg)
+		return m, nil
+
+	case tea.MouseReleaseMsg:
+		return m, m.onMouseRelease()
+
+	case copiedMsg:
+		m.onCopied(msg)
+		return m, nil
+
 	case tea.MouseMsg:
-		// 点击、拖动等其他鼠标事件不处理，也不转给输入框（否则会触发它自己的选区逻辑）。
+		// 其他鼠标事件（右键、中键等）不处理，也不转给输入框（否则会触发它自己的选区逻辑）。
 		return m, nil
 
 	case eventMsg:
@@ -70,7 +85,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) onKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	m.status = ""
+	m.status, m.statusOK = "", false
+	m.clearSel() // 内容已经在选中时复制过了；继续操作就让高亮消失
 	switch k.String() {
 	case "ctrl+c":
 		if m.running {
