@@ -62,6 +62,7 @@ go vet ./...
 - 提交前必须通过 build / test / vet；不要靠注释掉测试或缩小检查范围绕过。
 - 不删除、不跳过失败测试；确需跳过时说明原因。
 - 涉及协议、事件、会话格式的改动，同步更新 `docs/` 下的设计文档（M1 起建立）。
+- 每次完成任务（验证通过并提交）后，自动执行一次 `build.cmd`（非 Windows 用 `CGO_ENABLED=0 go build -o bin/sprout ./cmd/sprout`）更新 `bin/sprout.exe`，不用让用户自己构建；构建失败时报告原因。Windows 上 `sprout.exe` 正在运行时文件被占用会构建失败，提示用户先退出再重试。
 
 ## 不要做
 
