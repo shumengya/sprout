@@ -28,11 +28,12 @@ func TestThoughtHeadShowsDurationAndReportedTokens(t *testing.T) {
 	begin(m, "q")
 	apply(m, event.ReasoningDelta{Text: "先想"})
 	clk.add(12400 * time.Millisecond)
+	// 服务端报告了思维链 token 时以它为准，内核的估算（999）不显示。
 	apply(m, event.ReasoningDelta{Text: "再想"}, event.MessageDelta{Text: "答"},
-		event.MessageCompleted{Content: "答", Reasoning: "先想再想"},
+		event.MessageCompleted{Content: "答", Reasoning: "先想再想", ReasoningTokensEst: 999},
 		event.Usage{TotalTokens: 400, ReasoningTokens: 340})
-	mustContain(t, plain(m), "已思考 12秒 340token：先想再想")
-	mustNotContain(t, plain(m), "约")
+	mustContain(t, plain(m), "已思考 12秒 340 token：先想再想")
+	mustNotContain(t, plain(m), "约", "999")
 }
 
 func TestReasoningTokensOnlyAttachToTheirOwnCall(t *testing.T) {
@@ -40,14 +41,14 @@ func TestReasoningTokensOnlyAttachToTheirOwnCall(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 80, 30)
 	begin(m, "q")
 	apply(m,
-		event.MessageCompleted{Reasoning: "第一次的思考", ToolCalls: []event.ToolCall{{ID: "c", Name: "bash"}}},
+		event.MessageCompleted{Reasoning: "第一次的思考", ToolCalls: []event.ToolCall{{ID: "c", Name: "bash"}}, ReasoningTokensEst: 6},
 		requested("c", "bash", `{}`), event.ToolFinished{ID: "c", Name: "bash"},
 		event.MessageCompleted{Content: "答"},
 		event.Usage{TotalTokens: 99, ReasoningTokens: 77},
 	)
 	s := plain(m)
-	mustContain(t, s, "已思考 约6token：第一次的思考")
-	mustNotContain(t, s, "77token")
+	mustContain(t, s, "已思考 约6 token：第一次的思考")
+	mustNotContain(t, s, "77 token")
 }
 
 func TestUsageNotRightAfterCompletionIsNotAttached(t *testing.T) {
@@ -55,23 +56,30 @@ func TestUsageNotRightAfterCompletionIsNotAttached(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 80, 30)
 	begin(m, "q")
 	apply(m,
-		event.MessageCompleted{Reasoning: "想一下", ToolCalls: []event.ToolCall{{ID: "c", Name: "bash"}}},
+		event.MessageCompleted{Reasoning: "想一下", ToolCalls: []event.ToolCall{{ID: "c", Name: "bash"}}, ReasoningTokensEst: 3},
 		requested("c", "bash", `{}`),
 		event.Usage{TotalTokens: 99, ReasoningTokens: 77},
 	)
-	mustNotContain(t, plain(m), "77token")
-	mustContain(t, plain(m), "已思考 约3token：想一下")
+	mustNotContain(t, plain(m), "77 token")
+	mustContain(t, plain(m), "已思考 约3 token：想一下")
 }
 
 func TestReasoningTokensSurviveResume(t *testing.T) {
 	// 恢复会话时由完整消息重建：没有流式增量所以没有耗时，但服务端报告过的 token 数还在。
 	m := newSized(t, Options{Runner: scriptRunner(), Replay: []event.Event{
 		event.TurnStarted{Prompt: "问"},
-		event.MessageCompleted{Content: "答", Reasoning: "恢复的思考"},
+		event.MessageCompleted{Content: "答", Reasoning: "恢复的思考", ReasoningTokensEst: 9},
 		event.Usage{TotalTokens: 60, ReasoningTokens: 42},
 		event.TurnFinished{Reason: event.ReasonStop},
 	}}, 80, 30)
-	mustContain(t, plain(m), "已思考 42token：恢复的思考")
+	mustContain(t, plain(m), "已思考 42 token：恢复的思考")
+}
+
+func TestLargeReasoningTokensAreAbbreviated(t *testing.T) {
+	m := newSized(t, Options{Runner: scriptRunner()}, 80, 30)
+	begin(m, "q")
+	apply(m, event.MessageCompleted{Content: "答", Reasoning: "很长的思考"}, event.Usage{TotalTokens: 20000, ReasoningTokens: 15432})
+	mustContain(t, plain(m), "已思考 15k token：很长的思考")
 }
 
 func TestCollapsedThoughtIsOneTruncatedLine(t *testing.T) {
@@ -117,10 +125,15 @@ func TestFmtThinkDur(t *testing.T) {
 	}
 }
 
-func TestEstimateTokens(t *testing.T) {
-	for s, want := range map[string]int{"": 0, "abc": 1, "abcd": 2, "中文": 2, "中a": 2} {
-		if got := estimateTokens(s); got != want {
-			t.Errorf("estimateTokens(%q) = %d, want %d", s, got, want)
+func TestFmtTokens(t *testing.T) {
+	for n, want := range map[int]string{
+		0: "0", 7: "7", 999: "999",
+		1000: "1k", 1049: "1k", 1050: "1.1k", 2863: "2.9k", 9949: "9.9k", 9950: "10k",
+		12345: "12k", 128000: "128k", 999499: "999k", 999500: "1M",
+		1_234_567: "1.2M", 12_000_000: "12M", -1500: "-1.5k",
+	} {
+		if got := fmtTokens(n); got != want {
+			t.Errorf("fmtTokens(%d) = %q, want %q", n, got, want)
 		}
 	}
 }

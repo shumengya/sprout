@@ -29,18 +29,8 @@ const pruneMarker = "…[旧输出已裁剪以节省上下文，原文共 %d 字
 
 var rePruned = regexp.MustCompile(`\n…\[旧输出已裁剪以节省上下文，原文共 \d+ 字符\]$`)
 
-// estimateText 估算一段文本的 token 数：ASCII 约 3 字符/token，宽字符（中日韩）约 1 字符/token。
-func estimateText(s string) int {
-	ascii, wide := 0, 0
-	for _, r := range s {
-		if r < 0x80 {
-			ascii++
-		} else {
-			wide++
-		}
-	}
-	return (ascii+2)/3 + wide
-}
+// estimateText 是 EstimateTokens 在内核里的简写。
+func estimateText(s string) int { return EstimateTokens(s) }
 
 // estimateMessage 估算一条历史消息占用的 token。
 func estimateMessage(m Message) int {

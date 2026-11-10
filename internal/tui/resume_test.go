@@ -89,7 +89,7 @@ func TestResumeRebuildsTranscriptFromSavedEvents(t *testing.T) {
 		t.Fatalf("选择器 = %q resuming=%v", f.gotSel, m.resuming)
 	}
 	s := plain(m)
-	mustContain(t, s, "上次的提问", "上次的回答", "已恢复会话 abcd1234（1 轮）", "321 tokens")
+	mustContain(t, s, "上次的提问", "上次的回答", "已恢复会话 abcd1234（1 轮）", "321 token")
 	mustNotContain(t, s, "当前屏幕上原有的内容", "正在恢复")
 	if m.running {
 		t.Error("重放不应让界面停在生成中")

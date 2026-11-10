@@ -167,7 +167,9 @@ func TestUsageAccumulatesInStatusLine(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 100, 24)
 	begin(m, "q")
 	apply(m, event.Usage{TotalTokens: 120}, event.Usage{TotalTokens: 30})
-	mustContain(t, plain(m), "150 tokens")
+	mustContain(t, plain(m), "150 token")
+	apply(m, event.Usage{TotalTokens: 2713})
+	mustContain(t, plain(m), "2.9k token")
 }
 
 func TestRetryingShowsNoticeWithCountdown(t *testing.T) {
@@ -189,7 +191,7 @@ func TestCompactedNoticesExplainWhatHappened(t *testing.T) {
 		event.Compacted{Mode: event.CompactSummary, TokensBefore: 8000, Err: "模型返回了空摘要"},
 	)
 	mustContain(t, plain(m),
-		"已裁剪 3 条较早的工具输出", "9000 → 4000",
-		"更早的 12 条消息总结成摘要", "8000 → 2500",
+		"已裁剪 3 条较早的工具输出", "约 9k → 4k token",
+		"更早的 12 条消息总结成摘要", "约 8k → 2.5k token",
 		"生成摘要失败，历史保持原样继续", "模型返回了空摘要")
 }

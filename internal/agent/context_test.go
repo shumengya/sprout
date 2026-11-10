@@ -6,11 +6,9 @@ import (
 )
 
 func TestEstimateTextCountsChineseHeavierThanAscii(t *testing.T) {
-	if got := estimateText(strings.Repeat("a", 300)); got != 100 {
-		t.Errorf("300 个 ASCII 字符约 100 token，得到 %d", got)
-	}
-	if got := estimateText(strings.Repeat("字", 300)); got != 300 {
-		t.Errorf("300 个汉字约 300 token，得到 %d", got)
+	// 规则细节见 tokens_test.go；这里只确认内核用的是同一套估算。
+	if got := estimateText(strings.Repeat("字", 300)); got != EstimateTokens(strings.Repeat("字", 300)) || got <= 60 {
+		t.Errorf("300 个汉字估算为 %d，应和 EstimateTokens 一致，且明显多于 300 个英文字母", got)
 	}
 	if estimateText("") != 0 {
 		t.Error("空串应为 0")
@@ -22,7 +20,7 @@ func TestEstimateMessageIncludesToolCallsAndReasoning(t *testing.T) {
 	withCall := estimateMessage(Message{Role: RoleAssistant, Content: "hi",
 		ToolCalls: []ToolCall{{Name: "bash", Arguments: `{"command":"ls -la"}`}}})
 	withThink := estimateMessage(Message{Role: RoleAssistant, Content: "hi", Reasoning: strings.Repeat("想", 50)})
-	if withCall <= plain || withThink < plain+50 {
+	if withCall <= plain || withThink < plain+30 {
 		t.Errorf("tool call 和思维链都应计入: %d %d %d", plain, withCall, withThink)
 	}
 }

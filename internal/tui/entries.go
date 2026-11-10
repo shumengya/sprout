@@ -47,11 +47,13 @@ type entry struct {
 	// 思维链条目：live 表示还在流式输出，此时只预览最后几行。
 	live bool
 	// open 表示展开全文（点击条目或 /think 切换）；thinkStart 是第一段增量到达的时间，
-	// thinkDur 是思考耗时（从会话恢复或非流式给出时没有，为 0）；thinkTokens 是服务端报告的思维链 token 数，0 表示未报告。
+	// thinkDur 是思考耗时（从会话恢复或非流式给出时没有，为 0）；thinkTokens 是服务端报告的思维链 token 数，0 表示未报告；
+	// thinkEst 是内核的估算（MessageCompleted.ReasoningTokensEst），服务端没报告时显示它。
 	open        bool
 	thinkStart  time.Time
 	thinkDur    time.Duration
 	thinkTokens int
+	thinkEst    int
 
 	cache    string
 	cacheW   int

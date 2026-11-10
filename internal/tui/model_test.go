@@ -123,7 +123,7 @@ func TestTokensShownOnInfoLine(t *testing.T) {
 	apply(m, event.Usage{TotalTokens: 2863})
 	lines := strings.Split(plain(m), "\n")
 	last := strings.TrimRight(lines[len(lines)-1], " ")
-	if !strings.Contains(last, "模型 deepseek-chat") || !strings.HasSuffix(last, "2863 tokens") {
+	if !strings.Contains(last, "模型 deepseek-chat") || !strings.HasSuffix(last, "2.9k token") {
 		t.Fatalf("token 数应在信息栏右端: %q", last)
 	}
 	// 太窄时 token 数让位，不能把左边的信息挤掉或超宽。

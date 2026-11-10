@@ -67,6 +67,9 @@ type MessageCompleted struct {
 	Reasoning  string
 	ToolCalls  []ToolCall
 	StopReason string
+	// ReasoningTokensEst 是内核对 Reasoning 的 token 估算，供界面在服务端没报告思维链 token
+	// （Usage.ReasoningTokens 为 0）时显示。由 Reasoning 算出，不落盘；会话恢复时重新计算。
+	ReasoningTokensEst int
 }
 
 // ToolRequested 在工具开始执行前发出。

@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -102,13 +103,46 @@ func fmtWait(d time.Duration) string {
 	return fmt.Sprintf("%d 秒", max(int((d+time.Second-1)/time.Second), 1))
 }
 
+// fmtTokens 把 token 数缩写成 950、2.9k、12k、1.5M 这样，四舍五入，宽度最多 4 列左右。
+// 只用整数运算：浮点数下 1050/1000 不一定恰好是 1.05，四舍五入会偶尔差一位。
+func fmtTokens(n int) string {
+	switch {
+	case n < 0:
+		return "-" + fmtTokens(-n)
+	case n < 1000:
+		return strconv.Itoa(n)
+	case n < 1_000_000:
+		return scaled(n, 1000, "k", "M")
+	}
+	return scaled(n, 1_000_000, "M", "")
+}
+
+// scaled 把 n 按 unit 缩写：不到 10 个单位保留一位小数（去掉 .0），否则取整；
+// 进位到 1000 个单位时换成下一级（999.96k 显示成 1M 而不是 1000k）。
+func scaled(n, unit int, suffix, next string) string {
+	tenths := (n*10 + unit/2) / unit // 以 0.1 个单位计，四舍五入
+	if tenths < 100 {
+		if tenths%10 == 0 {
+			return strconv.Itoa(tenths/10) + suffix
+		}
+		return fmt.Sprintf("%d.%d%s", tenths/10, tenths%10, suffix)
+	}
+	whole := (n + unit/2) / unit
+	if whole >= 1000 && next != "" {
+		return fmtTokens(whole * unit)
+	}
+	return strconv.Itoa(whole) + suffix
+}
+
 // describeCompacted 把压缩事件写成一句中文提示。压缩从不静默发生，用户总能看到历史被动过。
 func describeCompacted(e event.Compacted) string {
 	switch {
 	case e.Err != "":
-		return fmt.Sprintf("上下文接近上限（约 %d token），但生成摘要失败，历史保持原样继续：%s", e.TokensBefore, e.Err)
+		return fmt.Sprintf("上下文接近上限（约 %s token），但生成摘要失败，历史保持原样继续：%s", fmtTokens(e.TokensBefore), e.Err)
 	case e.Mode == event.CompactPrune:
-		return fmt.Sprintf("上下文接近上限，已裁剪 %d 条较早的工具输出（约 %d → %d token）", e.Dropped, e.TokensBefore, e.TokensAfter)
+		return fmt.Sprintf("上下文接近上限，已裁剪 %d 条较早的工具输出（约 %s → %s token）",
+			e.Dropped, fmtTokens(e.TokensBefore), fmtTokens(e.TokensAfter))
 	}
-	return fmt.Sprintf("上下文接近上限，已把更早的 %d 条消息总结成摘要（约 %d → %d token）", e.Dropped, e.TokensBefore, e.TokensAfter)
+	return fmt.Sprintf("上下文接近上限，已把更早的 %d 条消息总结成摘要（约 %s → %s token）",
+		e.Dropped, fmtTokens(e.TokensBefore), fmtTokens(e.TokensAfter))
 }

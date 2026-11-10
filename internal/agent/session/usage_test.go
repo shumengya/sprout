@@ -3,6 +3,7 @@ package session
 import (
 	"testing"
 
+	"github.com/shumengya/sprout/internal/agent"
 	"github.com/shumengya/sprout/internal/agent/event"
 )
 
@@ -31,12 +32,18 @@ func TestReasoningTokensRoundTrip(t *testing.T) {
 }
 
 func TestReplayCarriesReasoningTokens(t *testing.T) {
-	st := load(t, u1, a1,
+	st := load(t, u1, `{"type":"assistant","content":"答","reasoning":"恢复时重新估算的思考内容","stop_reason":"stop"}`,
 		`{"type":"usage","input_tokens":10,"output_tokens":50,"total_tokens":60,"reasoning_tokens":42}`, t1)
 	var got []event.Usage
 	for _, e := range st.Events {
-		if u, ok := e.(event.Usage); ok {
-			got = append(got, u)
+		switch e := e.(type) {
+		case event.Usage:
+			got = append(got, e)
+		case event.MessageCompleted:
+			// 估算不落盘，回放时由思考内容重新算出，和运行时用同一套规则。
+			if want := agent.EstimateTokens("恢复时重新估算的思考内容"); e.ReasoningTokensEst != want || want == 0 {
+				t.Errorf("ReasoningTokensEst = %d，期望 %d", e.ReasoningTokensEst, want)
+			}
 		}
 	}
 	if len(got) != 1 || got[0].ReasoningTokens != 42 || got[0].TotalTokens != 60 {

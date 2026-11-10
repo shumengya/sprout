@@ -75,7 +75,7 @@ func (m *Model) infoLine() string {
 	if m.tokens <= 0 {
 		return left
 	}
-	right := styFaint.Render(fmt.Sprintf("%d tokens", m.tokens))
+	right := styFaint.Render(fmtTokens(m.tokens) + " token")
 	pad := m.w - ansi.StringWidth(left) - ansi.StringWidth(right)
 	if pad < len(gap) { // 放不下就不显示，左边的信息更重要
 		return left

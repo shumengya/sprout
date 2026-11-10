@@ -82,8 +82,10 @@ func TestReplayReproducesLiveHistoryExactly(t *testing.T) {
 
 	dir := t.TempDir()
 	rec := NewRecorder(dir, Info{Provider: "p", Model: "m", Cwd: `D:\proj`, Tools: []string{"a", "b", "huge"}}, nil)
+	// 窗口要让这段对话先触发裁剪、再触发摘要。内容几乎全是汉字，窗口大小随汉字的估算系数变；
+	// 系数是 0.7 时 1500–2100 都成立，取中间值留余量。
 	ag, err := agent.New(agent.Config{
-		Provider: prov, Model: "m", System: "SYS", Recorder: &signalSink{rec: rec, id: "cb", done: bRecorded}, ContextWindow: 2500,
+		Provider: prov, Model: "m", System: "SYS", Recorder: &signalSink{rec: rec, id: "cb", done: bRecorded}, ContextWindow: 1800,
 		Tools: registryOf(t, slowA, fastB, huge), Retry: &agent.RetryPolicy{},
 	})
 	if err != nil {
@@ -165,8 +167,9 @@ func TestReplayReappliesPruneExactly(t *testing.T) {
 	}}
 	dir := t.TempDir()
 	rec := NewRecorder(dir, Info{Provider: "p", Model: "m", Cwd: `D:\proj2`}, nil)
+	// 窗口要让大输出被裁剪、但还不到要做摘要的程度。汉字估算系数是 0.7 时 1100–1600 都成立，取中间值。
 	ag, err := agent.New(agent.Config{
-		Provider: prov, Model: "m", Recorder: rec, ContextWindow: 2000,
+		Provider: prov, Model: "m", Recorder: rec, ContextWindow: 1400,
 		Tools: registryOf(t, huge), Retry: &agent.RetryPolicy{},
 	})
 	if err != nil {

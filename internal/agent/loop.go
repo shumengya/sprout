@@ -80,6 +80,7 @@ func (t *turn) loop() error {
 		t.out.Emit(event.MessageCompleted{
 			Content: msg.Content, Reasoning: msg.Reasoning,
 			ToolCalls: eventCalls(msg.ToolCalls), StopReason: resp.StopReason,
+			ReasoningTokensEst: EstimateTokens(msg.Reasoning),
 		})
 		if resp.Usage != (Usage{}) {
 			t.out.Emit(event.Usage{

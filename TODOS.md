@@ -45,7 +45,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] 流式输出、工具卡片（命令、退出码、耗时、最多 8 行预览）、输出里的 ANSI/控制字符清理。
 - [x] 历史滚动：鼠标滚轮、PgUp/PgDn、Ctrl+↑↓、Ctrl+Home/End；输入框为空时 ↑↓ Home End 同样滚动；状态行显示位置与“有新内容”。
 - [x] Markdown（CommonMark + GFM）：标题、嵌套列表与任务列表、多级引用、分隔线、围栏代码块（chroma 语法高亮）、粗体/斜体/删除线/行内代码、链接与图片、表格（按显示宽度对齐、列对齐标记、过宽时缩列折行、极窄时逐行展开）。流式输出中途未闭合的语法原样显示。
-- [x] 思维链淡色显示：流式预览最后 3 行；结束后折叠成一行“已思考 N秒 Ntoken：内容…”，点击单条展开或收起，`/think` 一次切换全部。思维链 token 取服务端报告值（未报告时按字数估算并标“约”）。
+- [x] 思维链淡色显示：流式预览最后 3 行；结束后折叠成一行“已思考 N秒 N token：内容…”，点击单条展开或收起，`/think` 一次切换全部。思维链 token 取服务端报告值（未报告时显示内核估算并标“约”）。token 数缩写为 2.9k、12k 这样。
 - [x] `/help` `/tools` `/think` `/mouse` `/install-sprout` `/uninstall-sprout` `/quit`；缺 API Key 时禁止发送并显示配置提示。
 - [x] 对话区拖选复制：按住左键拖动选中（反色显示），松开自动复制；选区跟着内容走，拖到上下边缘自动滚动；中文按整个字选中；内容重排（窗口缩放、`/think` 展开）导致选区对不上时自动取消。复制同时走 OSC 52 和系统剪贴板，任何一条失败只提示、不当作致命。
 - [x] 真实终端光标（输入法候选窗跟随）；退出时 `Shutdown` 等 agent 收尾，保证 `turn.finished` 被记录。
@@ -71,7 +71,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
   - `─` `│` `•` `⚙` `└` 在 CJK 终端设置下是否按两列显示导致错位；
   - 流式渲染观感、窗口缩放。
 - [ ] **OpenAI 官方服务**（Chat 与 Responses）：只验证过 DeepSeek。Responses 的 `function_call` 不带 `id` 是依据文档推断，带 reasoning 的 gpt-5 / o 系列可能不同。
-- [ ] **思维链 token 数**：按文档解析 `completion_tokens_details.reasoning_tokens`（Chat）与 `output_tokens_details.reasoning_tokens`（Responses），只有 `httptest` 测试，没有用真实 DeepSeek / OpenAI 确认过字段是否存在；不存在时 TUI 显示按字数估算的“约 N token”。
+- [ ] **思维链 token 数**：Chat 协议下真实 DeepSeek 已确认返回 `completion_tokens_details.reasoning_tokens`（本机 11 次调用，与分词器数出的一致）；Responses 协议的 `output_tokens_details.reasoning_tokens` 和 OpenAI 官方服务只有 `httptest` 测试。不返回时 TUI 显示内核估算的“约 N token”。
 - [ ] **Linux / macOS / Termux 实际运行**：只验证过能编译；`bash` 探测、进程组终止等 Unix 路径只有单元测试（fake probe）。
 - [ ] **双击 `sprout.exe` 启动**（含出错后等待回车）。
 - [ ] **`/install-sprout` / `/uninstall-sprout` 的真实效果**：Windows 的流程用注册表替身和临时目录测试过，读取真实用户 / 系统 PATH 只做过只读演练，没有真正写过注册表、没有确认新开的终端能直接敲 `sprout`；Linux / macOS / Termux 的符号链接逻辑只用文件系统替身测试过，真实系统上没跑过。
@@ -106,7 +106,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - **思维链回传**：DeepSeek 文档要求带 `tools` 的请求回传历史 `reasoning_content`，已实现；实测当前服务端尚未强制，之后可能变严。
 - **`max_tokens`**：直接取 `models.jsonc` 的 `maxOutput`。个别新 OpenAI 模型（o 系列）在 Chat 协议下拒绝 `max_tokens`，需改用 Responses 协议；没有按模型切换参数名的机制。
 - **并行工具的前提**：同批调用并行、互相看不到结果，靠系统提示词让模型把有依赖的命令合并或分回合；模型不听话时（比如先建目录再写文件放同一批）会得到失败结果，由它自己纠正。工具实现必须并发安全。
-- **token 估算是近似值**：ASCII 约 3 字符/token、宽字符约 1 字符/token，并用服务端上次报告的用量校准；窗口配置错误（比实际大）时靠“服务端报超长后压缩重试”兜底。裁剪会改动历史前缀，使服务端的前缀缓存失效一次。
+- **token 估算是近似值**：按字符类别估算（英文单词每 5 个字母约 1 个、数字每 3 位 1 个、汉字 0.7、符号 1.5、emoji 2，见 `internal/agent/tokens.go`），用 DeepSeek V4 分词器在本机真实会话上校准，整体略微偏高（约 1.1 倍），并用服务端上次报告的用量校准。旧的 OpenAI cl100k 分词器（gpt-4、gpt-3.5）每个汉字约 1 个 token，中文多时会低估约三成。窗口配置错误（比实际大）时靠“服务端报超长后压缩重试”兜底。裁剪会改动历史前缀，使服务端的前缀缓存失效一次。
 - **恢复会话不回放增量**：TUI 恢复时对话区由落盘的完整消息重建，看不到当初的逐字流式过程；思维链在恢复后是折叠摘要。
 - **PowerShell 退出码**：`-Command` 模式下失败通常是 1，不一定等于原生程序自己的退出码（已写进工具描述）。
 - **`meta.json` 并发**：读-改-写不加跨进程锁，两个实例同时在同一目录启动可能丢一条索引登记；JSONL 本身不受影响。

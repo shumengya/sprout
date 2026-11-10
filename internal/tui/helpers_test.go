@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -42,6 +43,10 @@ func newSized(t *testing.T, o Options, w, h int) *Model {
 		o.Info = testInfo
 	}
 	m := New(o)
+	// 时钟默认冻结：思考耗时一律为 0，头部不会因为两个事件之间恰好跨过一个时钟刻度而多出“1秒”，
+	// 测试结果不随机器快慢变化。要测耗时的用 withClock 拨动。
+	frozen := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	m.now = func() time.Time { return frozen }
 	m.Init() // 与真实程序一致：Bubble Tea 启动时先调用 Init，输入框的焦点在这里设置
 	m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	return m

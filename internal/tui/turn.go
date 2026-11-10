@@ -106,6 +106,10 @@ func (m *Model) onEvent(e event.Event) {
 		if !m.thinkShown && e.Reasoning != "" {
 			m.callThink = m.add(&entry{kind: kindThink, text: e.Reasoning, open: m.showThink})
 		}
+		if m.callThink != nil {
+			m.callThink.thinkEst = e.ReasoningTokensEst
+			m.callThink.touch()
+		}
 		m.thinkShown = false
 		m.usageThink, m.callThink = m.callThink, nil
 		if m.cur == nil && e.Content != "" {

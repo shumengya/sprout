@@ -62,7 +62,8 @@ func (r *replayer) handle(rec rawRec) {
 		}
 		r.history = append(r.history, msg)
 		r.pending, r.results = msg.ToolCalls, map[string]agent.Message{}
-		r.emit(event.MessageCompleted{Content: rec.Content, Reasoning: rec.Reasoning, ToolCalls: calls, StopReason: rec.StopReason})
+		r.emit(event.MessageCompleted{Content: rec.Content, Reasoning: rec.Reasoning, ToolCalls: calls, StopReason: rec.StopReason,
+			ReasoningTokensEst: agent.EstimateTokens(rec.Reasoning)})
 	case "tool":
 		r.tool(rec)
 	case "usage":

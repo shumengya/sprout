@@ -26,7 +26,7 @@ func (e *entry) drawThink(w int) string {
 		return thinkBlock(fmt.Sprintf("思考中… %d 字", utf8.RuneCountInString(text)), lines)
 	}
 
-	head := e.thinkHead(text)
+	head := e.thinkHead()
 	if e.open {
 		var body []string
 		if text != "" {
@@ -57,18 +57,18 @@ func thinkBlock(head string, body []string) string {
 	return strings.Join(out, "\n")
 }
 
-// thinkHead 是“已思考 12秒 340token”：耗时未知（恢复的会话、非流式服务）时省略；
-// 服务端没报告思维链 token 时按字数估算，并标“约”。
-func (e *entry) thinkHead(text string) string {
+// thinkHead 是“已思考 12秒 340 token”：耗时未知（恢复的会话、非流式服务）时省略；
+// token 数优先用服务端报告的，没报告时用内核的估算并标“约”；两者都没有（思考到一半被取消）时不显示。
+func (e *entry) thinkHead() string {
 	parts := []string{"已思考"}
 	if e.thinkDur > 0 {
 		parts = append(parts, fmtThinkDur(e.thinkDur))
 	}
 	switch {
 	case e.thinkTokens > 0:
-		parts = append(parts, fmt.Sprintf("%dtoken", e.thinkTokens))
-	case text != "":
-		parts = append(parts, fmt.Sprintf("约%dtoken", estimateTokens(text)))
+		parts = append(parts, fmtTokens(e.thinkTokens)+" token")
+	case e.thinkEst > 0:
+		parts = append(parts, "约"+fmtTokens(e.thinkEst)+" token")
 	}
 	return strings.Join(parts, " ")
 }
@@ -119,18 +119,4 @@ func fmtThinkDur(d time.Duration) string {
 		return fmt.Sprintf("%d秒", s)
 	}
 	return fmt.Sprintf("%d分%02d秒", s/60, s%60)
-}
-
-// estimateTokens 粗估文本的 token 数：ASCII 约 3 字符一个 token，宽字符（中日韩）约 1 字一个。
-// 和内核的上下文估算用同一条经验规则；TUI 不能 import 内核，所以这里单独写一份。
-func estimateTokens(s string) int {
-	ascii, wide := 0, 0
-	for _, r := range s {
-		if r < 0x80 {
-			ascii++
-		} else {
-			wide++
-		}
-	}
-	return (ascii+2)/3 + wide
 }
