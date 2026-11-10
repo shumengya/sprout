@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -10,22 +11,40 @@ import (
 func TestMarkdownTableColumnAlignment(t *testing.T) {
 	src := "| 左 | 中 | 右 |\n|:---|:---:|---:|\n| a | b | c |\n| 长一点的左 | 长中 | 1234 |"
 	lines := strings.Split(md(src, 80), "\n")
-	if len(lines) != 4 {
+	if len(lines) != 6 {
 		t.Fatalf("行数 = %d:\n%s", len(lines), strings.Join(lines, "\n"))
 	}
-	// 右对齐列：数据行的末尾必须齐平。
-	if !strings.HasSuffix(lines[2], "   c") || !strings.HasSuffix(lines[3], "1234") {
+	// 右对齐列：数据行在右边框前齐平。
+	if !strings.HasSuffix(lines[3], "   c │") || !strings.HasSuffix(lines[4], "1234 │") {
 		t.Errorf("右对齐失败:\n%s", strings.Join(lines, "\n"))
 	}
 	// 居中列：b 在“长中”（4 列宽）里，空隙 3 格不能对称，左 1 右 2。
-	if !strings.Contains(lines[2], "│  b   │") {
+	if !strings.Contains(lines[3], "│  b   │") {
 		t.Errorf("居中失败:\n%s", strings.Join(lines, "\n"))
 	}
-	// 分隔线的 ┼ 要和数据行的 │ 在同一显示列。
-	sep := strings.Index(lines[1], "┼")
-	if ansi.StringWidth(lines[1][:sep]) != ansi.StringWidth(lines[2][:strings.Index(lines[2], "│")]) {
-		t.Errorf("分隔线没对齐:\n%s", strings.Join(lines, "\n"))
+	assertTableGrid(t, lines)
+}
+
+func TestMarkdownTableHasFullBorder(t *testing.T) {
+	lines := strings.Split(md("| a | b |\n|---|---|\n| 1 | 2 |", 40), "\n")
+	want := []string{"┌───┬───┐", "│ a │ b │", "├───┼───┤", "│ 1 │ 2 │", "└───┴───┘"}
+	if !slices.Equal(lines, want) {
+		t.Fatalf("got:\n%s\nwant:\n%s", strings.Join(lines, "\n"), strings.Join(want, "\n"))
 	}
+}
+
+func TestMarkdownTableRowSeparatorsOnlyWhenCellsWrap(t *testing.T) {
+	seps := func(s string) int { return strings.Count(s, "├") }
+	compact := md("| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n| 5 | 6 |", 40)
+	if n := seps(compact); n != 1 {
+		t.Errorf("每行一条记录时只在表头下面画一条分隔线，得到 %d 条:\n%s", n, compact)
+	}
+	// 有单元格折成多行时，看不出哪几行属于同一条记录，所以每条记录之间都画分隔线。
+	wrapped := md("| a | b |\n|---|---|\n| 1 | "+strings.Repeat("很长的说明", 6)+" |\n| 2 | 短 |\n| 3 | 短 |", 30)
+	if n := seps(wrapped); n != 3 {
+		t.Errorf("表头下 1 条加记录之间 2 条，得到 %d 条:\n%s", n, wrapped)
+	}
+	assertTableGrid(t, strings.Split(wrapped, "\n"))
 }
 
 func TestMarkdownTableShrinksAndWraps(t *testing.T) {
@@ -36,11 +55,12 @@ func TestMarkdownTableShrinksAndWraps(t *testing.T) {
 			t.Errorf("第 %d 行宽 %d 超出 40: %q", i, w, l)
 		}
 	}
-	// 折行会把词拆在两行之间，所以取出说明列的内容拼回去再比较。
+	// 折行会把词拆在两行之间，所以取出说明列的内容拼回去再比较。跳过上边框、表头、分隔线和其他边框行。
 	var cell strings.Builder
-	for _, l := range strings.Split(got, "\n")[2:] {
-		_, after, _ := strings.Cut(l, "│")
-		cell.WriteString(strings.TrimSpace(after))
+	for _, l := range strings.Split(got, "\n")[3:] {
+		if parts := strings.Split(l, "│"); len(parts) == 4 {
+			cell.WriteString(strings.TrimSpace(parts[2]))
+		}
 	}
 	if cell.String() != strings.Repeat("很长的说明", 12) {
 		t.Errorf("折行不能丢字:\n%s", got)

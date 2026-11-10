@@ -10,6 +10,7 @@ import (
 
 const (
 	mdColGap  = 3 // 列之间的 " │ "
+	mdFrame   = 4 // 左右边框 "│ " 和 " │"
 	mdColMin  = 4 // 列再窄就没法看了：一个全角字符加余量
 	mdNoAlign = east.AlignNone
 )
@@ -19,7 +20,7 @@ type mdCell struct {
 	align east.Alignment
 }
 
-// table 渲染 GFM 表格：按显示宽度对齐（中文占两列）、遵守列对齐标记；
+// table 渲染 GFM 表格：带边框，按显示宽度对齐（中文占两列）、遵守列对齐标记；
 // 太宽时从最宽的列开始缩窄并在单元格内折行，窄到每列都放不下时改成逐行的“列名：内容”。
 func (r *mdRenderer) table(n *east.Table, w int) []string {
 	var rows [][]mdCell
@@ -58,24 +59,39 @@ func (r *mdRenderer) table(n *east.Table, w int) []string {
 			}
 		}
 	}
-	avail := w - mdColGap*(cols-1)
+	avail := w - mdColGap*(cols-1) - mdFrame
 	if avail < mdColMin*cols {
 		return r.tableStacked(rows, w)
 	}
 	mdShrink(widths, avail)
 
-	var out []string
-	for i, row := range rows {
-		out = append(out, mdTableRow(row, widths, rows[0])...)
-		if i == 0 {
-			seps := make([]string, cols)
-			for c := range seps {
-				seps[c] = strings.Repeat("─", widths[c])
-			}
-			out = append(out, mdFaint.Render(strings.Join(seps, "─┼─")))
-		}
+	// 带完整边框。行与行之间的分隔线只在有单元格折成多行时才画：
+	// 不折行时一行就是一条记录，加分隔线只会让表格变成两倍高。
+	body := make([][]string, 0, len(rows)-1)
+	multi := false
+	for _, row := range rows[1:] {
+		lines := mdTableRow(row, widths, rows[0])
+		multi = multi || len(lines) > 1
+		body = append(body, lines)
 	}
-	return out
+	out := []string{mdBorder(widths, "┌", "┬", "┐")}
+	out = append(out, mdTableRow(rows[0], widths, rows[0])...)
+	for i, lines := range body {
+		if i == 0 || multi {
+			out = append(out, mdBorder(widths, "├", "┼", "┤"))
+		}
+		out = append(out, lines...)
+	}
+	return append(out, mdBorder(widths, "└", "┴", "┘"))
+}
+
+// mdBorder 画一条横向边框，交叉点和列分隔线对齐。
+func mdBorder(widths []int, left, mid, right string) string {
+	segs := make([]string, len(widths))
+	for c, cw := range widths {
+		segs[c] = strings.Repeat("─", cw+2)
+	}
+	return mdFaint.Render(left + strings.Join(segs, mid) + right)
 }
 
 // mdShrink 反复把当前最宽的一列缩一格，直到总宽度不超过 avail。
@@ -105,7 +121,7 @@ func mdTableRow(row []mdCell, widths []int, header []mdCell) []string {
 		}
 		height = max(height, len(wrapped[c]))
 	}
-	sep := mdFaint.Render(" │ ")
+	bar := mdFaint.Render("│")
 	out := make([]string, height)
 	for i := range out {
 		parts := make([]string, len(row))
@@ -120,7 +136,7 @@ func mdTableRow(row []mdCell, widths []int, header []mdCell) []string {
 			}
 			parts[c] = mdPad(line, widths[c], align)
 		}
-		out[i] = strings.TrimRight(strings.Join(parts, sep), " ")
+		out[i] = bar + " " + strings.Join(parts, " "+bar+" ") + " " + bar
 	}
 	return out
 }

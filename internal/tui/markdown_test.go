@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -105,17 +106,30 @@ func TestMarkdownQuoteAndRule(t *testing.T) {
 func TestMarkdownTableAlignsChineseColumns(t *testing.T) {
 	src := "| 名称 | 大小 |\n|---|---|\n| main.go | 1 KB |\n| 说明文档 | 22 KB |"
 	lines := strings.Split(md(src, 80), "\n")
-	if len(lines) != 4 { // 表头、分隔线、两行数据
+	if len(lines) != 6 { // 上边框、表头、分隔线、两行数据、下边框
 		t.Fatalf("行数 = %d:\n%s", len(lines), strings.Join(lines, "\n"))
 	}
-	// 每一行的列分隔符必须在同一显示列上，中文占两列也要对齐。
-	col := -1
-	for _, l := range []string{lines[0], lines[2], lines[3]} {
-		idx := ansi.StringWidth(l[:strings.Index(l, "│")])
-		if col == -1 {
-			col = idx
-		} else if idx != col {
-			t.Fatalf("列没有对齐 (%d vs %d):\n%s", idx, col, strings.Join(lines, "\n"))
+	// 每一行的竖线和交叉点必须在同一显示列上，中文占两列也要对齐。
+	assertTableGrid(t, lines)
+}
+
+// assertTableGrid 确认表格每一行的边框字符（竖线、交叉点、拐角）都落在同样的显示列上。
+func assertTableGrid(t *testing.T, lines []string) {
+	t.Helper()
+	var want []int
+	for i, l := range lines {
+		var cols []int
+		x := 0
+		for _, r := range l {
+			if strings.ContainsRune("│┼├┤┌┐└┘┬┴", r) {
+				cols = append(cols, x)
+			}
+			x += ansi.StringWidth(string(r))
+		}
+		if i == 0 {
+			want = cols
+		} else if !slices.Equal(cols, want) {
+			t.Fatalf("第 %d 行的边框列 %v 和第 0 行 %v 不一致:\n%s", i, cols, want, strings.Join(lines, "\n"))
 		}
 	}
 }
