@@ -84,6 +84,7 @@ func (t *turn) loop() error {
 		if resp.Usage != (Usage{}) {
 			t.out.Emit(event.Usage{
 				InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens, TotalTokens: resp.Usage.TotalTokens,
+				ReasoningTokens: resp.Usage.ReasoningTokens,
 			})
 		}
 

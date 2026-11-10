@@ -35,6 +35,8 @@ type Usage struct {
 	InputTokens  int
 	OutputTokens int
 	TotalTokens  int
+	// ReasoningTokens 是 OutputTokens 里用于思维链的部分；provider 不报告时为 0。
+	ReasoningTokens int
 }
 
 // 模型停止生成的原因，已由 provider 适配器归一化。

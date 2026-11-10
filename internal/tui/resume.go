@@ -87,6 +87,7 @@ func (m *Model) onResumed(msg resumeDoneMsg) {
 		return
 	}
 	m.entries, m.tools, m.tokens = nil, map[string]*entry{}, 0
+	m.callThink, m.usageThink = nil, nil
 	m.replay(msg.res.Events)
 	m.add(&entry{kind: kindNotice, text: msg.res.Notice})
 	m.unseen = false
@@ -103,4 +104,5 @@ func (m *Model) replay(events []event.Event) {
 		m.onEvent(e)
 	}
 	m.running, m.cur, m.think, m.thinkShown, m.follow = false, nil, nil, false, true
+	m.callThink, m.usageThink = nil, nil
 }

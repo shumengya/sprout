@@ -66,7 +66,8 @@ func (r *replayer) handle(rec rawRec) {
 	case "tool":
 		r.tool(rec)
 	case "usage":
-		r.emit(event.Usage{InputTokens: rec.InputTokens, OutputTokens: rec.OutputTokens, TotalTokens: rec.TotalTokens})
+		r.emit(event.Usage{InputTokens: rec.InputTokens, OutputTokens: rec.OutputTokens, TotalTokens: rec.TotalTokens,
+			ReasoningTokens: rec.ReasoningTokens})
 	case "compact":
 		r.compact(rec)
 	case "error":

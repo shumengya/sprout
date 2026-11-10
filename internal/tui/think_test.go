@@ -37,32 +37,34 @@ func TestLiveThinkingOnlyPreviewsLastLines(t *testing.T) {
 
 func TestThinkingCollapsesWhenAnswerStarts(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 80, 30)
+	clk := withClock(m)
 	begin(m, "q")
-	apply(m, event.ReasoningDelta{Text: "内部推理过程内容"}, event.MessageDelta{Text: "最终答案"})
+	apply(m, event.ReasoningDelta{Text: "内部推理过程内容"})
+	clk.add(3 * time.Second)
+	apply(m, event.MessageDelta{Text: "最终答案"})
 	if m.think != nil || m.entries[len(m.entries)-2].live {
 		t.Fatal("正文开始后思维链应结束流式")
 	}
-	s := plain(m)
-	mustContain(t, s, "思考过程 · 8 字", "/think 展开", "最终答案")
-	mustNotContain(t, s, "内部推理过程内容")
+	// 折叠成一行：耗时、估算的 token 数，后面接着思考内容。
+	mustContain(t, plain(m), "已思考 3秒 约8token：内部推理过程内容", "最终答案")
 }
 
 func TestThinkToggleExpandsAndCollapses(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 80, 40)
 	begin(m, "q")
-	apply(m, event.ReasoningDelta{Text: "完整的推理内容"}, event.MessageDelta{Text: "答"},
-		event.MessageCompleted{Content: "答", Reasoning: "完整的推理内容"}, event.TurnFinished{Reason: "stop"})
-	mustNotContain(t, plain(m), "完整的推理内容")
-
-	submit(m, "/think")
-	mustContain(t, plain(m), "思考过程（7 字）", "完整的推理内容", "已展开")
+	apply(m, event.MessageCompleted{Content: "答", Reasoning: "第一行推理\n第二行推理"}, event.TurnFinished{Reason: "stop"})
+	mustContain(t, plain(m), "已思考 约11token：第一行推理 第二行推理")
 
 	submit(m, "/think")
 	s := plain(m)
-	mustContain(t, s, "已折叠", "/think 展开")
-	if strings.Count(s, "完整的推理内容") != 0 {
-		t.Errorf("折叠后不应再显示全文:\n%s", s)
-	}
+	mustContain(t, s, "已展开全部思考过程")
+	// 展开后头部单独一行，全文按原来的换行缩进显示。
+	mustContain(t, transcript(m), "已思考 约11token\n  第一行推理\n  第二行推理")
+
+	submit(m, "/think")
+	s = plain(m)
+	mustContain(t, s, "已折叠全部思考过程", "已思考 约11token：第一行推理 第二行推理")
+	mustNotContain(t, s, "  第二行推理")
 }
 
 func TestThinkingBeforeToolCallIsCollapsed(t *testing.T) {
@@ -75,7 +77,7 @@ func TestThinkingBeforeToolCallIsCollapsed(t *testing.T) {
 	if m.think != nil || countThink(m) != 1 {
 		t.Fatalf("工具调用前思维链应折叠且不重复: think=%v 数量=%d", m.think, countThink(m))
 	}
-	mustContain(t, plain(m), "思考过程 · 5 字", "bash")
+	mustContain(t, plain(m), "已思考 约5token：要先看目录", "bash")
 }
 
 func TestEachStepGetsItsOwnThinkingEntry(t *testing.T) {
@@ -101,7 +103,8 @@ func TestThinkingFromCompletedMessageWithoutDeltas(t *testing.T) {
 	if countThink(m) != 1 {
 		t.Fatalf("应补一个思维链条目，得到 %d", countThink(m))
 	}
-	mustContain(t, plain(m), "思考过程 · 7 字", "答案")
+	// 非流式没有思考开始的时刻，耗时未知，只显示 token 数。
+	mustContain(t, plain(m), "已思考 约7token：事后给出的推理", "答案")
 }
 
 func TestThinkingNotDuplicatedWhenStreamedAndCompleted(t *testing.T) {
@@ -121,7 +124,7 @@ func TestThinkingEndsWhenTurnIsCancelledMidThought(t *testing.T) {
 	if m.think != nil {
 		t.Fatal("轮次结束后不应还有 live 思维链")
 	}
-	mustContain(t, plain(m), "思考过程 · 4 字", "空闲")
+	mustContain(t, plain(m), "约4token：想到一半", "空闲")
 	mustNotContain(t, plain(m), "思考中…")
 }
 
@@ -133,7 +136,7 @@ func TestCancelledThoughtDoesNotSuppressNextTurnsReasoning(t *testing.T) {
 	apply(m, event.ReasoningDelta{Text: "想到一半"}, event.TurnFinished{Reason: event.ReasonCancelled})
 	begin(m, "q2")
 	apply(m, event.MessageCompleted{Content: "答", Reasoning: "第二轮的推理"})
-	mustContain(t, plain(m), "思考过程 · 6 字")
+	mustContain(t, plain(m), "已思考 约6token：第二轮的推理")
 	if countThink(m) != 2 {
 		t.Fatalf("两轮各应有一个思维链条目，得到 %d", countThink(m))
 	}

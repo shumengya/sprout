@@ -55,6 +55,9 @@ func (p *chatProvider) Stream(ctx context.Context, req agent.Request, emit func(
 		}
 		if u := ch.Usage; u != nil {
 			usage = agent.Usage{InputTokens: u.PromptTokens, OutputTokens: u.CompletionTokens, TotalTokens: u.TotalTokens}
+			if d := u.CompletionTokensDetails; d != nil {
+				usage.ReasoningTokens = d.ReasoningTokens
+			}
 		}
 		if len(ch.Choices) == 0 { // include_usage 的末尾 chunk 没有 choices
 			continue

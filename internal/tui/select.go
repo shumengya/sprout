@@ -27,6 +27,10 @@ type selection struct {
 	moved    bool // 真的拖动过；单纯点击不算选中
 	anchor   pos
 	head     pos
+	// row 是按下时点中的内容行（未收敛，可能超出内容范围）；单纯点击时用它找被点的条目。
+	row int
+	// dismiss 表示按下时屏幕上还有选区：这次点击只用来取消选区，不展开或收起条目。
+	dismiss bool
 }
 
 // copiedMsg 是写剪贴板的结果。
@@ -67,7 +71,7 @@ func (m *Model) onMouseClick(msg tea.MouseClickMsg) {
 		return
 	}
 	p := m.posAt(msg.X, msg.Y)
-	m.sel = selection{dragging: true, anchor: p, head: p}
+	m.sel = selection{dragging: true, anchor: p, head: p, row: m.vp.YOffset() + msg.Y, dismiss: m.sel.active()}
 }
 
 func (m *Model) onMouseMotion(msg tea.MouseMotionMsg) {
@@ -88,14 +92,18 @@ func (m *Model) onMouseMotion(msg tea.MouseMotionMsg) {
 	}
 }
 
-// onMouseRelease 结束拖动。真的拖选过就复制；单纯点击只是取消选区。
+// onMouseRelease 结束拖动。真的拖选过就复制；单纯点击用来展开或收起思考过程（或只是取消选区）。
 func (m *Model) onMouseRelease() tea.Cmd {
 	if !m.sel.dragging {
 		return nil
 	}
 	m.sel.dragging = false
 	if !m.sel.moved {
+		row, dismiss := m.sel.row, m.sel.dismiss
 		m.clearSel()
+		if !dismiss {
+			m.toggleThinkAt(row)
+		}
 		return nil
 	}
 	text := m.selectedText()

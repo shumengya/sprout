@@ -28,7 +28,7 @@ const helpText = `快捷键
 
 命令
   /resume         列出当前目录的历史会话；/resume 序号 恢复其中一个
-  /think          展开 / 折叠模型的思考过程
+  /think          展开 / 折叠全部思考过程；点击单条思考过程可以单独展开或收起
   /mouse          开关鼠标上报（滚轮与拖选复制；关闭后改用终端自带的选中）
   /tools          查看检测到的终端工具
   /help           显示本帮助
@@ -48,11 +48,17 @@ func (m *Model) slash(text string) (handled bool, cmd tea.Cmd) {
 		m.add(&entry{kind: kindNotice, text: m.toolsReport()})
 	case "/think":
 		m.showThink = !m.showThink
-		state := "已折叠，只显示一行摘要"
-		if m.showThink {
-			state = "已展开，显示完整内容"
+		for _, e := range m.entries {
+			if e.kind == kindThink && e.open != m.showThink {
+				e.open = m.showThink
+				e.touch()
+			}
 		}
-		m.add(&entry{kind: kindNotice, text: "模型的思考过程" + state + "。"})
+		state := "已折叠全部思考过程，点击单条可以展开。"
+		if m.showThink {
+			state = "已展开全部思考过程，点击单条可以收起。"
+		}
+		m.add(&entry{kind: kindNotice, text: state})
 	case "/mouse":
 		m.mouse = !m.mouse
 		m.clearSel()

@@ -202,9 +202,9 @@ func TestUserAndAssistantDifferByColorNotPrefix(t *testing.T) {
 	for _, e := range m.entries {
 		switch e.kind {
 		case kindUser:
-			user = e.render(80, false)
+			user = e.render(80)
 		case kindAssistant:
-			assistant = e.render(80, false)
+			assistant = e.render(80)
 		}
 	}
 	// 两者都不带前缀，纯文本就是原话。

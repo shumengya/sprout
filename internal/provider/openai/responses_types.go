@@ -135,6 +135,10 @@ type responsesDone struct {
 		InputTokens  int `json:"input_tokens"`
 		OutputTokens int `json:"output_tokens"`
 		TotalTokens  int `json:"total_tokens"`
+		// 思维链 token；不报告的服务没有这个字段。
+		OutputTokensDetails *struct {
+			ReasoningTokens int `json:"reasoning_tokens"`
+		} `json:"output_tokens_details"`
 	} `json:"usage"`
 	Output []responsesItem `json:"output"`
 }

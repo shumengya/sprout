@@ -110,6 +110,10 @@ type chatChunk struct {
 		PromptTokens     int `json:"prompt_tokens"`
 		CompletionTokens int `json:"completion_tokens"`
 		TotalTokens      int `json:"total_tokens"`
+		// OpenAI 与 DeepSeek 都把思维链 token 放在这里；不报告的服务没有这个字段。
+		CompletionTokensDetails *struct {
+			ReasoningTokens int `json:"reasoning_tokens"`
+		} `json:"completion_tokens_details"`
 	} `json:"usage"`
 	// 部分兼容服务在流内用 error 字段报告失败。
 	Error json.RawMessage `json:"error"`

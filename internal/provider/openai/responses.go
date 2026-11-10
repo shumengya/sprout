@@ -65,6 +65,9 @@ func (p *responsesProvider) Stream(ctx context.Context, req agent.Request, emit 
 	var usage agent.Usage
 	if u := final.Usage; u != nil {
 		usage = agent.Usage{InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, TotalTokens: u.TotalTokens}
+		if d := u.OutputTokensDetails; d != nil {
+			usage.ReasoningTokens = d.ReasoningTokens
+		}
 	}
 	return agent.Response{
 		Message:    agent.Message{Role: agent.RoleAssistant, Content: st.text.String(), ToolCalls: calls},

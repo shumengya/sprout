@@ -78,10 +78,15 @@ func waitEvent(turn int, ch <-chan event.Event) tea.Cmd {
 
 // onEvent 把内核事件映射成 transcript 条目。
 func (m *Model) onEvent(e event.Event) {
+	// Usage 紧跟在同一次调用的 MessageCompleted 之后；中间隔了别的事件就不再属于那次调用。
+	pending := m.usageThink
+	m.usageThink = nil
+
 	switch e := e.(type) {
 	case event.ReasoningDelta:
 		if m.think == nil {
-			m.think = m.add(&entry{kind: kindThink, live: true})
+			m.think = m.add(&entry{kind: kindThink, live: true, open: m.showThink, thinkStart: m.now()})
+			m.callThink = m.think
 			m.thinkShown = true
 		}
 		m.think.text += e.Text
@@ -99,9 +104,10 @@ func (m *Model) onEvent(e event.Event) {
 		// thinkShown 记录本次模型调用是否已经流式展示过思维链：MessageDelta 会提前结束 m.think，
 		// 所以不能靠 m.think 是否为空来判断，否则流式过的思维链会在这里被重复补一次。
 		if !m.thinkShown && e.Reasoning != "" {
-			m.add(&entry{kind: kindThink, text: e.Reasoning})
+			m.callThink = m.add(&entry{kind: kindThink, text: e.Reasoning, open: m.showThink})
 		}
 		m.thinkShown = false
+		m.usageThink, m.callThink = m.callThink, nil
 		if m.cur == nil && e.Content != "" {
 			m.add(&entry{kind: kindAssistant, text: e.Content})
 		}
@@ -125,6 +131,10 @@ func (m *Model) onEvent(e event.Event) {
 		t.touch()
 	case event.Usage:
 		m.tokens += e.TotalTokens
+		if pending != nil && e.ReasoningTokens > 0 {
+			pending.thinkTokens = e.ReasoningTokens
+			pending.touch()
+		}
 	case event.Compacted:
 		m.add(&entry{kind: kindNotice, text: describeCompacted(e)})
 	case event.Retrying:
@@ -137,10 +147,13 @@ func (m *Model) onEvent(e event.Event) {
 	}
 }
 
-// endThink 结束当前的思维链条目：从“流式预览”变成可折叠的摘要。
+// endThink 结束当前的思维链条目：从“流式预览”变成一行摘要，并记下思考耗时。
 func (m *Model) endThink() {
 	if m.think == nil {
 		return
+	}
+	if !m.think.thinkStart.IsZero() {
+		m.think.thinkDur = m.now().Sub(m.think.thinkStart)
 	}
 	m.think.live = false
 	m.think.touch()
@@ -151,6 +164,7 @@ func (m *Model) finishTurn(reason string) {
 	// 一轮结束，“正在取消…”这类针对本轮的临时提示也该消失。
 	m.endThink()
 	m.thinkShown = false
+	m.callThink, m.usageThink = nil, nil
 	m.running, m.cur, m.status = false, nil, ""
 	// 轮次异常结束时（通道提前关闭等）可能还有工具卡片停在“运行中…”，不能让它一直转下去。
 	for _, e := range m.entries {

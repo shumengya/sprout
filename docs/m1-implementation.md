@@ -453,13 +453,14 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
   - 流式输出时每次增量都整段重渲，goldmark 对没写完的语法有明确规则（未闭合的围栏延伸到文末，未闭合的 `**` 与反引号原样保留），所以不吞字符；可能出现的闪动只有“表格表头在分隔行到达前显示成普通文字”和“`-` 在下一行到达前被当作 setext 标题线”。
   - 渲染器自己 panic 时 `renderMarkdown` 退回纯文本折行，界面不会崩。
   - 代价：新增依赖 goldmark 与 chroma（纯 Go，无 CGO）；Windows 上二进制约增加 4.8 MB（14.0 → 18.9 MB），`--help` 启动约多 17 ms（57 → 74 ms）。
-- 模型的思维链用淡色单独显示：流式时只预览最后 3 行并显示字数，结束后折叠成一行摘要，`/think` 展开或折叠全文。状态行显示“思考中”，超过 3 秒后追加已耗时。
+- 模型的思维链用淡色单独显示：流式时只预览最后 3 行并显示字数；结束后折叠成一行“已思考 12秒 340token：开头内容…”，思考内容压成一行接在后面，放不下的用省略号截断。点击条目展开全文（头部单独一行，正文缩进两格），再点一次收起；点击只切换被点的那一条，`/think` 一次展开或折叠全部，并决定之后新思考条目的默认状态。切换时被点中的条目头部停在屏幕原位，不会跳走；在长思考的正文中间点击收起时，头部移到对话区顶部。屏幕上有选区时，点击只取消选区、不切换；拖动仍是选中复制。耗时从第一段思维链增量到达算到思考结束（正文开始、工具调用或本轮结束），非流式服务和恢复的会话没有这个时刻，不显示耗时。token 数取服务端报告的思维链 token（见下），没报告时按字数估算并标“约”（ASCII 约 3 字符一个、中日韩约 1 字一个，与内核的上下文估算同一规则）。状态行显示“思考中”，超过 3 秒后追加已耗时。
 - 空对话时显示一行新手引导（发送、翻页、`/help`）。
 
 **思维链（reasoning_content）**
 
 - `agent.Message` 增加 `Reasoning`；Chat 适配器解析流里的 `delta.reasoning_content`，并在后续请求里把历史 assistant 消息的 `reasoning_content` 原样回传（没有思维链时不发该字段）。DeepSeek 官方文档要求带 `tools` 的请求回传它，否则可能返回 400；实测当前服务端尚未强制，但随时可能变严。
 - 新增 `reasoning.delta` 事件（仅用于展示，不落盘）；`message.completed` 与会话 `assistant` 记录带完整 `reasoning`。
+- 思维链 token：`agent.Usage` 与 `usage` 事件增加 `ReasoningTokens`（属于 `OutputTokens` 的一部分，provider 不报告时为 0）。Chat 取 `usage.completion_tokens_details.reasoning_tokens`（OpenAI 与 DeepSeek 文档里的字段），Responses 取 `usage.output_tokens_details.reasoning_tokens`。会话 `usage` 记录相应增加 `reasoning_tokens`，为 0 时省略；旧会话没有这个字段，读出来是 0。`usage` 事件紧跟在同一次模型调用的 `message.completed` 之后发出，TUI 只把紧挨着的那个 `usage` 算到这次调用的思考上。真实 DeepSeek 是否返回这个字段尚未验证。
 - Responses 适配器不处理思维链。
 
 **重试、并行、上下文管理、会话恢复（后补）**

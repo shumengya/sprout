@@ -45,7 +45,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] 流式输出、工具卡片（命令、退出码、耗时、最多 8 行预览）、输出里的 ANSI/控制字符清理。
 - [x] 历史滚动：鼠标滚轮、PgUp/PgDn、Ctrl+↑↓、Ctrl+Home/End；输入框为空时 ↑↓ Home End 同样滚动；状态行显示位置与“有新内容”。
 - [x] Markdown（CommonMark + GFM）：标题、嵌套列表与任务列表、多级引用、分隔线、围栏代码块（chroma 语法高亮）、粗体/斜体/删除线/行内代码、链接与图片、表格（按显示宽度对齐、列对齐标记、过宽时缩列折行、极窄时逐行展开）。流式输出中途未闭合的语法原样显示。
-- [x] 思维链淡色显示：流式预览最后 3 行，结束折叠为摘要，`/think` 展开。
+- [x] 思维链淡色显示：流式预览最后 3 行；结束后折叠成一行“已思考 N秒 Ntoken：内容…”，点击单条展开或收起，`/think` 一次切换全部。思维链 token 取服务端报告值（未报告时按字数估算并标“约”）。
 - [x] `/help` `/tools` `/think` `/mouse` `/quit`；缺 API Key 时禁止发送并显示配置提示。
 - [x] 对话区拖选复制：按住左键拖动选中（反色显示），松开自动复制；选区跟着内容走，拖到上下边缘自动滚动；中文按整个字选中；内容重排（窗口缩放、`/think` 展开）导致选区对不上时自动取消。复制同时走 OSC 52 和系统剪贴板，任何一条失败只提示、不当作致命。
 - [x] 真实终端光标（输入法候选窗跟随）；退出时 `Shutdown` 等 agent 收尾，保证 `turn.finished` 被记录。
@@ -71,6 +71,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
   - `─` `│` `•` `⚙` `└` 在 CJK 终端设置下是否按两列显示导致错位；
   - 流式渲染观感、窗口缩放。
 - [ ] **OpenAI 官方服务**（Chat 与 Responses）：只验证过 DeepSeek。Responses 的 `function_call` 不带 `id` 是依据文档推断，带 reasoning 的 gpt-5 / o 系列可能不同。
+- [ ] **思维链 token 数**：按文档解析 `completion_tokens_details.reasoning_tokens`（Chat）与 `output_tokens_details.reasoning_tokens`（Responses），只有 `httptest` 测试，没有用真实 DeepSeek / OpenAI 确认过字段是否存在；不存在时 TUI 显示按字数估算的“约 N token”。
 - [ ] **Linux / macOS / Termux 实际运行**：只验证过能编译；`bash` 探测、进程组终止等 Unix 路径只有单元测试（fake probe）。
 - [ ] **双击 `sprout.exe` 启动**（含出错后等待回车）。
 - [ ] `go test -race`：本机没有 gcc，未跑过。

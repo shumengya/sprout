@@ -94,6 +94,13 @@ type Model struct {
 	plainSrc string
 	clip     func(string) error // 写系统剪贴板；测试里替换成替身
 
+	// spans[i] 是 entries[i] 在对话内容里占的行范围，点击时用来找到点中的条目。
+	spans []rowSpan
+	// callThink 是本次模型调用的思维链条目；usageThink 是刚结束的那次调用的思维链条目，
+	// 等紧随 MessageCompleted 之后的 Usage 事件把思维链 token 数填进去。
+	callThink, usageThink *entry
+	now                   func() time.Time // 时钟；测试里替换成固定时间
+
 	turn     int
 	events   chan event.Event
 	cancel   context.CancelFunc
@@ -107,7 +114,7 @@ func New(o Options) *Model {
 	if o.Runner == nil && o.Disabled == "" {
 		o.Disabled = "没有可用的 agent，无法发起对话。"
 	}
-	m := &Model{opts: o, follow: true, mouse: true, tools: map[string]*entry{}, quit: make(chan struct{}), clip: defaultClip}
+	m := &Model{opts: o, follow: true, mouse: true, tools: map[string]*entry{}, quit: make(chan struct{}), clip: defaultClip, now: time.Now}
 
 	m.vp = viewport.New()
 	m.vp.FillHeight = true
@@ -188,8 +195,13 @@ func (m *Model) refresh() {
 	}
 	before := m.vp.TotalLineCount()
 	parts := make([]string, len(m.entries))
+	m.spans = m.spans[:0]
+	row := 0
 	for i, e := range m.entries {
-		parts[i] = e.render(m.w, m.showThink)
+		parts[i] = e.render(m.w)
+		n := strings.Count(parts[i], "\n") + 1
+		m.spans = append(m.spans, rowSpan{row, row + n})
+		row += n + 1 // 条目之间空一行
 	}
 	content := strings.Join(parts, "\n\n")
 	m.syncSel(content) // 内容对不上了就取消选区，必须在更新 m.content 之前

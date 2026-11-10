@@ -94,11 +94,13 @@ type ToolFinished struct {
 	Err string
 }
 
-// Usage 是一次模型调用的 token 用量。
+// Usage 是一次模型调用的 token 用量。它紧跟在同一次调用的 MessageCompleted 之后发出。
 type Usage struct {
 	InputTokens  int
 	OutputTokens int
 	TotalTokens  int
+	// ReasoningTokens 是 OutputTokens 里用于思维链的部分；provider 不报告时为 0。
+	ReasoningTokens int
 }
 
 // Retrying 在一次模型调用失败、即将退避重试前发出。只有在这次调用还没有向界面输出任何内容时才会重试，

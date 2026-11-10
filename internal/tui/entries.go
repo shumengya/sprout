@@ -5,6 +5,7 @@ package tui
 
 import (
 	"strings"
+	"time"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -45,25 +46,31 @@ type entry struct {
 
 	// 思维链条目：live 表示还在流式输出，此时只预览最后几行。
 	live bool
+	// open 表示展开全文（点击条目或 /think 切换）；thinkStart 是第一段增量到达的时间，
+	// thinkDur 是思考耗时（从会话恢复或非流式给出时没有，为 0）；thinkTokens 是服务端报告的思维链 token 数，0 表示未报告。
+	open        bool
+	thinkStart  time.Time
+	thinkDur    time.Duration
+	thinkTokens int
 
 	cache    string
 	cacheW   int
-	cacheExp bool // 渲染缓存对应的“展开思维链”开关
+	cacheExp bool // 渲染缓存对应的展开状态
 	dirty    bool
 }
 
 func (e *entry) touch() { e.dirty = true }
 
-// render 返回条目在宽度 w 下的渲染结果。expandThink 只影响思维链条目。
-func (e *entry) render(w int, expandThink bool) string {
-	if !e.dirty && e.cacheW == w && e.cacheExp == expandThink {
+// render 返回条目在宽度 w 下的渲染结果，按宽度和展开状态缓存。
+func (e *entry) render(w int) string {
+	if !e.dirty && e.cacheW == w && e.cacheExp == e.open {
 		return e.cache
 	}
-	e.cache, e.cacheW, e.cacheExp, e.dirty = e.draw(w, expandThink), w, expandThink, false
+	e.cache, e.cacheW, e.cacheExp, e.dirty = e.draw(w), w, e.open, false
 	return e.cache
 }
 
-func (e *entry) draw(w int, expandThink bool) string {
+func (e *entry) draw(w int) string {
 	switch e.kind {
 	case kindUser:
 		// 不加前缀，靠颜色和助手回答区分；助手回答保持终端默认前景色。
@@ -73,7 +80,7 @@ func (e *entry) draw(w int, expandThink bool) string {
 	case kindTool:
 		return e.drawTool(w)
 	case kindThink:
-		return e.drawThink(w, expandThink)
+		return e.drawThink(w)
 	case kindError:
 		return styErr.Render(hang("! ", 2, wrap(sanitize(e.text), w-2)))
 	}

@@ -74,9 +74,10 @@ type compactRec struct {
 
 type usageRec struct {
 	header
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
-	TotalTokens  int `json:"total_tokens"`
+	InputTokens     int `json:"input_tokens"`
+	OutputTokens    int `json:"output_tokens"`
+	TotalTokens     int `json:"total_tokens"`
+	ReasoningTokens int `json:"reasoning_tokens,omitempty"` // 服务端不报告时省略
 }
 
 type turnRec struct {
@@ -130,7 +131,7 @@ func toRecord(e event.Event, now time.Time) (any, bool) {
 	case event.Compacted:
 		return compactRec{h("compact"), e.Mode, e.TokensBefore, e.TokensAfter, e.Dropped, e.Summary, e.Err}, true
 	case event.Usage:
-		return usageRec{h("usage"), e.InputTokens, e.OutputTokens, e.TotalTokens}, true
+		return usageRec{h("usage"), e.InputTokens, e.OutputTokens, e.TotalTokens, e.ReasoningTokens}, true
 	case event.TurnFinished:
 		return turnRec{h("turn"), e.Reason}, true
 	case event.Error:
