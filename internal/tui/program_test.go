@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"io"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,13 +15,20 @@ import (
 
 // probe 在每次 Update 之后检查 done，满足就退出程序。
 // 检查发生在程序自己的 goroutine 里，所以读 Model 状态没有竞争。
+// sized 在收到第一个 WindowSizeMsg 后关闭：脚本等它再发按键，否则一轮可能在界面拿到尺寸之前就跑完，
+// 画面还停在“加载中…”（偶发，约千分之二到五）。
 type probe struct {
 	*Model
-	done func(*Model) bool
+	done  func(*Model) bool
+	sized chan struct{}
+	once  *sync.Once
 }
 
 func (p probe) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	_, cmd := p.Model.Update(msg)
+	if _, ok := msg.(tea.WindowSizeMsg); ok {
+		p.once.Do(func() { close(p.sized) })
+	}
 	if p.done(p.Model) {
 		return p, tea.Batch(cmd, tea.Quit)
 	}
@@ -28,16 +36,23 @@ func (p probe) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // runProgram 用真实的 tea.Program 跑 m：禁用输入、丢弃输出，script 在另一个 goroutine 里
-// 通过 send 注入按键。超时则失败，避免测试挂死。返回后可以安全读取 m。
+// 通过 send 注入按键，开始前先等界面收到窗口尺寸。超时则失败，避免测试挂死。返回后可以安全读取 m。
 func runProgram(t *testing.T, m *Model, script func(send func(tea.Msg)), done func(*Model) bool) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	// 输出不是 TTY 时程序会用自己的 width/height（默认 0）发初始 WindowSizeMsg，
 	// 手动 Send 的尺寸会被它覆盖，所以必须通过 WithWindowSize 设置。
-	p := tea.NewProgram(probe{m, done}, tea.WithInput(nil), tea.WithOutput(io.Discard),
+	pr := probe{Model: m, done: done, sized: make(chan struct{}), once: &sync.Once{}}
+	p := tea.NewProgram(pr, tea.WithInput(nil), tea.WithOutput(io.Discard),
 		tea.WithContext(ctx), tea.WithWindowSize(100, 30))
-	go script(p.Send)
+	go func() {
+		select {
+		case <-pr.sized:
+			script(p.Send)
+		case <-ctx.Done():
+		}
+	}()
 	if _, err := p.Run(); err != nil {
 		t.Fatalf("程序异常结束: %v", err)
 	}
