@@ -89,9 +89,6 @@ func (e *entry) draw(w int) string {
 	return styFaint.Render(wrap(sanitize(e.text), w))
 }
 
-// wrap 按显示宽度折行，正确处理中文等宽字符；已有的换行保留。
-func wrap(s string, w int) string { return ansi.Wrap(s, max(w, 1), "") }
-
 // hang 给多行文本加首行前缀和后续行缩进。
 func hang(prefix string, indent int, body string) string {
 	lines := strings.Split(body, "\n")
