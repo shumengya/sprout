@@ -66,7 +66,8 @@ func TestProgramFullTurnThroughRealEventLoop(t *testing.T) {
 	runProgram(t, m, func(send func(tea.Msg)) { send(keyEnter) }, finishedOneTurn)
 
 	s := plain(m)
-	mustContain(t, s, "看一下目录", "我来看看", "powershell", "Get-ChildItem", "1 行，exit 0", "main.go", "入口是 main.go", "空闲")
+	mustContain(t, s, "看一下目录", "我来看看", "powershell", "Get-ChildItem", "1 行，exit 0", "main.go", "入口是 main.go")
+	mustBeIdle(t, m)
 	if countKind(m, kindAssistant) != 2 || countKind(m, kindTool) != 1 {
 		t.Errorf("条目数不对: assistant=%d tool=%d", countKind(m, kindAssistant), countKind(m, kindTool))
 	}
@@ -101,7 +102,8 @@ func TestProgramCtrlCCancelsRunningTurn(t *testing.T) {
 		send(keyCtrlC)
 	}, finishedOneTurn)
 
-	mustContain(t, plain(m), "已取消本轮对话", "空闲")
+	mustContain(t, plain(m), "已取消本轮对话")
+	mustBeIdle(t, m)
 }
 
 func TestProgramShutdownWaitsForAgentToFinish(t *testing.T) {
@@ -148,14 +150,16 @@ func TestProgramRunnerPanicBecomesErrorEntry(t *testing.T) {
 	r := fakeRunner{run: func(context.Context, string, event.Sink) error { panic("炸了") }}
 	m := newProgModel(r)
 	runProgram(t, m, func(send func(tea.Msg)) { send(keyEnter) }, finishedOneTurn)
-	mustContain(t, plain(m), "内部错误: 炸了", "空闲")
+	mustContain(t, plain(m), "内部错误: 炸了")
+	mustBeIdle(t, m)
 }
 
 func TestProgramRunnerReturningWithoutFinishedDoesNotHang(t *testing.T) {
 	r := fakeRunner{run: func(context.Context, string, event.Sink) error { return nil }}
 	m := newProgModel(r)
 	runProgram(t, m, func(send func(tea.Msg)) { send(keyEnter) }, finishedOneTurn)
-	mustContain(t, plain(m), "意外结束", "空闲")
+	mustContain(t, plain(m), "意外结束")
+	mustBeIdle(t, m)
 }
 
 func TestProgramSecondTurnAfterFirst(t *testing.T) {

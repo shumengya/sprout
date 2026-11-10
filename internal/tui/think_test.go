@@ -124,7 +124,8 @@ func TestThinkingEndsWhenTurnIsCancelledMidThought(t *testing.T) {
 	if m.think != nil {
 		t.Fatal("轮次结束后不应还有 live 思维链")
 	}
-	mustContain(t, plain(m), "约4token：想到一半", "空闲")
+	mustContain(t, plain(m), "约4token：想到一半")
+	mustBeIdle(t, m)
 	mustNotContain(t, plain(m), "思考中…")
 }
 

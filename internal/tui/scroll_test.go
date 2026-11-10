@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/shumengya/sprout/internal/agent/event"
 )
@@ -92,8 +94,10 @@ func TestPlainArrowsScrollOnlyWhenInputEmpty(t *testing.T) {
 	}
 
 	m.in.SetValue("第一行\n第二行")
+	m.fit() // 两行输入让输入框长高一行；跟随底部时对话区仍贴底
+	bottom = m.vp.YOffset()
 	m.Update(keyOf(tea.KeyUp, 0))
-	if m.vp.YOffset() != bottom {
+	if m.vp.YOffset() != bottom || !m.follow {
 		t.Fatal("输入框有内容时 ↑ 应留给输入框移动光标，不能滚动对话")
 	}
 }
@@ -104,6 +108,28 @@ func TestPageKeysStillWorkWithText(t *testing.T) {
 	m.Update(keyPgUp)
 	if m.follow {
 		t.Fatal("输入框有内容时 PgUp 也应滚动对话")
+	}
+}
+
+func TestScrollHintOverlaysLastRowWithoutResizing(t *testing.T) {
+	// 上滚提示叠在对话区最后一行，不占新行：否则对话区变矮，滚回去会差一行到不了底。
+	m := scrolled(t)
+	h := m.vp.Height()
+	m.Update(keyPgUp)
+	if m.vp.Height() != h {
+		t.Fatalf("上滚后对话区高度从 %d 变成 %d", h, m.vp.Height())
+	}
+	lines := strings.Split(plain(m), "\n")
+	if row := lines[h-1]; !strings.HasSuffix(strings.TrimRight(row, " "), "End 回到底部") {
+		t.Fatalf("提示应在对话区最后一行右端: %q", row)
+	}
+	for i, l := range strings.Split(m.View().Content, "\n") {
+		if w := ansi.StringWidth(l); w > 80 {
+			t.Errorf("第 %d 行宽 %d 超出终端", i, w)
+		}
+	}
+	if len(lines) != 24 {
+		t.Fatalf("画面 %d 行", len(lines))
 	}
 }
 

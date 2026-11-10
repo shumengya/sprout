@@ -52,11 +52,8 @@ type Options struct {
 	ResumeNotice string
 }
 
-const (
-	inputH = 3
-	// 底部依次是：分隔线、状态行、输入框、信息栏。顶部不再占行，整块上方都留给对话。
-	footerH = 1 + 1 + inputH + 1
-)
+// 输入框按内容增高：空时一行，最多显示这么多行，再多就在输入框内部滚动。
+const inputMaxRows = 8
 
 // Model 是 Bubble Tea 的主模型，子组件不各自跑 Update。
 type Model struct {
@@ -124,12 +121,15 @@ func New(o Options) *Model {
 	// 只有首行显示提示符，续行用空格对齐。必须在 SetWidth 之前设置（layout 里每次重排都会重新 SetWidth）。
 	m.in.SetPromptFunc(2, func(pi textarea.PromptInfo) string {
 		if pi.LineNumber == 0 {
-			return "> "
+			return "❯ "
 		}
 		return "  "
 	})
 	m.in.Placeholder = "输入消息，Enter 发送，Ctrl+J 换行"
 	m.in.ShowLineNumbers = false
+	// 按内容增高，空时只占一行。MaxHeight 只管可见行数；MaxContentHeight 放得很大，
+	// 否则输入会被卡在 MaxHeight 个逻辑行（组件为兼容旧行为的默认规则）。
+	m.in.DynamicHeight, m.in.MinHeight, m.in.MaxHeight, m.in.MaxContentHeight = true, 1, inputMaxRows, 1<<20
 	m.in.SetVirtualCursor(false) // 用真实终端光标，输入法的候选窗才会跟随
 	// Enter 用于发送，换行改绑 Ctrl+J / Shift+Enter。
 	m.in.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("ctrl+j", "shift+enter"))
@@ -180,11 +180,37 @@ func (m *Model) runningTools() []string {
 
 // layout 按窗口尺寸重排各区域。
 func (m *Model) layout() {
-	m.in.SetWidth(max(m.w, 1))
-	m.in.SetHeight(inputH)
+	m.in.SetWidth(max(m.w, 1)) // 也会按新宽度重算输入框的高度
 	m.vp.SetWidth(max(m.w, 1))
-	m.vp.SetHeight(max(m.h-footerH, 1))
 	m.refresh()
+}
+
+// footerRows 是对话区下面占的行数：可选的活动行、分隔线、输入框、分隔线、信息栏。
+// 空闲时只有 4 行（输入框一行）。
+func (m *Model) footerRows() int {
+	n := 1 + m.in.Height() + 1 + 1
+	if m.activityLine() != "" {
+		n++
+	}
+	return n
+}
+
+// fit 让对话区高度跟上底部的变化（输入框增高、活动行出现或消失）。
+// 跟随底部时保持贴底；否则保持当前位置，只在超出新范围时收敛。
+func (m *Model) fit() {
+	if m.w <= 0 || m.h <= 0 {
+		return
+	}
+	h := max(m.h-m.footerRows(), 1)
+	if h == m.vp.Height() {
+		return
+	}
+	m.vp.SetHeight(h)
+	if m.follow {
+		m.vp.GotoBottom()
+	} else {
+		m.vp.SetYOffset(m.vp.YOffset()) // viewport 改高度时不收敛偏移，手动收敛一次
+	}
 }
 
 // refresh 重新渲染 transcript；只有脏条目或宽度变化的条目会真正重绘。
@@ -207,6 +233,7 @@ func (m *Model) refresh() {
 	m.syncSel(content) // 内容对不上了就取消选区，必须在更新 m.content 之前
 	m.content = content
 	m.vp.SetContent(content)
+	m.fit()
 	if m.follow {
 		m.vp.GotoBottom()
 		m.unseen = false

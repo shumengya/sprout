@@ -140,7 +140,8 @@ func TestTurnFinishedNotices(t *testing.T) {
 		if m.running {
 			t.Errorf("%s: 结束后应回到空闲", reason)
 		}
-		mustContain(t, plain(m), want, "空闲")
+		mustContain(t, plain(m), want)
+		mustBeIdle(t, m)
 	}
 }
 
@@ -148,7 +149,8 @@ func TestErrorEventShownAndTurnEnds(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 100, 24)
 	begin(m, "q")
 	apply(m, event.Error{Message: "认证失败（HTTP 401）"}, event.TurnFinished{Reason: event.ReasonError})
-	mustContain(t, plain(m), "! 认证失败（HTTP 401）", "空闲")
+	mustContain(t, plain(m), "! 认证失败（HTTP 401）")
+	mustBeIdle(t, m)
 }
 
 func TestTurnClosedWithoutFinishedDoesNotHang(t *testing.T) {

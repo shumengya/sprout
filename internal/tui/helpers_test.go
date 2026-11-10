@@ -80,6 +80,15 @@ func begin(m *Model, text string) {
 	m.refresh()
 }
 
+// mustBeIdle 断言本轮已结束：不在运行，画面上也没有“Ctrl+C 取消”。空闲时不再显示“空闲”二字，活动行整行消失。
+func mustBeIdle(t *testing.T, m *Model) {
+	t.Helper()
+	if m.running {
+		t.Error("应已结束本轮")
+	}
+	mustNotContain(t, plain(m), "Ctrl+C 取消", "生成中", "思考中")
+}
+
 func mustContain(t *testing.T, s string, wants ...string) {
 	t.Helper()
 	for _, w := range wants {

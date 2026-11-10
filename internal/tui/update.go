@@ -7,8 +7,15 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// Update 只改状态、返回 Cmd，不做 IO。
+// Update 只改状态、返回 Cmd，不做 IO。每条消息处理完都让对话区高度跟上底部：
+// 打字会让输入框增高，按键会清掉状态提示，开始或结束一轮会让活动行出现或消失。
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	model, cmd := m.update(msg)
+	m.fit()
+	return model, cmd
+}
+
+func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height

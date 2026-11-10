@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/shumengya/sprout/internal/agent/event"
@@ -55,9 +56,81 @@ func TestTopOfScreenIsNowTheTranscript(t *testing.T) {
 	if !strings.Contains(first, "输入问题后按 Enter 发送") {
 		t.Fatalf("顶部第一行应直接是对话区内容，不再有信息栏: %q", first)
 	}
-	// 去掉顶部 4 行后，对话区更高。
-	if want := 24 - footerH; m.vp.Height() != want {
+	// 空闲时底部只有 4 行：分隔线、一行输入框、分隔线、信息栏。
+	if want := 24 - 4; m.vp.Height() != want {
 		t.Errorf("对话区高度 = %d，期望 %d", m.vp.Height(), want)
+	}
+}
+
+func TestFooterIsCompactWhenIdle(t *testing.T) {
+	m := newSized(t, Options{Runner: scriptRunner()}, 80, 24)
+	lines := strings.Split(plain(m), "\n")
+	foot := lines[len(lines)-4:]
+	if !strings.HasPrefix(foot[0], "────") || !strings.HasPrefix(foot[1], "❯ 输入消息") ||
+		!strings.HasPrefix(foot[2], "────") || !strings.Contains(foot[3], "模型 deepseek-chat") {
+		t.Fatalf("空闲时底部应是 分隔线 / 输入框 / 分隔线 / 信息栏:\n%s", strings.Join(foot, "\n"))
+	}
+	mustNotContain(t, plain(m), "空闲", "Ctrl+C 退出")
+}
+
+func TestActivityLineAppearsOnlyWhileRunning(t *testing.T) {
+	m := newSized(t, Options{Runner: scriptRunner()}, 80, 24)
+	idle := m.vp.Height()
+	begin(m, "q")
+	if m.vp.Height() != idle-1 {
+		t.Fatalf("运行时多一行活动行，对话区应矮一行: %d → %d", idle, m.vp.Height())
+	}
+	lines := strings.Split(plain(m), "\n")
+	if act := lines[len(lines)-5]; !strings.Contains(act, "生成中") || !strings.Contains(act, "Ctrl+C 取消") {
+		t.Fatalf("输入框上方应是活动行: %q", act)
+	}
+	apply(m, event.TurnFinished{Reason: event.ReasonStop})
+	if m.vp.Height() != idle {
+		t.Fatalf("结束后活动行消失，对话区恢复高度: %d", m.vp.Height())
+	}
+}
+
+func TestInputGrowsWithContentAndShrinksAfterSend(t *testing.T) {
+	m := newSized(t, Options{Runner: scriptRunner()}, 80, 24)
+	idle := m.vp.Height()
+	m.Update(typed("一"))
+	for i := 0; i < 2; i++ {
+		m.Update(press('j', tea.ModCtrl)) // Ctrl+J 换行
+		m.Update(typed("行"))
+	}
+	if m.in.Height() != 3 || m.vp.Height() != idle-2 {
+		t.Fatalf("三行输入应占三行: 输入框 %d 行，对话区 %d（空闲 %d）", m.in.Height(), m.vp.Height(), idle)
+	}
+	for i := 0; i < 20; i++ {
+		m.Update(press('j', tea.ModCtrl))
+		m.Update(typed("行"))
+	}
+	if m.in.Height() != inputMaxRows || len(strings.Split(m.in.Value(), "\n")) != 23 {
+		t.Fatalf("超过上限后只显示 %d 行，但内容不能被卡住: 显示 %d 行，内容 %d 行",
+			inputMaxRows, m.in.Height(), len(strings.Split(m.in.Value(), "\n")))
+	}
+	if len(strings.Split(m.View().Content, "\n")) != 24 {
+		t.Fatal("输入框增高时整个画面仍应恰好填满终端")
+	}
+	submit(m, "/help")
+	if m.in.Height() != 1 || m.vp.Height() != idle {
+		t.Fatalf("发送后输入框回到一行: 输入框 %d 行，对话区 %d", m.in.Height(), m.vp.Height())
+	}
+}
+
+func TestTokensShownOnInfoLine(t *testing.T) {
+	m := newSized(t, Options{Runner: scriptRunner()}, 100, 24)
+	apply(m, event.Usage{TotalTokens: 2863})
+	lines := strings.Split(plain(m), "\n")
+	last := strings.TrimRight(lines[len(lines)-1], " ")
+	if !strings.Contains(last, "模型 deepseek-chat") || !strings.HasSuffix(last, "2863 tokens") {
+		t.Fatalf("token 数应在信息栏右端: %q", last)
+	}
+	// 太窄时 token 数让位，不能把左边的信息挤掉或超宽。
+	narrow := newSized(t, Options{Runner: scriptRunner()}, 50, 24)
+	apply(narrow, event.Usage{TotalTokens: 2863})
+	if got := narrow.infoLine(); ansi.StringWidth(got) > 50 || !strings.Contains(ansi.Strip(got), "模型 deepseek-chat") {
+		t.Fatalf("窄宽度下信息栏: %q", ansi.Strip(got))
 	}
 }
 
@@ -152,22 +225,25 @@ func TestCancelHintClearsWhenTurnEnds(t *testing.T) {
 	m.Update(keyCtrlC)
 	mustContain(t, plain(m), "正在取消")
 	apply(m, event.TurnFinished{Reason: event.ReasonCancelled})
-	mustNotContain(t, plain(m), "正在取消")
-	mustContain(t, plain(m), "空闲")
+	mustNotContain(t, plain(m), "正在取消", "Ctrl+C 取消")
+	if m.running {
+		t.Fatal("本轮结束后应不在运行")
+	}
 }
 
 func TestOnlyFirstInputLineHasPrompt(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 80, 24)
 	m.in.SetValue("第一行\n第二行\n第三行")
+	m.fit()
 	lines := strings.Split(plain(m), "\n")
-	input := lines[len(lines)-1-inputH : len(lines)-1] // 最后一行是信息栏
+	input := lines[len(lines)-2-3 : len(lines)-2] // 下面是分隔线和信息栏
 	prompts := 0
 	for _, l := range input {
-		if strings.HasPrefix(l, ">") {
+		if strings.HasPrefix(l, "❯") {
 			prompts++
 		}
 	}
-	if prompts != 1 || !strings.HasPrefix(input[0], "> 第一行") || !strings.HasPrefix(input[1], "  第二行") {
+	if prompts != 1 || !strings.HasPrefix(input[0], "❯ 第一行") || !strings.HasPrefix(input[1], "  第二行") {
 		t.Fatalf("多行输入应只有首行带提示符：\n%s", strings.Join(input, "\n"))
 	}
 }
@@ -180,8 +256,8 @@ func TestCursorLandsInsideInputBox(t *testing.T) {
 		if c == nil {
 			t.Fatalf("h=%d: 输入框有焦点时应设置真实光标", h)
 		}
-		// 输入框在信息栏上面：光标 Y = 总高 - 信息栏 1 行 - 输入框 inputH 行。
-		wantY := h - 1 - inputH
+		// 输入框下面是分隔线和信息栏：光标 Y = 总高 - 2 - 输入框 1 行。
+		wantY := h - 3
 		if c.Y != wantY || c.X != 2 {
 			t.Errorf("h=%d: 空输入时光标 = (%d,%d)，期望 (2,%d)：提示符之后、输入框首行", h, c.X, c.Y, wantY)
 		}
@@ -190,6 +266,25 @@ func TestCursorLandsInsideInputBox(t *testing.T) {
 		if c := m.View().Cursor; c.X != 2+2+1 || c.Y != wantY { // 汉字占 2 列
 			t.Errorf("h=%d: 输入“你a”后光标 = (%d,%d)，期望 (5,%d)", h, c.X, c.Y, wantY)
 		}
+	}
+}
+
+func TestCursorFollowsActivityLineAndInputGrowth(t *testing.T) {
+	m := newSized(t, Options{Runner: scriptRunner()}, 80, 24)
+	begin(m, "q") // 活动行出现：它占的是对话区的一行，输入框位置不变
+	if c := m.View().Cursor; c.Y != 24-3 {
+		t.Errorf("运行时光标 Y = %d，期望 %d", c.Y, 24-3)
+	}
+	m.Update(typed("a"))
+	m.Update(press('j', tea.ModCtrl))
+	m.Update(typed("b"))
+	// 两行输入：输入框往上长一行，光标在它的第二行，也就是紧贴分隔线和信息栏的那一行。
+	if c := m.View().Cursor; c.Y != 24-3 {
+		t.Errorf("第二行输入时光标 Y = %d，期望 %d", c.Y, 24-3)
+	}
+	lines := strings.Split(m.View().Content, "\n")
+	if len(lines) != 24 {
+		t.Errorf("画面 %d 行，应恰好 24 行", len(lines))
 	}
 }
 
