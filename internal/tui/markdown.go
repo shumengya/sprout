@@ -1,180 +1,204 @@
 package tui
 
 import (
-	"regexp"
+	"fmt"
+	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/extension"
+	east "github.com/yuin/goldmark/extension/ast"
+	"github.com/yuin/goldmark/text"
 )
 
-// 轻量 Markdown 渲染：只覆盖模型回答里最常见的写法，不追求完整的 CommonMark。
-// 流式输出时每来一段增量都会整段重渲，所以必须容忍没写完的语法（比如还没闭合的代码围栏）。
+// Markdown 渲染：goldmark 按 CommonMark + GFM（表格、删除线、任务列表、裸链接）解析成语法树，
+// 这里再把语法树画成终端文本。流式输出时每来一段增量都会整段重渲，
+// goldmark 对没写完的语法有明确规则（未闭合的围栏延伸到文末、未闭合的 ** 和反引号原样保留），所以不会吞字符。
+//
+// 外观参考 opencode：标题加粗着色，列表圆点、引用条、行内代码用不同颜色，代码块带语法高亮。
+// 代码块只缩进两格、不画边框，鼠标选中复制时不会带进多余字符。
 
-var (
-	styCode    = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
-	styBold    = lipgloss.NewStyle().Bold(true)
-	styHeading = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("3"))
-)
+var mdParser = goldmark.New(goldmark.WithExtensions(extension.GFM))
 
-var (
-	reBullet   = regexp.MustCompile(`^[-*+] +(.*)$`)
-	reNumbered = regexp.MustCompile(`^(\d{1,3}[.)]) +(.*)$`)
-	reHeading  = regexp.MustCompile(`^#{1,6} +(.*)$`)
-	reRule     = regexp.MustCompile(`^(-{3,}|\*{3,}|_{3,})$`)
-	reTableSep = regexp.MustCompile(`^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?$`)
-)
+// 嵌套列表的圆点按层级轮换。
+var mdBullets = []string{"•", "◦", "▪"}
 
-// renderMarkdown 把 src 渲染成不超过 w 列的终端文本。src 应已经过 sanitize。
+// renderMarkdown 把 src 渲染成不超过 w 列的终端文本。
+// 渲染器自己出错（panic）时退回纯文本，不能让界面崩掉；测试用 renderMarkdownE 直接看到错误。
 func renderMarkdown(src string, w int) string {
+	out, err := renderMarkdownE(src, w)
+	if err != nil {
+		return wrap(sanitize(src), max(w, 1))
+	}
+	return out
+}
+
+func renderMarkdownE(src string, w int) (out string, err error) {
 	w = max(w, 1)
-	lines := strings.Split(src, "\n")
+	src = sanitize(src) // 幂等；调用方通常已经清理过，这里保证本函数单独使用也安全
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("markdown 渲染失败: %v", p)
+		}
+	}()
+
+	b := []byte(src)
+	doc := mdParser.Parser().Parse(text.NewReader(b))
+	r := &mdRenderer{src: b, in: &mdInliner{src: b}}
+	lines := r.blocks(doc, w, false)
+	for len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	mdClamp(lines, w)
+	return strings.Join(lines, "\n"), nil
+}
+
+type mdRenderer struct {
+	src   []byte
+	in    *mdInliner
+	base  lipgloss.Style // 外层容器带来的基础样式（引用里的斜体）
+	depth int            // 当前所在的列表嵌套层数
+}
+
+// blocks 渲染容器的所有子块，块之间空一行；tight 为真（紧凑列表项）时不空行。
+func (r *mdRenderer) blocks(parent ast.Node, w int, tight bool) []string {
 	var out []string
-	inCode := false
-	for i := 0; i < len(lines); i++ {
-		line := lines[i]
-		if strings.HasPrefix(strings.TrimSpace(line), "```") {
-			if lang := strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(line), "`")); !inCode && lang != "" {
-				out = append(out, styFaint.Render(lang))
-			}
-			inCode = !inCode
+	for c := parent.FirstChild(); c != nil; c = c.NextSibling() {
+		lines := r.block(c, w)
+		if len(lines) == 0 {
 			continue
 		}
-		if inCode {
-			// 代码不重排，只在超宽时硬折行，保留缩进。
-			for _, l := range strings.Split(ansi.Hardwrap(line, max(w-2, 1), true), "\n") {
-				out = append(out, "  "+styCode.Render(l))
-			}
-			continue
+		if len(out) > 0 && !tight {
+			out = append(out, "")
 		}
-		if tbl, n := renderTable(lines[i:], w); n > 0 {
-			out = append(out, tbl...)
-			i += n - 1
-			continue
-		}
-		out = append(out, renderLine(line, w))
+		out = append(out, lines...)
 	}
-	return strings.Join(out, "\n")
+	return out
 }
 
-// renderLine 渲染单行（非代码、非表格）：标题、列表、引用、分隔线或普通段落。
-func renderLine(line string, w int) string {
-	trimmed := strings.TrimSpace(line)
-	indent := len(line) - len(strings.TrimLeft(line, " "))
-	pad := strings.Repeat(" ", min(indent, w/2))
-
-	switch {
-	case trimmed == "":
-		return ""
-	case reRule.MatchString(trimmed):
-		return styFaint.Render(strings.Repeat("-", min(w, 40)))
+func (r *mdRenderer) block(n ast.Node, w int) []string {
+	switch n := n.(type) {
+	case *ast.Paragraph, *ast.TextBlock:
+		return r.flow(n, w, r.base)
+	case *ast.Heading:
+		return r.flow(n, w, mdHeadingStyle(n.Level))
+	case *ast.Blockquote:
+		return r.quote(n, w)
+	case *ast.List:
+		return r.list(n, w)
+	case *ast.FencedCodeBlock, *ast.CodeBlock:
+		return r.code(n, w)
+	case *ast.ThematicBreak:
+		return []string{mdRule(w)}
+	case *ast.HTMLBlock:
+		return r.html(n, w)
+	case *east.Table:
+		return r.table(n, w)
 	}
-	if m := reHeading.FindStringSubmatch(trimmed); m != nil {
-		return wrap(styHeading.Render(strings.TrimSpace(m[1])), w)
+	if n.HasChildren() {
+		return r.blocks(n, w, false)
 	}
-	if m := reBullet.FindStringSubmatch(trimmed); m != nil {
-		return hang(pad+"• ", len(pad)+2, wrap(inline(m[1]), w-len(pad)-2))
-	}
-	if m := reNumbered.FindStringSubmatch(trimmed); m != nil {
-		prefix := pad + m[1] + " "
-		return hang(prefix, len(prefix), wrap(inline(m[2]), w-len(prefix)))
-	}
-	if strings.HasPrefix(trimmed, ">") {
-		body := strings.TrimSpace(strings.TrimLeft(trimmed, ">"))
-		return styFaint.Render(hang("> ", 2, wrap(body, w-2)))
-	}
-	return wrap(inline(trimmed), w)
+	return nil
 }
 
-// inline 处理行内的 `代码` 和 **粗体**。没有闭合的标记原样保留，不猜测。
-func inline(s string) string {
-	if !strings.ContainsAny(s, "`*") {
-		return s
+// flow 渲染一个以行内内容为主的块（段落、标题），并折行。
+func (r *mdRenderer) flow(n ast.Node, w int, st lipgloss.Style) []string {
+	r.in.trimNext = false
+	s := strings.TrimRight(r.in.render(n, st), "\n")
+	if strings.TrimSpace(ansi.Strip(s)) == "" {
+		return nil
 	}
-	var b strings.Builder
-	for i := 0; i < len(s); {
-		switch {
-		case s[i] == '`':
-			if j := strings.IndexByte(s[i+1:], '`'); j > 0 {
-				b.WriteString(styCode.Render(s[i+1 : i+1+j]))
-				i += j + 2
-				continue
-			}
-		case strings.HasPrefix(s[i:], "**"):
-			if j := strings.Index(s[i+2:], "**"); j > 0 {
-				b.WriteString(styBold.Render(s[i+2 : i+2+j]))
-				i += j + 4
-				continue
-			}
-		}
-		r, size := utf8.DecodeRuneInString(s[i:])
-		b.WriteRune(r)
-		i += size
-	}
-	return b.String()
+	return mdFlow(s, w)
 }
 
-// renderTable 尝试把 lines 开头的内容渲染成对齐的表格，返回渲染结果和消耗的行数；
-// 不是表格（或太宽放不下）时返回 0，调用方按普通文本处理。
-func renderTable(lines []string, w int) ([]string, int) {
-	if len(lines) < 2 || !strings.Contains(lines[0], "|") || !reTableSep.MatchString(strings.TrimSpace(lines[1])) ||
-		!strings.Contains(lines[1], "-") {
-		return nil, 0
+func (r *mdRenderer) quote(n *ast.Blockquote, w int) []string {
+	saved := r.base
+	r.base = r.base.Italic(true)
+	lines := r.blocks(n, max(w-2, 1), false)
+	r.base = saved
+	bar := mdQuoteBar.Render("│") + " "
+	return mdPrefix(lines, bar, bar)
+}
+
+func (r *mdRenderer) list(n *ast.List, w int) []string {
+	count := 0
+	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
+		count++
 	}
-	rows := [][]string{splitRow(lines[0])}
-	n := 2
-	for ; n < len(lines) && strings.Contains(lines[n], "|"); n++ {
-		rows = append(rows, splitRow(lines[n]))
-	}
-	cols := len(rows[0])
-	widths := make([]int, cols)
-	cells := make([][]string, len(rows))
-	for r, row := range rows {
-		cells[r] = make([]string, cols)
-		for c := 0; c < cols; c++ {
-			if c < len(row) {
-				cells[r][c] = inline(row[c])
-			}
-			widths[c] = max(widths[c], ansi.StringWidth(cells[r][c]))
-		}
-	}
-	total := 0
-	for _, cw := range widths {
-		total += cw + 3
-	}
-	if total > w { // 放不下就不画表格，退回普通文本，至少不会撑破布局
-		return nil, 0
-	}
+	digits := len(strconv.Itoa(n.Start + count - 1))
+	num := n.Start
+
+	r.depth++
+	defer func() { r.depth-- }()
 
 	var out []string
-	for r, row := range cells {
-		parts := make([]string, cols)
-		for c, cell := range row {
-			if r == 0 {
-				cell = styBold.Render(ansi.Strip(cell))
-			}
-			parts[c] = cell + strings.Repeat(" ", widths[c]-ansi.StringWidth(cell))
+	for item := n.FirstChild(); item != nil; item = item.NextSibling() {
+		var marker string
+		var mw int
+		if n.IsOrdered() {
+			marker = mdMarker.Render(fmt.Sprintf("%*d%c", digits, num, n.Marker)) + " "
+			mw = digits + 2
+			num++
+		} else {
+			marker = mdMarker.Render(mdBullets[(r.depth-1)%len(mdBullets)]) + " "
+			mw = 2
 		}
-		out = append(out, strings.Join(parts, styFaint.Render(" │ ")))
-		if r == 0 {
-			seps := make([]string, cols)
-			for c := range seps {
-				seps[c] = strings.Repeat("─", widths[c])
-			}
-			out = append(out, styFaint.Render(strings.Join(seps, "─┼─")))
+		body := r.blocks(item, max(w-mw, 1), n.IsTight)
+		if len(body) == 0 {
+			body = []string{""} // 空列表项也要显示标记
 		}
+		if len(out) > 0 && !n.IsTight {
+			out = append(out, "")
+		}
+		out = append(out, mdPrefix(body, marker, strings.Repeat(" ", mw))...)
 	}
-	return out, n
+	return out
 }
 
-func splitRow(line string) []string {
-	line = strings.TrimSpace(line)
-	line = strings.TrimPrefix(line, "|")
-	line = strings.TrimSuffix(line, "|")
-	parts := strings.Split(line, "|")
-	for i := range parts {
-		parts[i] = strings.TrimSpace(parts[i])
+func (r *mdRenderer) code(n ast.Node, w int) []string {
+	var lang string
+	if f, ok := n.(*ast.FencedCodeBlock); ok {
+		lang = string(f.Language(r.src))
 	}
-	return parts
+	var sb strings.Builder
+	lines := n.Lines()
+	for i := 0; i < lines.Len(); i++ {
+		seg := lines.At(i)
+		sb.Write(seg.Value(r.src))
+	}
+	code := strings.TrimRight(sb.String(), "\n")
+
+	var out []string
+	if lang != "" {
+		out = append(out, mdFaint.Render(ansi.Truncate(lang, w, "…")))
+	}
+	if code == "" {
+		return out
+	}
+	var body []string
+	for _, l := range mdHighlight(lang, code) {
+		// 代码不重排，只在超宽时硬折行，保留缩进。
+		body = append(body, mdSeal(strings.Split(ansi.Hardwrap(l, max(w-2, 1), true), "\n"))...)
+	}
+	return append(out, mdPrefix(body, "  ", "  ")...)
+}
+
+func (r *mdRenderer) html(n *ast.HTMLBlock, w int) []string {
+	var sb strings.Builder
+	lines := n.Lines()
+	for i := 0; i < lines.Len(); i++ {
+		seg := lines.At(i)
+		sb.Write(seg.Value(r.src))
+	}
+	if n.HasClosure() {
+		sb.Write(n.ClosureLine.Value(r.src))
+	}
+	s := strings.TrimRight(sb.String(), "\n")
+	if strings.TrimSpace(s) == "" || strings.HasPrefix(strings.TrimSpace(s), "<!--") {
+		return nil // HTML 注释在任何渲染结果里都是不可见的
+	}
+	return mdFlow(mdFaint.Render(s), w)
 }

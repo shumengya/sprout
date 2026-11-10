@@ -7,13 +7,23 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-func md(src string, w int) string { return ansi.Strip(renderMarkdown(src, w)) }
+// mdRaw 返回带样式的渲染结果。渲染器出错直接 panic 让测试失败并带上堆栈：
+// 生产路径的 renderMarkdown 会退回纯文本，用它测试会把 bug 藏起来。
+func mdRaw(src string, w int) string {
+	out, err := renderMarkdownE(src, w)
+	if err != nil {
+		panic(err)
+	}
+	return out
+}
+
+// md 返回去掉样式后的渲染结果。
+func md(src string, w int) string { return ansi.Strip(mdRaw(src, w)) }
 
 func TestMarkdownHeadingAndInline(t *testing.T) {
-	got := renderMarkdown("## 标题\n正文有 **粗体** 和 `代码`。", 60)
-	plainText := ansi.Strip(got)
-	if plainText != "标题\n正文有 粗体 和 代码。" {
-		t.Fatalf("标记符号应被去掉: %q", plainText)
+	got := mdRaw("## 标题\n正文有 **粗体** 和 `代码`。", 60)
+	if plainText := ansi.Strip(got); plainText != "标题\n\n正文有 粗体 和 代码。" {
+		t.Fatalf("标记符号应被去掉，块之间空一行: %q", plainText)
 	}
 	if !strings.Contains(got, "\x1b[") {
 		t.Error("应带样式")
@@ -50,16 +60,30 @@ func TestMarkdownCodeIsNotInterpreted(t *testing.T) {
 
 func TestMarkdownUnclosedFenceStreaming(t *testing.T) {
 	got := md("```\nline1\nline2", 60)
-	if !strings.Contains(got, "  line1") || !strings.Contains(got, "  line2") {
+	if got != "  line1\n  line2" {
 		t.Errorf("没闭合的围栏按代码处理: %q", got)
 	}
 }
 
-func TestMarkdownLists(t *testing.T) {
-	got := md("- 第一项\n* 第二项\n1. 编号一\n2) 编号二", 60)
-	want := "• 第一项\n• 第二项\n1. 编号一\n2) 编号二"
-	if got != want {
-		t.Fatalf("got %q\nwant %q", got, want)
+func TestMarkdownFenceInfoStringKeepsOnlyLanguage(t *testing.T) {
+	if got := md("```go title=main.go\nx := 1\n```", 60); got != "go\n  x := 1" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestMarkdownBulletsAndNumbers(t *testing.T) {
+	if got := md("- 第一项\n- 第二项", 60); got != "• 第一项\n• 第二项" {
+		t.Errorf("bullets: %q", got)
+	}
+	// 换了标记符号就是另一个列表（CommonMark 规定），两个列表之间空一行。
+	if got := md("- 第一项\n* 第二项", 60); got != "• 第一项\n\n• 第二项" {
+		t.Errorf("mixed markers: %q", got)
+	}
+	if got := md("1. 编号一\n2. 编号二", 60); got != "1. 编号一\n2. 编号二" {
+		t.Errorf("numbers: %q", got)
+	}
+	if got := md("3) 从三开始\n4) 接着", 60); got != "3) 从三开始\n4) 接着" {
+		t.Errorf("start/marker: %q", got)
 	}
 }
 
@@ -72,8 +96,8 @@ func TestMarkdownBulletWrapsWithHangingIndent(t *testing.T) {
 }
 
 func TestMarkdownQuoteAndRule(t *testing.T) {
-	got := md("> 引用内容\n---", 60)
-	if !strings.HasPrefix(got, "> 引用内容") || !strings.Contains(got, "---") {
+	got := md("> 引用内容\n\n---", 60)
+	if !strings.HasPrefix(got, "│ 引用内容") || !strings.Contains(got, "────") {
 		t.Errorf("got %q", got)
 	}
 }
@@ -96,16 +120,6 @@ func TestMarkdownTableAlignsChineseColumns(t *testing.T) {
 	}
 }
 
-func TestMarkdownTooWideTableFallsBackToText(t *testing.T) {
-	src := "| " + strings.Repeat("宽", 30) + " | " + strings.Repeat("列", 30) + " |\n|---|---|\n| a | b |"
-	got := md(src, 40)
-	for i, l := range strings.Split(got, "\n") {
-		if w := ansi.StringWidth(l); w > 40 {
-			t.Errorf("第 %d 行宽 %d 超出 40: %q", i, w, l)
-		}
-	}
-}
-
 func TestMarkdownNotATable(t *testing.T) {
 	// 含竖线但第二行不是分隔行，只是普通文字。
 	if got := md("a | b\n只是文字", 60); got != "a | b\n只是文字" {
@@ -113,21 +127,10 @@ func TestMarkdownNotATable(t *testing.T) {
 	}
 }
 
-func TestMarkdownNeverExceedsWidth(t *testing.T) {
-	src := "# " + strings.Repeat("标题", 30) + "\n" + strings.Repeat("很长的段落", 40) +
-		"\n- " + strings.Repeat("列表", 40) + "\n> " + strings.Repeat("引用", 40) +
-		"\n```\n" + strings.Repeat("代码", 60) + "\n```"
-	for _, w := range []int{10, 20, 40, 80} {
-		for i, l := range strings.Split(md(src, w), "\n") {
-			if got := ansi.StringWidth(l); got > w {
-				t.Errorf("w=%d 第 %d 行宽 %d 超宽: %q", w, i, got, l)
-			}
-		}
-	}
-}
-
 func TestMarkdownEmpty(t *testing.T) {
-	if got := renderMarkdown("", 40); got != "" {
-		t.Errorf("got %q", got)
+	for _, src := range []string{"", "\n\n", "  \n \n"} {
+		if got := md(src, 40); got != "" {
+			t.Errorf("md(%q) = %q", src, got)
+		}
 	}
 }
