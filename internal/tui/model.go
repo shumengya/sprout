@@ -50,6 +50,8 @@ type Options struct {
 	// Replay 是启动时就恢复了会话（--continue）时要重放的事件流，ResumeNotice 是对应的说明。
 	Replay       []event.Event
 	ResumeNotice string
+	// Installer 注册和卸载全局 sprout 命令（/install-sprout、/uninstall-sprout）；为 nil 时这两个命令不可用。
+	Installer Installer
 }
 
 // 输入框按内容增高：空时一行，最多显示这么多行，再多就在输入框内部滚动。

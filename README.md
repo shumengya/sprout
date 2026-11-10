@@ -131,6 +131,8 @@ sprout run "..."       # 单次非交互，答案写 stdout，进度写 stderr
 sprout -c              # 恢复当前目录最近的会话（也可 sprout run -c "..."；TUI 里用 /resume 选择）
 ```
 
+在 TUI 里输入 `/install-sprout` 可以把当前程序注册成全局 `sprout` 命令（Windows 改用户 PATH，Linux / macOS 在 `~/.local/bin` 建符号链接），`/uninstall-sprout` 卸载。注册是原地调用，配置和会话仍在程序所在目录。
+
 首次运行会在 `<程序所在目录>/data/.sprout/models.jsonc` 生成带注释的配置，填入 API Key（或设置对应环境变量，如 `DEEPSEEK_API_KEY`）后重启即可。可用 `--data-dir` 或 `SPROUT_DATA_DIR` 指定数据目录；用 `go run` 开发时必须显式指定，例如 `go run ./cmd/sprout --data-dir ./data/.sprout`。
 
 后续里程碑的目标用法（尚未实现）：

@@ -457,6 +457,10 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
   - 代价：新增依赖 goldmark 与 chroma（纯 Go，无 CGO）；Windows 上二进制约增加 4.8 MB（14.0 → 18.9 MB），`--help` 启动约多 17 ms（57 → 74 ms）。
 - 模型的思维链用淡色单独显示：流式时只预览最后 3 行并显示字数；结束后折叠成一行“已思考 12秒 340token：开头内容…”，思考内容压成一行接在后面，放不下的用省略号截断。点击条目展开全文（头部单独一行，正文缩进两格），再点一次收起；点击只切换被点的那一条，`/think` 一次展开或折叠全部，并决定之后新思考条目的默认状态。切换时被点中的条目头部停在屏幕原位，不会跳走；在长思考的正文中间点击收起时，头部移到对话区顶部。屏幕上有选区时，点击只取消选区、不切换；拖动仍是选中复制。耗时从第一段思维链增量到达算到思考结束（正文开始、工具调用或本轮结束），非流式服务和恢复的会话没有这个时刻，不显示耗时。token 数取服务端报告的思维链 token（见下），没报告时按字数估算并标“约”（ASCII 约 3 字符一个、中日韩约 1 字一个，与内核的上下文估算同一规则）。活动行显示“思考中”，超过 3 秒后追加已耗时。
 - 空对话时显示一行新手引导（发送、翻页、`/help`）。
+- `/install-sprout` / `/uninstall-sprout` 注册和卸载全局 `sprout` 命令（`internal/agent/platform/install*.go`，TUI 经 `Options.Installer` 注入，在 `tea.Cmd` 里执行）。注册的是当前运行的程序，原地调用、不复制：数据目录跟随 exe，复制到别处就换了一个数据目录。`go run` 的临时程序拒绝注册。
+  - Windows：在 `%LOCALAPPDATA%\sprout\bin` 写 `sprout.cmd`（纯 ASCII、CRLF、无 BOM，带标记行；路径含非 ASCII 时改用 8.3 短路径，没有短路径就拒绝），把这个目录放到用户 PATH 最前面（已有的去重），并移除用户 PATH 里只装着旧 sprout 的目录（目录里的文件不动；目录里还有别的可执行文件时不移除，只提示）。用户 PATH 的其他条目原样保留，包括未展开的 `%VAR%`，注册表值类型（`REG_SZ` / `REG_EXPAND_SZ`）保持不变。每次改 PATH 前把原值备份到 `%LOCALAPPDATA%\sprout\path-backup-<时间>.txt`，改完广播 `WM_SETTINGCHANGE`，新开的终端生效。系统 PATH 只读：里面有别的 sprout 时提示需要管理员手动处理（Windows 先查系统 PATH）。先做完所有检查再写入；不是我们生成的 `sprout.cmd` 不覆盖、不删除。卸载删掉 `sprout.cmd`（目录空了一并删除）并从用户 PATH 移除那一条，不恢复安装时移除的旧条目。
+  - Linux / macOS：`~/.local/bin/sprout` 符号链接；Termux：`$PREFIX/bin/sprout`。已有的符号链接替换并报告原来指向哪里，普通文件不覆盖。不改 shell 配置文件：目录不在 PATH 里时提示要加的那一行，PATH 里更靠前的另一个 sprout 只提示。卸载只删符号链接。
+  - 已知限制：Windows 上经 `.cmd` 启动后，`sprout run` 运行中按 Ctrl+C 退出时 cmd 可能多问一句“终止批处理操作吗(Y/N)?”；TUI 不受影响（Ctrl+C 是界面里的按键）。
 
 **思维链（reasoning_content）**
 

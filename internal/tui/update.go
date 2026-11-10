@@ -66,6 +66,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh()
 		return m, nil
 
+	case installDoneMsg:
+		m.onInstalled(msg)
+		m.refresh()
+		return m, nil
+
 	case turnClosedMsg:
 		if msg.turn != m.turn {
 			return m, nil

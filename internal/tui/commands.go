@@ -27,12 +27,14 @@ const helpText = `快捷键
   按任意键或点击别处取消选中
 
 命令
-  /resume         列出当前目录的历史会话；/resume 序号 恢复其中一个
-  /think          展开 / 折叠全部思考过程；点击单条思考过程可以单独展开或收起
-  /mouse          开关鼠标上报（滚轮与拖选复制；关闭后改用终端自带的选中）
-  /tools          查看检测到的终端工具
-  /help           显示本帮助
-  /quit           退出`
+  /resume             列出当前目录的历史会话；/resume 序号 恢复其中一个
+  /think              展开 / 折叠全部思考过程；点击单条思考过程可以单独展开或收起
+  /mouse              开关鼠标上报（滚轮与拖选复制；关闭后改用终端自带的选中）
+  /tools              查看检测到的终端工具
+  /install-sprout     把当前程序注册成全局 sprout 命令（新开的终端里生效）
+  /uninstall-sprout   卸载全局 sprout 命令（程序文件不动）
+  /help               显示本帮助
+  /quit               退出`
 
 // slash 处理本地斜杠命令。只匹配第一个词，且仅限已知命令：
 // 其他以 / 开头的输入（比如路径）会原样交给模型。
@@ -42,6 +44,9 @@ func (m *Model) slash(text string) (handled bool, cmd tea.Cmd) {
 	case "/resume":
 		m.follow = true
 		return true, m.resumeCmd(strings.TrimSpace(arg))
+	case "/install-sprout", "/uninstall-sprout":
+		m.follow = true
+		return true, m.installCmd(name == "/uninstall-sprout")
 	case "/help":
 		m.add(&entry{kind: kindNotice, text: helpText})
 	case "/tools":
