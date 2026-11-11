@@ -33,6 +33,35 @@ const Template = `// Sprout 模型配置（JSONC：支持 // 和 /* */ 注释，
       }
     },
 
+    // DeepSeek 同一个 Key 也支持 Responses 与 Anthropic Messages 协议。
+    "deepseek-responses": {
+      "protocol": "openai-responses",
+      "baseUrl": "https://api.deepseek.com",
+      "apiKeyEnv": "DEEPSEEK_API_KEY",
+      "apiKey": "",
+      "models": {
+        "deepseek-flash": {
+          "contextWindow": 1000000,
+          "maxOutput": 384000,
+          "tools": true
+        }
+      }
+    },
+
+    "deepseek-anthropic": {
+      "protocol": "anthropic-messages",
+      "baseUrl": "https://api.deepseek.com/anthropic/v1",
+      "apiKeyEnv": "DEEPSEEK_API_KEY",
+      "apiKey": "",
+      "models": {
+        "deepseek-flash": {
+          "contextWindow": 1000000,
+          "maxOutput": 384000,
+          "tools": true
+        }
+      }
+    },
+
     "openai": {
       "protocol": "openai-chat",
       "baseUrl": "https://api.openai.com/v1",
