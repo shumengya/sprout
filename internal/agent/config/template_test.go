@@ -28,6 +28,12 @@ func TestTemplateIsValidConfig(t *testing.T) {
 	if sel.Model.ContextWindow != 1000000 || sel.Model.MaxOutput != 384000 || !sel.Model.SupportsTools() {
 		t.Errorf("deepseek-flash 的参数不对: %+v", sel.Model)
 	}
+	// 三个 DeepSeek 协议入口用的是同一个模型，都要标注支持识图。
+	for _, name := range []string{"deepseek", "deepseek-responses", "deepseek-anthropic"} {
+		if m := f.Providers[name].Models["deepseek-flash"]; !m.SupportsVision() {
+			t.Errorf("%s/deepseek-flash 应支持图片输入", name)
+		}
+	}
 	if sel.Provider.BaseURL != "https://api.deepseek.com" {
 		t.Errorf("baseUrl = %q", sel.Provider.BaseURL)
 	}

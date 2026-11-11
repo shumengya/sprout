@@ -17,7 +17,8 @@
         "deepseek-flash": {
           "contextWindow": 1000000,
           "maxOutput": 384000,
-          "tools": true
+          "tools": true,
+          "vision": true
         }
       }
     },
@@ -32,7 +33,8 @@
         "deepseek-flash": {
           "contextWindow": 1000000,
           "maxOutput": 384000,
-          "tools": true
+          "tools": true,
+          "vision": true
         }
       }
     },
@@ -46,7 +48,8 @@
         "deepseek-flash": {
           "contextWindow": 1000000,
           "maxOutput": 384000,
-          "tools": true
+          "tools": true,
+          "vision": true
         }
       }
     },

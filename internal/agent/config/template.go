@@ -28,7 +28,8 @@ const Template = `// Sprout 模型配置（JSONC：支持 // 和 /* */ 注释，
         "deepseek-flash": {
           "contextWindow": 1000000,
           "maxOutput": 384000,
-          "tools": true
+          "tools": true,
+          "vision": true
         }
       }
     },
@@ -43,7 +44,8 @@ const Template = `// Sprout 模型配置（JSONC：支持 // 和 /* */ 注释，
         "deepseek-flash": {
           "contextWindow": 1000000,
           "maxOutput": 384000,
-          "tools": true
+          "tools": true,
+          "vision": true
         }
       }
     },
@@ -57,7 +59,8 @@ const Template = `// Sprout 模型配置（JSONC：支持 // 和 /* */ 注释，
         "deepseek-flash": {
           "contextWindow": 1000000,
           "maxOutput": 384000,
-          "tools": true
+          "tools": true,
+          "vision": true
         }
       }
     },
