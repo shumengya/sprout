@@ -35,6 +35,11 @@ func (m *Model) View() tea.View {
 		parts = append(parts, act)
 		above++
 	}
+	if !overlaid && len(m.sug.items) > 0 {
+		sv := m.suggestView(m.w)
+		parts = append(parts, sv)
+		above += strings.Count(sv, "\n") + 1
+	}
 	parts = append(parts, sep, input, sep, m.infoLine())
 	above++
 	v.Content = strings.Join(parts, "\n")

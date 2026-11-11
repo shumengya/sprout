@@ -14,6 +14,7 @@ import (
 // 打字会让输入框增高，按键会清掉状态提示，开始或结束一轮会让活动行出现或消失。
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	model, cmd := m.update(msg)
+	m.syncSuggest() // 输入框内容可能变了（打字、粘贴、提交后清空），候选跟着变
 	m.fit()
 	return model, cmd
 }
@@ -119,6 +120,9 @@ func (m *Model) onKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.effortKey(k) { // 档位条同上
 		m.refresh()
 		return m, nil
+	}
+	if handled, model, cmd := m.suggestKey(k); handled { // 有命令候选时，Tab ↑↓ Enter Esc 归它
+		return model, cmd
 	}
 	m.status, m.statusOK = "", false
 	m.clearSel() // 内容已经在选中时复制过了；继续操作就让高亮消失

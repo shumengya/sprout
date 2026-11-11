@@ -88,6 +88,7 @@ type Model struct {
 	mouse     bool          // 是否开启鼠标上报（/mouse 切换）；开启后滚轮可滚动，但终端自带的拖选需要按住 Shift
 	picker    *picker       // /model 选择器；非 nil 时替换输入框，接管按键
 	effort    *effortPicker // /effort 档位条；同上
+	sug       suggestState  // 输入 / 开头时输入框上方的命令候选
 
 	running   bool
 	resuming  bool      // 正在恢复会话：此时不能发送，否则新提问会和恢复的历史交错
@@ -204,7 +205,7 @@ func (m *Model) layout() {
 // footerRows 是对话区下面占的行数：可选的活动行、分隔线、输入框（或选择器）、分隔线、信息栏。
 // 空闲时只有 4 行（输入框一行）。
 func (m *Model) footerRows() int {
-	n := 1 + m.inputRows() + 1 + 1
+	n := 1 + m.inputRows() + 1 + 1 + m.suggestRows()
 	if m.activityLine() != "" {
 		n++
 	}
