@@ -141,6 +141,7 @@ func (a *app) buildAgent(sel config.Selection, key string, reg *tool.Registry, r
 		Provider: prov, Model: sel.ModelName, Tools: reg,
 		System: agent.BuildSystemPrompt(agent.PromptInfo{
 			OS: platform.OSName(), Cwd: e.cwd, Now: e.now(), Tools: reg.Names(),
+			Vision: sel.Model.SupportsVision(),
 		}),
 		MaxOutputTokens: sel.Model.MaxOutput, ContextWindow: sel.Model.ContextWindow,
 		Vision: sel.Model.SupportsVision(),

@@ -54,3 +54,19 @@ func TestPromptWithoutToolsAdmitsLimits(t *testing.T) {
 		t.Errorf("没有工具时应如实说明:\n%s", p)
 	}
 }
+
+// 支持识图时要明说图片已经能看到；否则模型会把带路径的提问当成文件任务，去 Test-Path 或找 OCR。
+func TestPromptMentionsAttachedImagesWhenVision(t *testing.T) {
+	p := BuildSystemPrompt(PromptInfo{
+		OS: "Windows", Now: time.Date(2026, 7, 27, 9, 0, 0, 0, time.UTC),
+		Tools: []string{"powershell"}, Vision: true,
+	})
+	for _, want := range []string{"已经能看到", "不要用工具去读取", "只是它的来源说明"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("支持识图的提示词缺少 %q:\n%s", want, p)
+		}
+	}
+	if strings.Contains(promptFor("powershell"), "已经能看到") {
+		t.Error("不支持识图时不应出现图片说明")
+	}
+}

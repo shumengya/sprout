@@ -80,6 +80,9 @@ func (m Message) WithoutImages(placeholder string) Message // 图片换成占位
 
 - `models.jsonc` 的模型新增 `"vision": true`；缺省为 `false`。未标注的模型收到图片时，
   发给服务端的请求里图片被替换成「（图片已省略：当前模型不支持图片输入）」，历史保持原样。
+- 支持识图时系统提示词会明说「消息里附带的图片你已经能看到，不要用工具去读取或猜测」。
+  没有这句时，带路径的提问会被当成文件任务，模型会去 `Test-Path` / 找 OCR，而不是直接看图
+  （Claude Code 用 `[Image #N]` 占位、pi 用 `(see attached image)` 文本占位，也是同一个目的）。
 - TUI 在附加图片时、CLI 在 `--image` 时都会提示当前模型没有标注 `vision`。
 - 图片 token 估算：能解出尺寸就按 `宽×高 / 750` 折算并夹在 `[300, 8000]` 之间，
   解不出（webp 没有注册解码器）按 1600 计。带图片的 tool 消息不参与旧输出裁剪。

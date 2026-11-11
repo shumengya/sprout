@@ -15,6 +15,8 @@ type PromptInfo struct {
 	Now time.Time
 	// Tools 是实际可用的工具名，提示词只描述这些工具。
 	Tools []string
+	// Vision 表示当前模型能直接看到用户附带的图片；为 false 时不写图片相关说明。
+	Vision bool
 }
 
 // BuildSystemPrompt 生成系统提示词。只提到真实可用的工具，模型不会看到不存在的能力。
@@ -46,6 +48,13 @@ func BuildSystemPrompt(info PromptInfo) string {
 	}
 
 	b.WriteString("## 工作方式\n")
+	// 支持识图时必须明说：否则模型会把带路径的提问当成文件任务，去 Test-Path 或找 OCR，
+	// 而不是直接看消息里已经附带的图片。
+	if info.Vision {
+		b.WriteString("- 用户可能直接在消息里附带图片（截图、照片、设计稿）：这些图片你**已经能看到**，")
+		b.WriteString("直接根据图片内容回答，不要用工具去读取、提取或猜测图片内容。")
+		b.WriteString("消息文本里出现的图片路径只是它的来源说明，不代表你需要再去打开一次。\n")
+	}
 	b.WriteString("- 涉及本机文件、目录、系统状态或命令结果等事实时，先用工具查看，再回答，不要凭空猜测。\n")
 	b.WriteString("- 只发起必要的工具调用，观察输出后再决定下一步。\n")
 	b.WriteString("- 命令失败时阅读 stderr 和退出码，分析原因后重试，或如实告诉用户，不要隐瞒失败。\n")
