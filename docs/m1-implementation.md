@@ -130,7 +130,7 @@ bin/
 校验：
 
 - `default` 必须是 `provider/model`，两边都存在。
-- `protocol` 只允许 `openai-chat`、`openai-responses`。
+- `protocol` 只允许 `openai-chat`、`openai-responses`、`anthropic-messages`、`google-generate`。
 - `baseUrl` 必须 http/https。
 - `apiKeyEnv` 优先，`apiKey` 兜底；都没有时 TUI 显示配置提示，不发起请求。
 - 首次运行生成模板，不覆盖已有文件。
@@ -206,10 +206,37 @@ type Provider interface {
 - 结束：`response.completed`；错误看 `response.failed`。
 - usage 从 `response.completed.response.usage` 取。
 
+### Anthropic Messages 适配（`internal/provider/anthropic`）
+
+- `POST {baseUrl}/messages`，`stream:true`；鉴权头 `x-api-key` + `anthropic-version: 2023-06-01`，不发 Bearer。
+- system 放顶层 `system` 字段，不进 `messages`。
+- `max_tokens` 必填：模型未配 `maxOutput` 时用默认值 4096。
+- 工具声明：`tools[].{name,description,input_schema}`。
+- assistant 历史：文本与 `tool_use` block 放在同一条 assistant 消息；不回传 Reasoning（thinking block 需服务端签名，且历史可能来自其他协议）。
+- 工具结果：`tool_result` block 放进 user 消息，连续多条合并为一条；找不到配对 `tool_use` 的孤儿结果降级为 text block。
+- 流式事件：`message_start`（input usage）→ `content_block_start/delta/stop`（`text_delta`、`thinking_delta`、`input_json_delta`）→ `message_delta`（stop_reason、output usage）→ `message_stop`。
+- 停止原因：`tool_use` → tool_calls，`max_tokens` → length，其余 → stop。没有 `message_stop` 视为流被截断，可重试。
+- 错误：HTTP 错误体与流内 `error` 事件都是 `{type:"error", error:{type,message}}`；529 overloaded 可重试，`prompt is too long` 识别为上下文超长。
+
+### Google Gemini 适配（`internal/provider/google`）
+
+- `POST {baseUrl}/models/{model}:streamGenerateContent?alt=sse`；鉴权头 `x-goog-api-key`。模型名带 `models/` 前缀时自动去掉。
+- system 放 `systemInstruction.parts[]`；`maxOutput` 为 0 时不发 `generationConfig`。
+- 角色映射：assistant → `model`；工具结果作为 user 消息里的 `functionResponse` part，连续多条合并。
+- `functionResponse` 按 `name` 配对，name 从历史里的调用 id 反查；`response` 必须是对象，包成 `{"result": 输出}`。
+- Gemini 不返回调用 id，本地生成 `call_<随机>_<函数名>`。参数缺省时补 `{}`。
+- 流式：每个 SSE data 是完整 `GenerateContentResponse`；`thought:true` 的 text part 归为 Reasoning。
+- 结束：没有显式结束事件，以出现 `finishReason` 为准；有 functionCall 时停止原因为 tool_calls，`MAX_TOKENS` → length。流结束仍无 finishReason 视为截断，可重试。
+- `promptFeedback.blockReason` 报 `content_blocked` 错误；流内 `{error:{code,message,status}}` 与 HTTP 错误体同结构。
+
+### 共享传输层（`internal/provider/transport`）
+
+- SSE 读取、默认 HTTP 客户端、HTTP 错误归一化、`Retry-After` 解析、中断判定由四个适配器共用；各协议只负责自己的请求/响应结构，不做跨协议字符串拼接。
+
 ### 归一化要求
 
 - agent 只处理内部 `Message` / `ToolCall`，不出现协议字段。
-- 两个适配器都只向外发 `message.delta`；tool call 在流结束后交给 agent 循环。
+- 所有适配器都只向外发 `message.delta`；tool call 在流结束后交给 agent 循环。
 - 错误统一成 `ProviderError{Status, Code, Message, Retryable, Err}`，`Error()` 直接给出中文说明；`Status` 为 0 表示没有拿到 HTTP 响应（连接失败或流中途中断）。
 
 ## 7. ReAct 循环

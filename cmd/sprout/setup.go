@@ -13,6 +13,8 @@ import (
 	"github.com/shumengya/sprout/internal/agent/tool"
 	"github.com/shumengya/sprout/internal/agent/tool/bash"
 	"github.com/shumengya/sprout/internal/agent/tool/powershell"
+	"github.com/shumengya/sprout/internal/provider/anthropic"
+	"github.com/shumengya/sprout/internal/provider/google"
 	"github.com/shumengya/sprout/internal/provider/openai"
 	"github.com/shumengya/sprout/internal/tui"
 )
@@ -124,10 +126,7 @@ func (a *app) registerTools(cfg *config.File, e env) (*tool.Registry, error) {
 
 // enable 构造 provider、会话记录器和 agent。任何一步失败都只是让对话不可用，并说明原因。
 func (a *app) enable(key string, reg *tool.Registry, e env, log *slog.Logger) {
-	prov, err := openai.New(openai.Config{
-		Protocol: a.sel.Provider.Protocol, BaseURL: a.sel.Provider.BaseURL,
-		APIKey: key, HTTPClient: e.http, Logger: log,
-	})
+	prov, err := newProvider(a.sel, key, e, log)
 	if err != nil {
 		a.disabled = "无法初始化模型服务: " + err.Error()
 		return
@@ -149,4 +148,20 @@ func (a *app) enable(key string, reg *tool.Registry, e env, log *slog.Logger) {
 		return
 	}
 	a.ag, a.rec = ag, rec
+}
+
+// newProvider 按 protocol 选择适配器。协议名已由 config 校验过，这里的 default 只防手工构造的配置。
+func newProvider(sel config.Selection, key string, e env, log *slog.Logger) (agent.Provider, error) {
+	p := sel.Provider
+	switch p.Protocol {
+	case config.ProtocolChat, config.ProtocolResponses:
+		return openai.New(openai.Config{
+			Protocol: p.Protocol, BaseURL: p.BaseURL, APIKey: key, HTTPClient: e.http, Logger: log,
+		})
+	case config.ProtocolAnthropic:
+		return anthropic.New(anthropic.Config{BaseURL: p.BaseURL, APIKey: key, HTTPClient: e.http, Logger: log})
+	case config.ProtocolGoogle:
+		return google.New(google.Config{BaseURL: p.BaseURL, APIKey: key, HTTPClient: e.http, Logger: log})
+	}
+	return nil, fmt.Errorf("不支持的协议 %q", p.Protocol)
 }

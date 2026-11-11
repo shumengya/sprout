@@ -41,12 +41,10 @@ func (f *File) problems() []string {
 	for _, name := range names {
 		p := f.Providers[name]
 		prefix := "providers." + name
-		switch p.Protocol {
-		case ProtocolChat, ProtocolResponses:
-		case "":
-			add("%s.protocol 不能为空，可选 %s、%s", prefix, ProtocolChat, ProtocolResponses)
-		default:
-			add("%s.protocol %q 不受支持，只允许 %s、%s", prefix, p.Protocol, ProtocolChat, ProtocolResponses)
+		if p.Protocol == "" {
+			add("%s.protocol 不能为空，可选 %s", prefix, strings.Join(Protocols, "、"))
+		} else if !slices.Contains(Protocols, p.Protocol) {
+			add("%s.protocol %q 不受支持，只允许 %s", prefix, p.Protocol, strings.Join(Protocols, "、"))
 		}
 		if msg := checkBaseURL(p.BaseURL); msg != "" {
 			add("%s.baseUrl %s", prefix, msg)

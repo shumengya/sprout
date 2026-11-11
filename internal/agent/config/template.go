@@ -17,7 +17,7 @@ const Template = `// Sprout 模型配置（JSONC：支持 // 和 /* */ 注释，
 
   "providers": {
     "deepseek": {
-      // 协议：openai-chat（Chat Completions）或 openai-responses（Responses）。
+      // 协议：openai-chat、openai-responses、anthropic-messages、google-generate。
       "protocol": "openai-chat",
       "baseUrl": "https://api.deepseek.com",
       // API Key 优先读环境变量 apiKeyEnv，环境变量没设置时才使用 apiKey。
@@ -55,6 +55,35 @@ const Template = `// Sprout 模型配置（JSONC：支持 // 和 /* */ 注释，
         "gpt-5": {
           "contextWindow": 400000,
           "maxOutput": 32768,
+          "tools": true
+        }
+      }
+    },
+
+    // Anthropic Messages 协议（POST {baseUrl}/messages），baseUrl 需带 /v1。
+    "anthropic": {
+      "protocol": "anthropic-messages",
+      "baseUrl": "https://api.anthropic.com/v1",
+      "apiKeyEnv": "ANTHROPIC_API_KEY",
+      "models": {
+        "claude-sonnet-5-5": {
+          "contextWindow": 200000,
+          "maxOutput": 8192,
+          "tools": true
+        }
+      }
+    },
+
+    // Google Gemini 协议（POST {baseUrl}/models/{模型}:streamGenerateContent）。
+    // 直连是 https://generativelanguage.googleapis.com/v1beta。
+    "google": {
+      "protocol": "google-generate",
+      "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+      "apiKeyEnv": "GEMINI_API_KEY",
+      "models": {
+        "gemini-2.5-pro": {
+          "contextWindow": 1048576,
+          "maxOutput": 65536,
           "tools": true
         }
       }

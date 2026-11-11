@@ -222,3 +222,20 @@ func TestResponsesProtocolSelectable(t *testing.T) {
 		t.Fatalf("应能选用 Responses 协议: err=%v sel=%+v", err, a.sel)
 	}
 }
+
+func TestAnthropicAndGoogleProtocolSelectable(t *testing.T) {
+	cases := []struct {
+		ref, envName, protocol string
+	}{
+		{"anthropic/claude-sonnet-5-5", "ANTHROPIC_API_KEY", config.ProtocolAnthropic},
+		{"google/gemini-2.5-pro", "GEMINI_API_KEY", config.ProtocolGoogle},
+	}
+	for _, c := range cases {
+		dir := t.TempDir()
+		writeConfig(t, dir, strings.Replace(config.Template, `"default": "deepseek/deepseek-flash"`, `"default": "`+c.ref+`"`, 1))
+		a, err := buildApp(dir, testEnv(map[string]string{c.envName: "k"}, shellSet(false, true)), nil)
+		if err != nil || a.ag == nil || a.sel.Provider.Protocol != c.protocol {
+			t.Fatalf("%s: err=%v sel=%+v", c.protocol, err, a.sel)
+		}
+	}
+}

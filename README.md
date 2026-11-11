@@ -33,7 +33,7 @@
 | 主题 | 选择 | 理由 |
 | --- | --- | --- |
 | TUI | Bubble Tea v2 + lipgloss + bubbles（Markdown 用 goldmark 解析、自己画成终端文本，代码高亮用 chroma，不依赖 glamour） | v2 于 2026-02 稳定；Crush 同栈；纯 Go，Termux 可编译 |
-| LLM 协议 | OpenAI Chat Completions → OpenAI Responses → Anthropic Messages | 先覆盖最广的兼容协议，再补新协议与原生协议 |
+| LLM 协议 | OpenAI Chat Completions → OpenAI Responses → Anthropic Messages → Google Gemini | 先覆盖最广的兼容协议，再补新协议与原生协议 |
 | 模型配置 | `models.jsonc`（JSONC，可写注释） | 供应商、模型、能力、默认参数集中配置；用户配置统一 JSONC |
 | 内部状态 | JSON / JSONL | 用户很少直接编辑，保持严格、好解析 |
 | 会话 | JSONL 追加写，按工作目录分组 | 无 CGO、可恢复、可重放；目录形如 `<exeDir>/data/.sprout/sessions/<工作目录>/<session-id>.jsonl` |

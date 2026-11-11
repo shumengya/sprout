@@ -9,9 +9,14 @@ import (
 
 // 支持的 LLM 协议。
 const (
-	ProtocolChat      = "openai-chat"
-	ProtocolResponses = "openai-responses"
+	ProtocolChat      = "openai-chat"        // POST /chat/completions
+	ProtocolResponses = "openai-responses"   // POST /responses
+	ProtocolAnthropic = "anthropic-messages" // POST /messages
+	ProtocolGoogle    = "google-generate"    // POST /models/{model}:streamGenerateContent
 )
+
+// Protocols 列出全部受支持的协议，顺序稳定，用于报错提示。
+var Protocols = []string{ProtocolChat, ProtocolResponses, ProtocolAnthropic, ProtocolGoogle}
 
 // File 对应 models.jsonc 的顶层结构。
 type File struct {
