@@ -22,7 +22,7 @@ var slashCommands = []slashCommand{
 	{"/effort", "[档位]", "调整思考程度"},
 	{"/think", "", "展开 / 折叠全部思考过程"},
 	{"/new", "", "开始新会话"},
-	{"/resume", "[序号]", "恢复当前目录的历史会话"},
+	{"/resume", "", "浏览并恢复历史会话（可搜索、重命名、删除）"},
 	{"/image", "[路径|clear]", "附加图片到下一条消息"},
 	{"/tools", "", "查看检测到的终端工具"},
 	{"/mouse", "", "开关鼠标上报"},
@@ -62,7 +62,7 @@ func (m *Model) syncSuggest() {
 		s.forValue, s.sel, s.moved = v, 0, false
 	}
 	s.items, s.token = nil, ""
-	if m.picker != nil || m.effort != nil || v == s.off {
+	if m.picker != nil || m.effort != nil || m.browser != nil || v == s.off {
 		return
 	}
 	s.items, s.token = m.suggestionsFor(v)

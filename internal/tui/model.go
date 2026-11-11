@@ -84,11 +84,12 @@ type Model struct {
 	follow     bool // transcript 是否自动跟随底部
 	unseen     bool // 暂停跟随期间是否有新内容到达
 
-	showThink bool          // 是否展开思维链全文（/think 切换）
-	mouse     bool          // 是否开启鼠标上报（/mouse 切换）；开启后滚轮可滚动，但终端自带的拖选需要按住 Shift
-	picker    *picker       // /model 选择器；非 nil 时替换输入框，接管按键
-	effort    *effortPicker // /effort 档位条；同上
-	sug       suggestState  // 输入 / 开头时输入框上方的命令候选
+	showThink bool            // 是否展开思维链全文（/think 切换）
+	mouse     bool            // 是否开启鼠标上报（/mouse 切换）；开启后滚轮可滚动，但终端自带的拖选需要按住 Shift
+	picker    *picker         // /model 选择器；非 nil 时替换输入框，接管按键
+	effort    *effortPicker   // /effort 档位条；同上
+	browser   *sessionBrowser // /resume 会话浏览器；同上
+	sug       suggestState    // 输入 / 开头时输入框上方的命令候选
 
 	running   bool
 	resuming  bool      // 正在恢复会话：此时不能发送，否则新提问会和恢复的历史交错
@@ -227,6 +228,8 @@ func (m *Model) overlay() (string, bool) {
 		return m.pickerView(max(m.w, 1), pickerMaxRows), true
 	case m.effort != nil:
 		return m.effortView(max(m.w, 1)), true
+	case m.browser != nil:
+		return m.browserView(max(m.w, 1)), true
 	}
 	return "", false
 }

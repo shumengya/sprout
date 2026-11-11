@@ -362,7 +362,7 @@ type Tool interface {
 - Input：textarea，提示符 `❯`，按内容增高（空时一行，最多显示 8 行，再多在框内滚动，内容不受限），发送后回到一行。Enter 发送，Ctrl+J 换行，Ctrl+C 取消/退出，Ctrl+D 退出。活动行出现、输入框增高时对话区相应变矮，跟随底部时保持贴底。
 - Transcript：viewport，流式文本、工具卡片、错误。
 - Status：见上面的活动行。
-- `/tools` 查看检测结果；`/image 路径` 附加图片到下一条消息（`/image` 查看、`/image clear` 清空）；`/new` 开新会话；`/resume` 恢复历史会话；`/help`；`/quit`。
+- `/tools` 查看检测结果；`/image 路径` 附加图片到下一条消息（`/image` 查看、`/image clear` 清空）；`/new` 开新会话；`/resume` 打开会话浏览器（替换输入框：Tab 切换当前目录 / 全部，输入即搜索，`re:` 正则、`"短语"` 精确，Ctrl+S 排序、Ctrl+N 只看已命名、Ctrl+R 重命名、Ctrl+D 删除、Ctrl+P 显示路径，Enter 恢复；`/resume 选择器` 跳过浏览器直接恢复）；`/help`；`/quit`。
 - 工具卡片：命令、退出码、耗时、输出预览（最多 8 行，截断标注）。
 - 不做代码高亮。（Markdown、代码高亮与鼠标滚轮是后补的，见 §15。）
 
@@ -383,7 +383,7 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
 - 会话记录器是 `event.Sink`，与 surface 订阅同一条事件流；`message.delta`、`reasoning.delta` 和 `tool.requested` 不落盘；`assistant` 记录带完整 `reasoning`（有思维链时），
   以及协议原始内容 `native`（目前只有开启思考的 Anthropic 消息会有，见 `docs/effort.md` §5）。
 - 文件在第一个可落盘事件到来时才创建；启动后什么都没做就退出不会留下空文件。权限 0600。
-- 同目录 `meta.json` 是该工作目录下所有会话的索引：`{cwd, sessions: {<文件名>: {id, provider, model, tools, startedAt, version}}}`，原子替换写入，损坏时重建。不加跨进程锁，两个实例同时在同一目录启动可能丢一条登记，JSONL 本身不受影响。
+- 同目录 `meta.json` 是该工作目录下所有会话的索引：`{cwd, sessions: {<文件名>: {id, provider, model, tools, startedAt, version, name?}}}`，原子替换写入，损坏时重建。`name` 是用户在会话浏览器里起的名字（只在当前目录的索引里读写；`/resume` 切到“全部目录”时按文件所在分组的 `meta.json` 逐条取，没有名字就显示第一条提问）。不加跨进程锁，两个实例同时在同一目录启动可能丢一条登记，JSONL 本身不受影响。
 - 写入失败只记日志，不影响 agent。
 - M1 不做恢复；启动新会话。
 

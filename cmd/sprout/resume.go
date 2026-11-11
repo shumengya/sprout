@@ -6,6 +6,7 @@ import (
 
 	"github.com/shumengya/sprout/internal/agent"
 	"github.com/shumengya/sprout/internal/agent/config"
+	"github.com/shumengya/sprout/internal/agent/platform"
 	"github.com/shumengya/sprout/internal/agent/session"
 	"github.com/shumengya/sprout/internal/tui"
 )
@@ -27,6 +28,13 @@ func (a *app) resume(selector string) (*session.State, string, error) {
 		return nil, "", err
 	}
 	notice := fmt.Sprintf("已恢复会话 %s（%d 轮）", st.ID, st.Turns)
+	if brief.Name != "" {
+		notice = fmt.Sprintf("已恢复会话「%s」%s（%d 轮）", brief.Name, st.ID, st.Turns)
+	}
+	if st.Info.Cwd != "" && !platform.SamePath(st.Info.Cwd, a.cwd) {
+		// 工具仍在当前目录执行，不随会话切过去；提醒一下，免得模型按旧目录的上下文去找文件。
+		notice += fmt.Sprintf("；这是在 %s 下的会话，命令仍在当前目录 %s 执行", st.Info.Cwd, a.cwd)
+	}
 	if st.Info.Model != a.sel.ModelName || st.Info.Provider != a.sel.ProviderName {
 		// 换了模型：别家的思维链不该回传给新模型。对话内容本身保留。
 		st.StripReasoning()
@@ -62,16 +70,44 @@ func (a *app) newSession() error {
 // sessionStore 把 app 适配成 tui.Sessions。
 type sessionStore struct{ a *app }
 
-func (s sessionStore) List() ([]tui.SessionInfo, error) {
-	list, err := session.List(config.SessionsDir(s.a.dataDir), s.a.cwd)
+func (s sessionStore) List(all bool) ([]tui.SessionInfo, error) {
+	dir := config.SessionsDir(s.a.dataDir)
+	var (
+		list []session.Brief
+		err  error
+	)
+	if all {
+		list, err = session.ListAll(dir)
+	} else {
+		list, err = session.List(dir, s.a.cwd)
+	}
 	if err != nil {
 		return nil, err
 	}
+	active := ""
+	if s.a.rec != nil {
+		active = s.a.rec.Path()
+	}
 	out := make([]tui.SessionInfo, len(list))
 	for i, b := range list {
-		out[i] = tui.SessionInfo{ID: b.ID, Prompt: b.Prompt, Model: b.Model, Updated: b.Updated, Turns: b.Turns}
+		out[i] = tui.SessionInfo{
+			ID: b.ID, Path: b.Path, Prompt: b.Prompt, Name: b.Name, Cwd: b.Cwd, Model: b.Model,
+			Updated: b.Updated, Turns: b.Turns, Current: active != "" && platform.SamePath(b.Path, active),
+		}
 	}
 	return out, nil
+}
+
+func (s sessionStore) Rename(path, name string) error {
+	return session.Rename(config.SessionsDir(s.a.dataDir), path, name)
+}
+
+func (s sessionStore) Delete(path string) error {
+	active := ""
+	if s.a.rec != nil {
+		active = s.a.rec.Path()
+	}
+	return session.Delete(config.SessionsDir(s.a.dataDir), path, active)
 }
 
 func (s sessionStore) Resume(selector string) (*tui.Restored, error) {

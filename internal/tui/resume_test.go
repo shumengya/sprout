@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -13,15 +14,51 @@ import (
 // fakeSessions 是可编程的会话存储替身。只用于测试。
 type fakeSessions struct {
 	list      []SessionInfo
+	all       []SessionInfo // List(true) 的结果；为 nil 时与 list 相同
 	listErr   error
+	listAll   []bool // 每次 List 的 all 参数
 	res       *Restored
 	resumeErr error
 	gotSel    string
 	newErr    error
 	newCalled bool
+	renamed   map[string]string
+	deleted   []string
+	opErr     error
 }
 
-func (f *fakeSessions) List() ([]SessionInfo, error) { return f.list, f.listErr }
+func (f *fakeSessions) List(all bool) ([]SessionInfo, error) {
+	f.listAll = append(f.listAll, all)
+	if all && f.all != nil {
+		return f.all, f.listErr
+	}
+	return f.list, f.listErr
+}
+
+func (f *fakeSessions) Rename(path, name string) error {
+	if f.opErr != nil {
+		return f.opErr
+	}
+	if f.renamed == nil {
+		f.renamed = map[string]string{}
+	}
+	f.renamed[path] = name
+	for i := range f.list {
+		if f.list[i].Path == path {
+			f.list[i].Name = name
+		}
+	}
+	return nil
+}
+
+func (f *fakeSessions) Delete(path string) error {
+	if f.opErr != nil {
+		return f.opErr
+	}
+	f.deleted = append(f.deleted, path)
+	f.list = slices.DeleteFunc(f.list, func(s SessionInfo) bool { return s.Path == path })
+	return nil
+}
 func (f *fakeSessions) Resume(sel string) (*Restored, error) {
 	f.gotSel = sel
 	return f.res, f.resumeErr
@@ -52,29 +89,6 @@ func runCmd(m *Model, cmd tea.Cmd) {
 		return
 	}
 	m.Update(cmd())
-}
-
-func TestResumeWithoutArgListsSessions(t *testing.T) {
-	f := &fakeSessions{list: []SessionInfo{
-		{ID: "abcd1234", Prompt: "修复登录", Model: "deepseek-flash", Turns: 3, Updated: time.Date(2026, 7, 27, 9, 5, 0, 0, time.Local)},
-		{ID: "ef567890", Prompt: "写文档", Model: "deepseek-flash", Turns: 1, Updated: time.Date(2026, 7, 26, 18, 0, 0, 0, time.Local)},
-	}}
-	m := sessionsModel(t, f)
-	submit(m, "/resume")
-	mustContain(t, plain(m), "最近的会话", "1  07-27 09:05  3 轮", "修复登录", "2  07-26 18:00  1 轮", "写文档", "/resume 序号", "/resume abcd")
-	if m.resuming || f.gotSel != "" {
-		t.Error("只列出，不应开始恢复")
-	}
-}
-
-func TestResumeListEmptyAndError(t *testing.T) {
-	m := sessionsModel(t, &fakeSessions{})
-	submit(m, "/resume")
-	mustContain(t, plain(m), "还没有可恢复的会话")
-
-	m = sessionsModel(t, &fakeSessions{listErr: errors.New("磁盘错误")})
-	submit(m, "/resume")
-	mustContain(t, plain(m), "读取会话列表失败：磁盘错误")
 }
 
 func TestResumeRebuildsTranscriptFromSavedEvents(t *testing.T) {

@@ -54,6 +54,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.PasteMsg:
+		if m.pasteIntoBrowser(msg.Content) {
+			return m, nil
+		}
 		// 粘贴的内容里带现有图片路径时，图片当场附加、输入框里只留 [文件名]，和对话区一致。
 		if text := m.pasteImages(msg.Content); text != msg.Content {
 			m.in.InsertString(text)
@@ -76,6 +79,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.onResumed(msg)
 		m.refresh()
 		return m, nil
+
+	case sessionsLoadedMsg:
+		m.onSessionsLoaded(msg)
+		return m, nil
+
+	case sessionOpDoneMsg:
+		return m, m.onSessionOp(msg)
 
 	case switchDoneMsg:
 		m.onSwitched(msg)
@@ -120,6 +130,10 @@ func (m *Model) onKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.effortKey(k) { // 档位条同上
 		m.refresh()
 		return m, nil
+	}
+	if handled, cmd := m.sessionKey(k); handled { // 会话浏览器同上
+		m.refresh()
+		return m, cmd
 	}
 	if handled, model, cmd := m.suggestKey(k); handled { // 有命令候选时，Tab ↑↓ Enter Esc 归它
 		return model, cmd

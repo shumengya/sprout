@@ -1,8 +1,6 @@
 package tui
 
 import (
-	"fmt"
-	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -10,13 +8,25 @@ import (
 	"github.com/shumengya/sprout/internal/agent/event"
 )
 
-// SessionInfo 是 /resume 列表里的一行。
+// SessionInfo 是会话浏览器里的一行。
 type SessionInfo struct {
 	ID      string
+	Path    string // 会话文件；恢复、重命名、删除都按它定位
 	Prompt  string // 第一条提问
+	Name    string // 用户起的名字，没起过为空
+	Cwd     string // 会话所属的工作目录
 	Model   string
 	Updated time.Time
 	Turns   int
+	Current bool // 是当前正在写的会话
+}
+
+// Title 是列表里显示的标题：起过名字用名字，否则用第一条提问。
+func (s SessionInfo) Title() string {
+	if s.Name != "" {
+		return s.Name
+	}
+	return s.Prompt
 }
 
 // Restored 是恢复会话的结果：用来重建对话区的事件流，以及一句说明。
@@ -25,12 +35,18 @@ type Restored struct {
 	Notice string
 }
 
-// Sessions 让 TUI 列出并恢复会话，由 main 提供实现。TUI 不直接依赖会话存储。
+// Sessions 让 TUI 列出、恢复和管理会话，由 main 提供实现。TUI 不直接依赖会话存储。
+// 除 New 以外都可能读写磁盘，TUI 一律在 tea.Cmd 里调用。
 type Sessions interface {
-	List() ([]SessionInfo, error)
-	// Resume 恢复选择器指定的会话（序号、ID 前缀或 latest）：让 agent 载入历史并接着写原来的会话文件。
-	// 它会阻塞到 agent 空闲，所以 TUI 在 tea.Cmd 里调用它。
+	// List 列出会话，最近使用的在前；all 为 false 时只列当前工作目录的。
+	List(all bool) ([]SessionInfo, error)
+	// Resume 恢复选择器指定的会话（会话文件路径、序号、ID 前缀或 latest）：
+	// 让 agent 载入历史并接着写原来的会话文件。它会阻塞到 agent 空闲。
 	Resume(selector string) (*Restored, error)
+	// Rename 给会话起名，空名字表示清除。
+	Rename(path, name string) error
+	// Delete 删除会话及其图片；当前会话不能删。
+	Delete(path string) error
 	// New 开始一个空白会话：清空 agent 历史，之后的对话写进新的会话文件。不涉及网络，可以同步调用。
 	New() error
 }
@@ -41,7 +57,7 @@ type resumeDoneMsg struct {
 	err error
 }
 
-// resumeCmd 处理 /resume。无参数时列出会话；带参数时返回一个异步恢复的命令。
+// resumeCmd 处理 /resume。无参数时打开会话浏览器；带参数时直接恢复。
 func (m *Model) resumeCmd(arg string) tea.Cmd {
 	s := m.opts.Sessions
 	switch {
@@ -50,16 +66,24 @@ func (m *Model) resumeCmd(arg string) tea.Cmd {
 	case m.running || m.resuming:
 		m.status = "正在生成或恢复中，暂时不能切换会话"
 	case arg == "":
-		m.add(&entry{kind: kindNotice, text: sessionListText(s)})
+		m.browser = &sessionBrowser{}
+		m.status = ""
+		return m.loadSessions()
 	default:
-		m.resuming = true
-		m.status = "正在恢复会话…"
-		return func() tea.Msg {
-			r, err := s.Resume(arg)
-			return resumeDoneMsg{r, err}
-		}
+		return m.startResume(arg)
 	}
 	return nil
+}
+
+// startResume 异步恢复 selector 指定的会话；恢复期间禁止发送。
+func (m *Model) startResume(selector string) tea.Cmd {
+	m.resuming = true
+	m.status = "正在恢复会话…"
+	s := m.opts.Sessions
+	return func() tea.Msg {
+		r, err := s.Resume(selector)
+		return resumeDoneMsg{r, err}
+	}
 }
 
 // newSessionCmd 处理 /new：清空对话区并开始新会话。失败时保留现有内容。
@@ -84,25 +108,6 @@ func (m *Model) newSessionCmd() {
 	m.add(&entry{kind: kindNotice, text: "已开始新会话，之前的会话可以用 /resume 找回。"})
 	m.unseen = false
 }
-
-func sessionListText(s Sessions) string {
-	list, err := s.List()
-	switch {
-	case err != nil:
-		return "读取会话列表失败：" + err.Error()
-	case len(list) == 0:
-		return "当前目录下还没有可恢复的会话。"
-	}
-	var b strings.Builder
-	b.WriteString("当前目录下最近的会话：")
-	for i, it := range list {
-		fmt.Fprintf(&b, "\n  %d  %s  %d 轮  %s  %s", i+1, it.Updated.Format("01-02 15:04"), it.Turns, it.Model, it.Prompt)
-	}
-	b.WriteString("\n用 /resume 序号 恢复，也可以写 ID 前缀（如 /resume " + shortID(list[0].ID) + "）。")
-	return b.String()
-}
-
-func shortID(id string) string { return id[:min(len(id), 4)] }
 
 // onResumed 处理恢复结果：成功就用保存的事件流重建对话区，失败则保留现有内容并报错。
 func (m *Model) onResumed(msg resumeDoneMsg) {

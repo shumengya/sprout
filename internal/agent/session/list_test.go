@@ -21,7 +21,7 @@ func mkSession(t *testing.T, root, id string, mod time.Time, prompts ...string) 
 		t.Fatal(err)
 	}
 	p := filepath.Join(dir, fmt.Sprintf("20260101-000000_%s.jsonl", id))
-	body := fmt.Sprintf(`{"type":"session","id":%q,"provider":"deepseek","model":"deepseek-flash"}`+"\n", id)
+	body := fmt.Sprintf(`{"type":"session","id":%q,"cwd":%q,"provider":"deepseek","model":"deepseek-flash"}`+"\n", id, listCwd)
 	for _, q := range prompts {
 		body += fmt.Sprintf(`{"type":"user","content":%q}`+"\n"+`{"type":"assistant","content":"答"}`+"\n"+`{"type":"turn","reason":"stop"}`+"\n", q)
 	}
@@ -84,10 +84,10 @@ func TestListEmptyAndMissingDir(t *testing.T) {
 
 func TestListPromptIsOneLineAndTruncated(t *testing.T) {
 	root := t.TempDir()
-	mkSession(t, root, "long0000", time.Now(), "第一行\n第二行\t"+strings.Repeat("很长", 50))
+	mkSession(t, root, "long0000", time.Now(), "第一行\n第二行\t"+strings.Repeat("很长", 150)) // 列表按屏宽截断，这里只截极长的提问
 	list, _ := List(root, listCwd)
 	p := list[0].Prompt
-	if strings.ContainsAny(p, "\n\t") || len([]rune(p)) > 41 || !strings.HasSuffix(p, "…") {
+	if strings.ContainsAny(p, "\n\t") || len([]rune(p)) > promptRunes+1 || !strings.HasSuffix(p, "…") {
 		t.Errorf("提问预览应是单行且被截断: %q", p)
 	}
 }
