@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/shumengya/sprout/internal/agent"
 )
@@ -57,17 +56,4 @@ func Size(n int) string {
 		return fmt.Sprintf("%.0f KB", float64(n)/(1<<10))
 	}
 	return fmt.Sprintf("%d B", n)
-}
-
-// LooksLikeImagePath 判断一段文本是否像一个图片文件路径（用于拖拽文件进终端时自动识别）。
-func LooksLikeImagePath(s string) bool {
-	s = strings.Trim(strings.TrimSpace(s), `"'`)
-	if strings.ContainsAny(s, "\r\n") || s == "" {
-		return false
-	}
-	if agent.MediaTypeByExt(s) == "" {
-		return false
-	}
-	st, err := os.Stat(s)
-	return err == nil && !st.IsDir()
 }

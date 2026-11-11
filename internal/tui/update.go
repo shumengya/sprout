@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/shumengya/sprout/internal/agent"
+	"github.com/shumengya/sprout/internal/media"
 )
 
 // Update 只改状态、返回 Cmd，不做 IO。每条消息处理完都让对话区高度跟上底部：
@@ -156,11 +157,16 @@ func (m *Model) submit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.in.Reset()
-	in := agent.Input{Text: text, Images: m.pending}
-	marks := m.pendingMarks()
+	// 消息里直接写图片路径（贴一条截图路径、从资源管理器拖进来）也要当图片发出去，
+	// 否则模型只看到一段路径文字，只能自己猜或去找 OCR。
+	in, _, skipped := media.AutoAttach(agent.Input{Text: text, Images: m.pending})
+	marks := imageListMarks(in.Images)
 	m.pending = nil
 	m.add(&entry{kind: kindUser, text: text, images: marks})
-	if len(marks) > 0 && !m.opts.Info.Vision {
+	if len(skipped) > 0 {
+		m.add(&entry{kind: kindNotice, text: "有图片没能附加：\n  " + strings.Join(skipped, "\n  ")})
+	}
+	if len(in.Images) > 0 && !m.opts.Info.Vision {
 		m.status = "当前模型没有标注 vision，图片会被省略（models.jsonc 里加 \"vision\": true 才不会）"
 	}
 	m.running, m.follow = true, true

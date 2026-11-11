@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/shumengya/sprout/internal/agent"
 	"github.com/shumengya/sprout/internal/agent/event"
 	"github.com/shumengya/sprout/internal/media"
 )
@@ -49,14 +50,19 @@ func (m *Model) pendingReport() string {
 	return b.String()
 }
 
-// pendingMarks 把待发送图片转成用户条目上显示的说明。
-func (m *Model) pendingMarks() []string {
-	if len(m.pending) == 0 {
+// imageListMarks 把一串待发送图片转成用户条目上显示的说明。
+// 显式 /image 附加的和从消息路径自动识别的都要显示，用户才知道模型真的收到了图。
+func imageListMarks(imgs []agent.Image) []string {
+	if len(imgs) == 0 {
 		return nil
 	}
-	out := make([]string, len(m.pending))
-	for i, img := range m.pending {
-		out[i] = fmt.Sprintf("%s  %s", img.Name, media.Size(len(img.Data)*3/4))
+	out := make([]string, len(imgs))
+	for i, img := range imgs {
+		name := img.Name
+		if name == "" {
+			name = fmt.Sprintf("图片 %d", i+1)
+		}
+		out[i] = fmt.Sprintf("%s  %s", name, media.Size(len(img.Data)*3/4))
 	}
 	return out
 }

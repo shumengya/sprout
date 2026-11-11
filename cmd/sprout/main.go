@@ -115,6 +115,15 @@ func runOnce(ap *app, prompt string, images []string, resume string, stdout, std
 		}
 		in.Images = append(in.Images, img)
 	}
+	// 提问里直接写的图片路径同样当作图片输入。
+	var attached []media.Attached
+	in, attached, skipped := media.AutoAttach(in)
+	for _, a := range attached {
+		fmt.Fprintf(stderr, "提示: 已附加图片 %s（%s）\n", a.Name, media.Size(a.Bytes))
+	}
+	for _, s := range skipped {
+		fmt.Fprintln(stderr, "提示: 图片未能附加：", s)
+	}
 	if len(in.Images) > 0 && !ap.sel.Model.SupportsVision() {
 		fmt.Fprintln(stderr, "提示: 当前模型没有标注 vision，图片会被替换成占位文本。")
 	}

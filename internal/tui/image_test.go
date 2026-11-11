@@ -9,6 +9,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -119,4 +120,49 @@ func TestImageHelpMentionsImage(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 100, 80)
 	submit(m, "/help")
 	mustContain(t, plain(m), "/image")
+}
+
+// 用户直接把图片路径写进消息里（贴截图路径、拖文件进终端）也要真的发图，
+// 而不是把路径当普通文字交给模型，让它自己去 OCR。
+func TestImagePathInMessageIsAttachedAutomatically(t *testing.T) {
+	got := make(chan agent.Input, 1)
+	r := fakeRunner{run: func(_ context.Context, in agent.Input, sink event.Sink) error {
+		got <- in
+		sink.Emit(event.TurnFinished{Reason: event.ReasonStop})
+		return nil
+	}}
+	m := newSized(t, Options{Runner: r, Info: Info{Model: "m", Vision: true}}, 120, 40)
+
+	path := tempPNG(t)
+	m.in.SetValue(path + " 这张图的内容")
+	runProgram(t, m, func(send func(tea.Msg)) { send(keyEnter) }, finishedOneTurn)
+
+	var in agent.Input
+	select {
+	case in = <-got:
+	default:
+		t.Fatal("runner 没有被调用")
+	}
+	if len(in.Images) != 1 || in.Images[0].MediaType != "image/png" {
+		t.Fatalf("路径应被识别成图片: %+v", in.Images)
+	}
+	if !strings.Contains(in.Text, path) {
+		t.Error("原始文本应保留")
+	}
+	mustContain(t, plain(m), "[图片] 截图.png")
+}
+
+func TestAutoAttachNoticeListsSkippedFiles(t *testing.T) {
+	big := tempPNG(t)
+	f, err := os.OpenFile(big, os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Write(make([]byte, 4<<20))
+	f.Close()
+
+	m := newSized(t, Options{Runner: scriptRunner(), Info: Info{Model: "m", Vision: true}}, 140, 40)
+	m.in.SetValue(big)
+	runProgram(t, m, func(send func(tea.Msg)) { send(keyEnter) }, finishedOneTurn)
+	mustContain(t, plain(m), "有图片没能附加", "超过上限")
 }
