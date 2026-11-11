@@ -34,7 +34,11 @@ type env struct {
 type app struct {
 	dataDir  string
 	cwd      string
+	cfg      *config.File
+	env      env
+	log      *slog.Logger
 	sel      config.Selection
+	reg      *tool.Registry
 	ag       *agent.Agent
 	rec      *session.Recorder
 	info     tui.Info
@@ -67,7 +71,7 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 		return nil, err
 	}
 
-	a := &app{dataDir: dataDir, cwd: e.cwd, sel: sel}
+	a := &app{dataDir: dataDir, cwd: e.cwd, cfg: cfg, env: e, log: log, sel: sel}
 	a.info = tui.Info{
 		Model: sel.ModelName, Provider: sel.ProviderName + "，" + sel.Provider.Protocol,
 		Cwd: e.cwd, DataDir: dataDir,
@@ -87,6 +91,7 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 		if created {
 			a.notices = append(a.notices, "已生成配置文件 "+path)
 		}
+		a.reg = reg
 		a.enable(key, reg, e, log)
 	}
 	return a, nil
@@ -95,11 +100,13 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 // registerTools 按检测结果注册 powershell / bash。模型只会看到真实可用的工具。
 func (a *app) registerTools(cfg *config.File, e env) (*tool.Registry, error) {
 	shells := e.detect(cfg.Shell.BashPath, cfg.Shell.PowerShellPath)
+	a.info.Unavailable = nil
 	for _, p := range shells.Problems {
 		a.info.Unavailable = append(a.info.Unavailable, fmt.Sprintf("%s 不可用：%s", p.Kind, p.Reason))
 	}
 
 	reg := tool.NewRegistry()
+	a.info.Tools = nil
 	if !a.sel.Model.SupportsTools() {
 		a.notices = append(a.notices, fmt.Sprintf("模型 %s 在配置中 tools=false，本次不向模型提供任何工具。", a.sel.Ref()))
 		return reg, nil
@@ -124,27 +131,31 @@ func (a *app) registerTools(cfg *config.File, e env) (*tool.Registry, error) {
 	return reg, nil
 }
 
+// buildAgent 用选定的模型与工具构造 agent。渲染模型切换时也走这里，保证两条路径的装配完全一致。
+func (a *app) buildAgent(sel config.Selection, key string, reg *tool.Registry, rec *session.Recorder, e env, log *slog.Logger) (*agent.Agent, error) {
+	prov, err := newProvider(sel, key, e, log)
+	if err != nil {
+		return nil, err
+	}
+	return agent.New(agent.Config{
+		Provider: prov, Model: sel.ModelName, Tools: reg,
+		System: agent.BuildSystemPrompt(agent.PromptInfo{
+			OS: platform.OSName(), Cwd: e.cwd, Now: e.now(), Tools: reg.Names(),
+		}),
+		MaxOutputTokens: sel.Model.MaxOutput, ContextWindow: sel.Model.ContextWindow,
+		Recorder: rec, Retry: e.retry, Logger: log,
+	})
+}
+
 // enable 构造 provider、会话记录器和 agent。任何一步失败都只是让对话不可用，并说明原因。
 func (a *app) enable(key string, reg *tool.Registry, e env, log *slog.Logger) {
-	prov, err := newProvider(a.sel, key, e, log)
-	if err != nil {
-		a.disabled = "无法初始化模型服务: " + err.Error()
-		return
-	}
 	rec := session.NewRecorder(config.SessionsDir(a.dataDir), session.Info{
 		Provider: a.sel.ProviderName, Model: a.sel.ModelName, Cwd: e.cwd,
 		Tools: reg.Names(), Version: e.version,
 	}, log)
-	ag, err := agent.New(agent.Config{
-		Provider: prov, Model: a.sel.ModelName, Tools: reg,
-		System: agent.BuildSystemPrompt(agent.PromptInfo{
-			OS: platform.OSName(), Cwd: e.cwd, Now: e.now(), Tools: reg.Names(),
-		}),
-		MaxOutputTokens: a.sel.Model.MaxOutput, ContextWindow: a.sel.Model.ContextWindow,
-		Recorder: rec, Retry: e.retry, Logger: log,
-	})
+	ag, err := a.buildAgent(a.sel, key, reg, rec, e, log)
 	if err != nil {
-		a.disabled = "无法初始化 agent: " + err.Error()
+		a.disabled = "无法初始化模型服务: " + err.Error()
 		return
 	}
 	a.ag, a.rec = ag, rec

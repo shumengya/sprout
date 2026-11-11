@@ -66,6 +66,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh()
 		return m, nil
 
+	case switchDoneMsg:
+		m.onSwitched(msg)
+		m.refresh()
+		return m, nil
+
 	case installDoneMsg:
 		m.onInstalled(msg)
 		m.refresh()
@@ -97,6 +102,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) onKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if handled, cmd := m.pickerKey(k); handled { // 选择器打开时接管全部按键
+		m.refresh()
+		return m, cmd
+	}
 	m.status, m.statusOK = "", false
 	m.clearSel() // 内容已经在选中时复制过了；继续操作就让高亮消失
 	switch k.String() {
@@ -136,6 +145,9 @@ func (m *Model) submit() (tea.Model, tea.Cmd) {
 		return m, nil
 	case m.resuming:
 		m.status = "正在恢复会话，请稍候"
+		return m, nil
+	case m.switching:
+		m.status = "正在切换模型，请稍候"
 		return m, nil
 	case m.opts.Disabled != "":
 		m.status = "无法发送：" + firstLine(m.opts.Disabled)

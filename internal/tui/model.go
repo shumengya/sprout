@@ -52,6 +52,8 @@ type Options struct {
 	ResumeNotice string
 	// Installer 注册和卸载全局 sprout 命令（/install-sprout、/uninstall-sprout）；为 nil 时这两个命令不可用。
 	Installer Installer
+	// Models 提供模型列表与切换（/model）；为 nil 时 /model 不可用。
+	Models Models
 }
 
 // 输入框按内容增高：空时一行，最多显示这么多行，再多就在输入框内部滚动。
@@ -75,15 +77,17 @@ type Model struct {
 	follow     bool // transcript 是否自动跟随底部
 	unseen     bool // 暂停跟随期间是否有新内容到达
 
-	showThink bool // 是否展开思维链全文（/think 切换）
-	mouse     bool // 是否开启鼠标上报（/mouse 切换）；开启后滚轮可滚动，但终端自带的拖选需要按住 Shift
+	showThink bool    // 是否展开思维链全文（/think 切换）
+	mouse     bool    // 是否开启鼠标上报（/mouse 切换）；开启后滚轮可滚动，但终端自带的拖选需要按住 Shift
+	picker    *picker // /model 选择器；非 nil 时替换输入框，接管按键
 
-	running  bool
-	resuming bool      // 正在恢复会话：此时不能发送，否则新提问会和恢复的历史交错
-	started  time.Time // 本轮开始时间，状态行显示已耗时
-	status   string    // 状态行的临时提示，下次按键时清除
-	statusOK bool      // status 是成功提示（如已复制），用绿色而不是警告色显示
-	tokens   int       // 本会话累计 token
+	running   bool
+	resuming  bool      // 正在恢复会话：此时不能发送，否则新提问会和恢复的历史交错
+	switching bool      // 正在切换模型：同上，禁止发送
+	started   time.Time // 本轮开始时间，状态行显示已耗时
+	status    string    // 状态行的临时提示，下次按键时清除
+	statusOK  bool      // status 是成功提示（如已复制），用绿色而不是警告色显示
+	tokens    int       // 本会话累计 token
 
 	// 对话区的拖选。选区用内容坐标记录；content 是当前送进 viewport 的完整文本，
 	// plain 是它去掉样式后的逐行文本（按需计算，plainSrc 记录算的是哪一版）。
@@ -187,15 +191,26 @@ func (m *Model) layout() {
 	m.refresh()
 }
 
-// footerRows 是对话区下面占的行数：可选的活动行、分隔线、输入框、分隔线、信息栏。
+// footerRows 是对话区下面占的行数：可选的活动行、分隔线、输入框（或选择器）、分隔线、信息栏。
 // 空闲时只有 4 行（输入框一行）。
 func (m *Model) footerRows() int {
-	n := 1 + m.in.Height() + 1 + 1
+	n := 1 + m.inputRows() + 1 + 1
 	if m.activityLine() != "" {
 		n++
 	}
 	return n
 }
+
+// inputRows 是输入框区域当前占的行数：打开模型选择器时按选择器内容算。
+func (m *Model) inputRows() int {
+	if m.picker == nil {
+		return m.in.Height()
+	}
+	return strings.Count(m.pickerView(max(m.w, 1), pickerMaxRows), "\n") + 1
+}
+
+// pickerMaxRows 是选择器最多显示的行数；再多就在列表内部裁剪。
+const pickerMaxRows = 8
 
 // fit 让对话区高度跟上底部的变化（输入框增高、活动行出现或消失）。
 // 跟随底部时保持贴底；否则保持当前位置，只在超出新范围时收敛。

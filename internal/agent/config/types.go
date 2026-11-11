@@ -4,6 +4,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -96,18 +97,33 @@ func splitRef(ref string) (provider, model string, ok bool) {
 }
 
 // Selected 返回 default 指向的 provider 和 model。Load 已校验过，这里仍返回 error 以防手工构造的 File。
-func (f *File) Selected() (Selection, error) {
-	pn, mn, ok := splitRef(f.Default)
+func (f *File) Selected() (Selection, error) { return f.Select(f.Default) }
+
+// Select 解析 "provider/model" 引用。provider 名不能含 "/"，模型名可以（如 OpenRouter）。
+func (f *File) Select(ref string) (Selection, error) {
+	pn, mn, ok := splitRef(ref)
 	if !ok {
-		return Selection{}, fmt.Errorf("default %q 必须是 provider/model 形式", f.Default)
+		return Selection{}, fmt.Errorf("%q 必须是 provider/model 形式", ref)
 	}
 	p, ok := f.Providers[pn]
 	if !ok {
-		return Selection{}, fmt.Errorf("default 引用的 provider %q 不存在", pn)
+		return Selection{}, fmt.Errorf("引用的 provider %q 不存在", pn)
 	}
 	m, ok := p.Models[mn]
 	if !ok {
-		return Selection{}, fmt.Errorf("default 引用的模型 %q 不在 provider %q 下", mn, pn)
+		return Selection{}, fmt.Errorf("引用的模型 %q 不在 provider %q 下", mn, pn)
 	}
 	return Selection{ProviderName: pn, ModelName: mn, Provider: p, Model: m}, nil
+}
+
+// All 返回配置里全部 provider/model 组合，按引用排序，供 TUI 的 /model 列表使用。
+func (f *File) All() []Selection {
+	var out []Selection
+	for pn, p := range f.Providers {
+		for mn, m := range p.Models {
+			out = append(out, Selection{ProviderName: pn, ModelName: mn, Provider: p, Model: m})
+		}
+	}
+	slices.SortFunc(out, func(a, b Selection) int { return strings.Compare(a.Ref(), b.Ref()) })
+	return out
 }

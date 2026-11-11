@@ -1,0 +1,112 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/shumengya/sprout/internal/agent/config"
+	"github.com/shumengya/sprout/internal/agent/event"
+	"github.com/shumengya/sprout/internal/tui"
+)
+
+// modelStore 把 app 适配成 tui.Models：列模型、切换模型。
+//
+// 切换只重建 provider 与 agent，对话历史原样带过去；会话记录器不换，
+// 切换后的对话仍写进同一个会话文件。TUI 在切换期间禁止发送，所以这里不需要加锁。
+type modelStore struct{ a *app }
+
+func (s modelStore) Current() string { return s.a.sel.Ref() }
+
+func (s modelStore) List() []tui.ModelChoice {
+	sels := s.a.cfg.All()
+	out := make([]tui.ModelChoice, 0, len(sels))
+	for _, sel := range sels {
+		out = append(out, tui.ModelChoice{
+			Ref: sel.Ref(), Provider: sel.ProviderName, Model: sel.ModelName,
+			Protocol: sel.Provider.Protocol, Detail: describeModel(sel.Model),
+			Current: sel.Ref() == s.a.sel.Ref(),
+		})
+	}
+	return out
+}
+
+// describeModel 给选择器一行附加说明：上下文窗口、最大输出、是否支持工具。
+func describeModel(m config.Model) string {
+	var parts []string
+	if m.ContextWindow > 0 {
+		parts = append(parts, "上下文 "+shortCount(m.ContextWindow))
+	}
+	if m.MaxOutput > 0 {
+		parts = append(parts, "输出 "+shortCount(m.MaxOutput))
+	}
+	if !m.SupportsTools() {
+		parts = append(parts, "不支持工具")
+	}
+	return strings.Join(parts, " · ")
+}
+
+func shortCount(n int) string {
+	if n >= 1000 {
+		return fmt.Sprintf("%gk", float64(n)/1000)
+	}
+	return fmt.Sprint(n)
+}
+
+// Switch 切换到 ref 指向的模型。失败时 app 保持原样，可以继续用旧模型对话。
+func (s modelStore) Switch(ref string) (*tui.SwitchResult, error) {
+	a := s.a
+	if a.ag == nil || a.rec == nil {
+		return nil, fmt.Errorf("当前没有可用的 agent")
+	}
+	sel, err := a.cfg.Select(ref)
+	if err != nil {
+		return nil, err
+	}
+	if sel.Ref() == a.sel.Ref() {
+		return nil, fmt.Errorf("已经在使用 %s", sel.Ref())
+	}
+	key, err := sel.APIKey(a.env.getenv)
+	if err != nil {
+		return nil, err
+	}
+
+	// 工具是全局能力，不随模型变；只有 tools=false 的模型不提供工具。
+	oldSel, oldReg, oldInfo := a.sel, a.reg, a.info
+	a.sel = sel
+	a.info.Model, a.info.Provider = sel.ModelName, sel.ProviderName+"，"+sel.Provider.Protocol
+	reg, err := a.registerTools(a.cfg, a.env)
+	if err != nil {
+		a.sel, a.reg, a.info = oldSel, oldReg, oldInfo
+		return nil, err
+	}
+
+	history, summary := a.ag.History(), a.ag.Summary()
+	if sel.Ref() != oldSel.Ref() {
+		// 换了模型：别家的思维链不该回传给新模型，与恢复旧会话时的处理一致。对话内容保留。
+		for i := range history {
+			history[i].Reasoning = ""
+		}
+	}
+	ag, err := a.buildAgent(sel, key, reg, a.rec, a.env, a.log)
+	if err != nil {
+		a.sel, a.reg, a.info = oldSel, oldReg, oldInfo
+		return nil, err
+	}
+	ag.Restore(history, summary)
+	a.ag, a.reg = ag, reg
+	a.rec.NoteModelChange(sel.ProviderName, sel.ModelName, reg.Names())
+
+	notice := fmt.Sprintf("已切换模型：%s → %s（保留 %d 条历史消息）", oldSel.Ref(), sel.Ref(), len(history))
+	return &tui.SwitchResult{Info: a.info, Notice: notice}, nil
+}
+
+var _ tui.Models = modelStore{}
+
+// runnerFunc 把 app 适配成 tui.Runner，每次都取当前的 agent：
+// /model 切换会替换 app.ag，TUI 持有的 Runner 必须跟着变。
+type runnerFunc struct{ a *app }
+
+func (r runnerFunc) Run(ctx context.Context, prompt string, sink event.Sink) error {
+	return r.a.ag.Run(ctx, prompt, sink)
+}

@@ -25,20 +25,26 @@ func (m *Model) View() tea.View {
 	}
 
 	sep := styFaint.Render(strings.Repeat("─", m.w))
+	input := m.in.View()
+	if m.picker != nil {
+		input = m.pickerView(m.w, pickerMaxRows) // 选择器替换输入框，对话区不被遮挡
+	}
 	parts := []string{overlayHint(m.body(), m.scrollHint(), m.w)}
 	above := m.vp.Height() // 输入框上面的行数：对话区、活动行（如果有）、分隔线
 	if act := m.activityLine(); act != "" {
 		parts = append(parts, act)
 		above++
 	}
-	parts = append(parts, sep, m.in.View(), sep, m.infoLine())
+	parts = append(parts, sep, input, sep, m.infoLine())
 	above++
 	v.Content = strings.Join(parts, "\n")
 
-	// 把输入框的光标位置换算到整个界面里。
-	if c := m.in.Cursor(); c != nil {
-		c.Y += above
-		v.Cursor = c
+	// 把输入框的光标位置换算到整个界面里。选择器打开时没有输入光标。
+	if m.picker == nil {
+		if c := m.in.Cursor(); c != nil {
+			c.Y += above
+			v.Cursor = c
+		}
 	}
 	return v
 }

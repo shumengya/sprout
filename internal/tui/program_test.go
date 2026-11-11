@@ -200,3 +200,24 @@ func TestProgramSecondTurnAfterFirst(t *testing.T) {
 		t.Errorf("Runner 应被调用 2 次，实际 %d", n.Load())
 	}
 }
+
+// /model 的切换走 tea.Cmd 异步执行：在真实事件循环里确认选择器打开、选中后 Info 与提示都更新。
+func TestProgramModelPickerSwitch(t *testing.T) {
+	models := testModels()
+	m := New(Options{Runner: scriptRunner(), Info: testInfo, Models: models})
+	m.in.SetValue("/model")
+	runProgram(t, m, func(send func(tea.Msg)) {
+		send(keyEnter)                    // 打开选择器
+		time.Sleep(50 * time.Millisecond) // 等选择器渲染
+		send(press(tea.KeyDown, 0))       // 移到第二项
+		send(keyEnter)                    // 确认切换
+	}, func(m *Model) bool { return m.picker == nil && !m.switching && models.gotRef != "" })
+
+	if models.gotRef != "b/two" {
+		t.Fatalf("切换目标 = %q", models.gotRef)
+	}
+	mustContain(t, plain(m), "已切换：b/two")
+	if m.opts.Info.Model != "b/two" {
+		t.Errorf("信息栏模型 = %q", m.opts.Info.Model)
+	}
+}

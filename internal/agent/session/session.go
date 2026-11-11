@@ -93,6 +93,20 @@ func (r *Recorder) Attach(path string) error {
 	return nil
 }
 
+// NoteModelChange 在会话中途切换模型时写一条 resume 记录，标明切换后的模型；仅供审计，恢复重放时忽略。
+// 调用方必须保证此时没有 Run 在进行。
+func (r *Recorder) NoteModelChange(provider, model string, tools []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.failed || r.closed {
+		return
+	}
+	if r.f == nil { // 还没有任何内容落盘：模型切换本身不值得创建会话文件
+		return
+	}
+	r.write(resumeRec{header{Type: "resume", Time: r.now()}, provider, model, tools})
+}
+
 // Emit 实现 event.Sink。
 func (r *Recorder) Emit(e event.Event) {
 	r.mu.Lock()

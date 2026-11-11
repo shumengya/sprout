@@ -121,8 +121,9 @@ func runOnce(ap *app, prompt, resume string, stdout, stderr io.Writer) int {
 func runTUI(ap *app, resume string, stderr io.Writer) int {
 	opts := tui.Options{Info: ap.info, Disabled: ap.disabled, Notices: ap.notices, Installer: commandInstaller{}}
 	if ap.ag != nil { // 不能直接赋值：nil 指针放进接口后接口本身不为 nil
-		opts.Runner = ap.ag
+		opts.Runner = runnerFunc{ap}
 		opts.Sessions = sessionStore{ap}
+		opts.Models = modelStore{ap}
 		if resume != "" {
 			if st, notice, err := ap.resume(resume); err != nil {
 				opts.Notices = append(opts.Notices, "恢复会话失败，已开启新会话："+err.Error())
