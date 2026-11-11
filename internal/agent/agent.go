@@ -26,7 +26,9 @@ type Config struct {
 	System          string
 	Tools           *tool.Registry // 可为 nil，表示没有工具
 	MaxOutputTokens int
-	MaxSteps        int // <= 0 时取 DefaultMaxSteps
+	// Thinking 是初始的思考参数，之后可以用 SetThinking 随时调整。
+	Thinking Thinking
+	MaxSteps int // <= 0 时取 DefaultMaxSteps
 	// MaxParallelTools 是同一批 tool call 同时执行的上限：<= 0 取 DefaultMaxParallelTools，1 表示串行。
 	// 工具的 Run 因此必须能被并发调用。
 	MaxParallelTools int
@@ -55,6 +57,10 @@ type Agent struct {
 	// 校准：服务端上一次报告的真实输入 token，以及当时的历史长度。之后只需估算新增的消息。
 	calibTokens int
 	calibLen    int
+
+	// thinking 单独加锁：mu 在整轮 Run 期间都被持有，界面在生成中调整思考档位不能被它卡住。
+	thinkMu  sync.Mutex
+	thinking Thinking
 }
 
 // New 校验配置并生成 Agent。
@@ -68,7 +74,7 @@ func New(cfg Config) (*Agent, error) {
 	if cfg.MaxSteps <= 0 {
 		cfg.MaxSteps = DefaultMaxSteps
 	}
-	a := &Agent{cfg: cfg, log: cfg.Logger, retry: DefaultRetry}
+	a := &Agent{cfg: cfg, log: cfg.Logger, retry: DefaultRetry, thinking: cfg.Thinking}
 	if cfg.Retry != nil {
 		a.retry = *cfg.Retry
 	}
@@ -82,6 +88,20 @@ func New(cfg Config) (*Agent, error) {
 		}
 	}
 	return a, nil
+}
+
+// SetThinking 调整之后请求的思考参数。可以在 Run 进行中调用，从下一次模型请求开始生效。
+func (a *Agent) SetThinking(t Thinking) {
+	a.thinkMu.Lock()
+	defer a.thinkMu.Unlock()
+	a.thinking = t
+}
+
+// Thinking 返回当前的思考参数。
+func (a *Agent) Thinking() Thinking {
+	a.thinkMu.Lock()
+	defer a.thinkMu.Unlock()
+	return a.thinking
 }
 
 // History 返回当前对话历史的副本（不含 system 提示词）。
@@ -123,6 +143,7 @@ func (a *Agent) request() Request {
 		Messages:        msgs,
 		Tools:           a.specs,
 		MaxOutputTokens: a.cfg.MaxOutputTokens,
+		Thinking:        a.Thinking(),
 	}
 }
 

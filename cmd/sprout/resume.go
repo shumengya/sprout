@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/shumengya/sprout/internal/agent"
 	"github.com/shumengya/sprout/internal/agent/config"
 	"github.com/shumengya/sprout/internal/agent/session"
 	"github.com/shumengya/sprout/internal/tui"
@@ -34,6 +35,9 @@ func (a *app) resume(selector string) (*session.State, string, error) {
 	if st.Skipped > 0 {
 		notice += fmt.Sprintf("；会话文件里有 %d 行损坏，已跳过", st.Skipped)
 	}
+	// 原始思考块绑定了当初的系统提示词（含日期），新进程里对不上，回传会被拒绝；
+	// 思维链文本保留（DeepSeek 等按文本回传，不受影响）。
+	agent.DropNative(st.History)
 	if err := a.rec.Attach(st.Path); err != nil {
 		return nil, "", err
 	}

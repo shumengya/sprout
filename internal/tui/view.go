@@ -25,9 +25,9 @@ func (m *Model) View() tea.View {
 	}
 
 	sep := styFaint.Render(strings.Repeat("─", m.w))
-	input := m.inputView()
-	if m.picker != nil {
-		input = m.pickerView(m.w, pickerMaxRows) // 选择器替换输入框，对话区不被遮挡
+	input, overlaid := m.overlay() // 选择器或档位条替换输入框，对话区不被遮挡
+	if !overlaid {
+		input = m.inputView()
 	}
 	parts := []string{overlayHint(m.body(), m.scrollHint(), m.w)}
 	above := m.vp.Height() // 输入框上面的行数：对话区、活动行（如果有）、分隔线
@@ -40,7 +40,7 @@ func (m *Model) View() tea.View {
 	v.Content = strings.Join(parts, "\n")
 
 	// 把输入框的光标位置换算到整个界面里。选择器打开时没有输入光标。
-	if m.picker == nil {
+	if !overlaid {
 		if c := m.in.Cursor(); c != nil {
 			c.Y += above
 			v.Cursor = c
@@ -54,6 +54,8 @@ var (
 	styInfoModel = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))  // 绿
 	styInfoDir   = lipgloss.NewStyle().Foreground(lipgloss.Color("12")) // 亮蓝：普通蓝在深色背景上太暗
 	styInfoTool  = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))  // 洋红，和工具卡片同色系
+	styInfoThink = lipgloss.NewStyle().Foreground(lipgloss.Color("14")) // 亮青：与模型名区分
+	styEffortSel = lipgloss.NewStyle().Bold(true).Reverse(true)
 )
 
 // infoLine 是最底下的信息栏：左边模型、当前目录、可用工具，用不同颜色区分；右边是本会话累计 token。
@@ -70,6 +72,9 @@ func (m *Model) infoLine() string {
 	}
 	const gap = "  "
 	model := styInfoLabel.Render("模型 ") + styInfoModel.Render(info.Model)
+	if info.Effort != "" {
+		model += styInfoLabel.Render(" · 思考 ") + styInfoThink.Render(info.Effort)
+	}
 	toolPart := styInfoLabel.Render("工具 ") + tools
 
 	// 先算出模型和工具占掉多少，剩下的给目录。

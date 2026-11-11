@@ -44,6 +44,8 @@ type Model struct {
 	// Vision 表示模型是否支持图片输入。缺省为 false：绝大多数模型没有视觉能力，
 	// 未标注时发图片会被服务端拒绝，宁可在本地降级成占位文本。
 	Vision *bool `json:"vision"`
+	// Effort 声明可调的思考档位；为 nil 表示不能调节（不发送任何思考参数）。
+	Effort *Effort `json:"effort"`
 }
 
 // SupportsTools 报告模型是否支持工具调用，缺省为 true。

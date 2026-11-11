@@ -14,7 +14,7 @@ type chatProvider struct{ *client }
 
 // Stream 实现 agent.Provider。
 func (p *chatProvider) Stream(ctx context.Context, req agent.Request, emit func(agent.Chunk) error) (agent.Response, error) {
-	resp, err := p.post(ctx, "/chat/completions", buildChatRequest(req))
+	resp, err := p.post(ctx, "/chat/completions", buildChatRequest(req), req.Thinking.Extra)
 	if err != nil {
 		return agent.Response{}, err
 	}

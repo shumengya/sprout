@@ -28,6 +28,7 @@ const helpText = `快捷键
 
 命令
   /model              打开模型选择器，切换后保留对话历史；/model 引用 直接切换
+  /effort             调整思考程度（档位来自 models.jsonc）；/effort 档位 直接切换，生成中也能改，下次请求生效
   /new                开始新会话（清空对话区和上下文，旧会话可用 /resume 找回）
   /image 路径          附加一张图片到下一条消息；/image 查看待发送的图片，/image clear 清空
                       消息里直接写现有图片文件的路径（png / jpeg / gif / webp）也会自动附上
@@ -51,6 +52,8 @@ func (m *Model) slash(text string) (handled bool, cmd tea.Cmd) {
 	case "/resume":
 		m.follow = true
 		return true, m.resumeCmd(strings.TrimSpace(arg))
+	case "/effort":
+		m.effortCmd(strings.TrimSpace(arg))
 	case "/new":
 		m.newSessionCmd()
 	case "/image":

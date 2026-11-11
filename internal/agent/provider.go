@@ -22,6 +22,8 @@ type Request struct {
 	Messages        []Message
 	Tools           []ToolSpec
 	MaxOutputTokens int
+	// Thinking 是本次请求的思考参数；零值表示不发送。上下文摘要等内部请求不带它。
+	Thinking Thinking
 }
 
 // Chunk 是流式输出的一个增量。tool call 不走 Chunk，流结束后随 Response 一起返回。

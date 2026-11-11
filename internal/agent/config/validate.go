@@ -62,6 +62,7 @@ func (f *File) problems() []string {
 			if m.MaxOutput < 0 {
 				add("%s.models.%s.maxOutput 不能为负数", prefix, mn)
 			}
+			out = append(out, effortProblems(prefix+".models."+mn, p.Protocol, m)...)
 		}
 	}
 

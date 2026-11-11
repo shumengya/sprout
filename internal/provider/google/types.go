@@ -18,7 +18,17 @@ type request struct {
 }
 
 type generationConfig struct {
-	MaxOutputTokens int `json:"maxOutputTokens,omitempty"`
+	MaxOutputTokens int             `json:"maxOutputTokens,omitempty"`
+	ThinkingConfig  *thinkingConfig `json:"thinkingConfig,omitempty"`
+}
+
+// thinkingConfig 控制思考：Gemini 3 起用 thinkingLevel（low / high 等），2.5 用 thinkingBudget
+// （0 关闭、-1 动态）。两者由 models.jsonc 的档位声明决定发哪个，这里不做模型判断。
+type thinkingConfig struct {
+	ThinkingLevel string `json:"thinkingLevel,omitempty"`
+	// 指针：0 表示关闭思考，必须能发出去。
+	ThinkingBudget  *int `json:"thinkingBudget,omitempty"`
+	IncludeThoughts bool `json:"includeThoughts,omitempty"`
 }
 
 type content struct {
@@ -89,6 +99,15 @@ func buildRequest(req agent.Request) request {
 	}
 	if req.MaxOutputTokens > 0 {
 		out.GenerationConfig = &generationConfig{MaxOutputTokens: req.MaxOutputTokens}
+	}
+	if t := req.Thinking; t.Active() {
+		if out.GenerationConfig == nil {
+			out.GenerationConfig = &generationConfig{}
+		}
+		tc := &thinkingConfig{ThinkingLevel: t.Effort, ThinkingBudget: t.Budget}
+		// 预算为 0 是关闭思考，这时要求返回思考摘要没有意义，部分模型还会报参数冲突。
+		tc.IncludeThoughts = t.Summary && (t.Budget == nil || *t.Budget != 0)
+		out.GenerationConfig.ThinkingConfig = tc
 	}
 
 	// id -> 函数名，供 tool 结果反查。

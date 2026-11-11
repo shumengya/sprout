@@ -110,6 +110,7 @@ func (t *turn) summarizeAndCut(cut, before int) bool {
 	}
 	a.summary = text
 	a.history = slices.Clone(a.history[cut:])
+	DropNative(a.history)       // 保留下来的轮次前面换成了摘要，它们的思考块已对不上前缀
 	t.base = max(t.base-cut, 0) // 本轮开始前的历史长度随之缩短
 	a.resetCalibration()
 	t.out.Emit(event.Compacted{

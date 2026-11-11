@@ -97,3 +97,38 @@ func TestTemplateMatchesExampleFile(t *testing.T) {
 		t.Fatal("models.example.jsonc 与 config.Template 不一致，请同步修改")
 	}
 }
+
+// 模板给每种协议都示范了 effort 写法，且全部能通过校验；默认模型的 off 用 DeepSeek 私有开关关闭思考。
+func TestTemplateDeclaresEffortForEveryProtocol(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "models.jsonc")
+	if _, err := EnsureTemplate(p); err != nil {
+		t.Fatal(err)
+	}
+	f, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sel, _ := f.Selected()
+	if got := strings.Join(sel.Model.EffortNames(), ","); got != "auto,off,low,high,max" {
+		t.Errorf("默认模型的档位 = %s", got)
+	}
+	if sel.Model.DefaultEffort() != EffortAuto {
+		t.Error("模板默认应处在 auto，首次启动的请求与以前完全一致")
+	}
+	if off, _ := sel.Model.EffortLevel("off"); string(off.Body["thinking"]) != `{ "type": "disabled" }` {
+		t.Errorf("off = %+v", off)
+	}
+	declared := map[string]bool{}
+	for _, pr := range f.Providers {
+		for _, m := range pr.Models {
+			if m.Effort != nil {
+				declared[pr.Protocol] = true
+			}
+		}
+	}
+	for _, proto := range Protocols {
+		if !declared[proto] {
+			t.Errorf("模板没有示范 %s 的 effort 写法", proto)
+		}
+	}
+}

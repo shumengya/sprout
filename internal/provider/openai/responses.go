@@ -14,7 +14,7 @@ type responsesProvider struct{ *client }
 
 // Stream 实现 agent.Provider。
 func (p *responsesProvider) Stream(ctx context.Context, req agent.Request, emit func(agent.Chunk) error) (agent.Response, error) {
-	resp, err := p.post(ctx, "/responses", buildResponsesRequest(req))
+	resp, err := p.post(ctx, "/responses", buildResponsesRequest(req), req.Thinking.Extra)
 	if err != nil {
 		return agent.Response{}, err
 	}
@@ -70,7 +70,9 @@ func (p *responsesProvider) Stream(ctx context.Context, req agent.Request, emit 
 		}
 	}
 	return agent.Response{
-		Message:    agent.Message{Role: agent.RoleAssistant, Content: []agent.Block{agent.TextBlock(st.text.String())}, ToolCalls: calls},
+		// Reasoning 只用于展示：Responses 的思考条目需要加密内容才能回传，store:false 下不回传。
+		Message: agent.Message{Role: agent.RoleAssistant, Content: []agent.Block{agent.TextBlock(st.text.String())},
+			Reasoning: st.reasoning.String(), ToolCalls: calls},
 		Usage:      usage,
 		StopReason: stop,
 	}, nil

@@ -81,7 +81,7 @@ func (r *replayer) handle(rec rawRec) {
 		r.emit(event.TurnStarted{Prompt: rec.Content, Images: images})
 	case "assistant":
 		r.flush()
-		msg := agent.Message{Role: agent.RoleAssistant, Reasoning: rec.Reasoning}
+		msg := agent.Message{Role: agent.RoleAssistant, Reasoning: rec.Reasoning, Native: rec.Native}
 		if rec.Content != "" { // 空文本与运行时一致：不产生文本块
 			msg.Content = []agent.Block{agent.TextBlock(rec.Content)}
 		}
@@ -166,6 +166,7 @@ func (r *replayer) compact(rec rawRec) {
 	case event.CompactSummary:
 		cut := min(rec.Dropped, len(r.history))
 		r.history = append([]agent.Message(nil), r.history[cut:]...)
+		agent.DropNative(r.history) // 与运行时一致：压缩后不再回传原始思考块
 		r.summary = rec.Summary
 		r.base = max(r.base-cut, 0)
 	case event.CompactPrune:

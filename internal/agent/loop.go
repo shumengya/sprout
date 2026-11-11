@@ -82,6 +82,7 @@ func (t *turn) loop() error {
 			Content: msg.Text(), Reasoning: msg.Reasoning,
 			ToolCalls: eventCalls(msg.ToolCalls), StopReason: resp.StopReason,
 			ReasoningTokensEst: EstimateTokens(msg.Reasoning),
+			Native:             msg.Native,
 		})
 		if resp.Usage != (Usage{}) {
 			t.out.Emit(event.Usage{

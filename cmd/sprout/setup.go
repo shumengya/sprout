@@ -28,6 +28,7 @@ type env struct {
 	detect  func(cfgBash, cfgPS string) platform.Shells
 	http    *http.Client       // nil 表示使用 provider 的默认客户端
 	retry   *agent.RetryPolicy // nil 表示使用 agent 的默认重试策略；测试用它避免真的退避等待
+	effort  string             // 命令行 --effort；空表示用 models.jsonc 的 default
 }
 
 // app 是装配好的运行时。ag 为 nil 表示当前不能对话，原因在 disabled 里。
@@ -42,6 +43,7 @@ type app struct {
 	ag       *agent.Agent
 	rec      *session.Recorder
 	info     tui.Info
+	effort   string // 当前思考档位，跨 /new、/resume 保留；切模型时尽量沿用
 	disabled string
 	notices  []string
 }
@@ -57,6 +59,9 @@ func (a *app) close() {
 // 配置文件缺失/语法错误/校验失败是致命的，返回 error；
 // 缺少 API Key 不是：界面照常启动并显示配置提示，只是不发起请求（app.disabled 非空）。
 func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
+	if log == nil { // 测试和部分调用方不传日志；之后各处直接用 a.log，不再逐个判空
+		log = slog.New(slog.DiscardHandler)
+	}
 	path := config.ModelsPath(dataDir)
 	created, err := config.EnsureTemplate(path)
 	if err != nil {
@@ -71,10 +76,15 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 		return nil, err
 	}
 
-	a := &app{dataDir: dataDir, cwd: e.cwd, cfg: cfg, env: e, log: log, sel: sel}
+	effort, err := startEffort(sel, e.effort)
+	if err != nil {
+		return nil, err
+	}
+
+	a := &app{dataDir: dataDir, cwd: e.cwd, cfg: cfg, env: e, log: log, sel: sel, effort: effort}
 	a.info = tui.Info{
 		Model: sel.ModelName, Provider: sel.ProviderName + "，" + sel.Provider.Protocol,
-		Cwd: e.cwd, DataDir: dataDir, Vision: sel.Model.SupportsVision(),
+		Cwd: e.cwd, DataDir: dataDir, Vision: sel.Model.SupportsVision(), Effort: effortLabel(sel, effort),
 	}
 	reg, err := a.registerTools(cfg, e)
 	if err != nil {
@@ -144,6 +154,7 @@ func (a *app) buildAgent(sel config.Selection, key string, reg *tool.Registry, r
 			Vision: sel.Model.SupportsVision(),
 		}),
 		MaxOutputTokens: sel.Model.MaxOutput, ContextWindow: sel.Model.ContextWindow,
+		Thinking: thinkingFor(sel, a.effort),
 		Vision: sel.Model.SupportsVision(),
 		Recorder: rec, Retry: e.retry, Logger: log,
 	})

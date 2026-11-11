@@ -4,7 +4,10 @@
 // 会话落盘也是订阅同一条事件流，不另开通道。
 package event
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Kind 是事件的稳定标识，供序列化和日志使用。
 type Kind string
@@ -84,6 +87,25 @@ type MessageCompleted struct {
 	// ReasoningTokensEst 是内核对 Reasoning 的 token 估算，供界面在服务端没报告思维链 token
 	// （Usage.ReasoningTokens 为 0）时显示。由 Reasoning 算出，不落盘；会话恢复时重新计算。
 	ReasoningTokensEst int
+	// Native 是协议原始内容（如带签名的 Anthropic 思考块），会话记录原样落盘，恢复后同一模型继续回传。
+	// 界面不需要它。
+	Native *Native
+}
+
+// Native 是 provider 返回的原始 assistant 内容，供同一协议、同一模型在后续请求里原样回传。
+//
+// 有的协议要求思考块连同签名逐字节回传（Anthropic 开启思考后，带 tool_use 的 assistant 消息
+// 必须带着原始 thinking block），内部消息模型表达不了这些细节，就整段保存下来。
+// 内核只负责保存、落盘和在换模型时丢弃，不解析 Data。
+type Native struct {
+	Protocol string          `json:"protocol"` // 产生它的协议，如 anthropic-messages
+	Model    string          `json:"model"`    // 产生它的模型；换了模型就不能再回传
+	Data     json.RawMessage `json:"data"`     // 该协议的原始内容
+}
+
+// Usable 报告这段原始内容能否在 protocol/model 的请求里回传。
+func (n *Native) Usable(protocol, model string) bool {
+	return n != nil && len(n.Data) > 0 && n.Protocol == protocol && n.Model == model
 }
 
 // ToolRequested 在工具开始执行前发出。

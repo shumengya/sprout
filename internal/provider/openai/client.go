@@ -2,6 +2,7 @@ package openai
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -51,10 +52,10 @@ type client struct {
 
 // post 发送 JSON 请求，路径以 / 开头。成功返回未读取的响应（调用方负责关闭 Body）；
 // 非 2xx 返回 *agent.ProviderError；ctx 被取消返回 ctx.Err()。
-func (c *client) post(ctx context.Context, path string, body any) (*http.Response, error) {
+func (c *client) post(ctx context.Context, path string, body any, extra map[string]json.RawMessage) (*http.Response, error) {
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer "+c.apiKey)
-	return c.transport.Post(ctx, transport.RequestOptions{Path: path, Headers: headers}, body)
+	return c.transport.Post(ctx, transport.RequestOptions{Path: path, Headers: headers, Extra: extra}, body)
 }
 
 // readErr 把读取流时的错误转成 Stream 应返回的错误：取消返回 ctx.Err()，其余视为连接中断。

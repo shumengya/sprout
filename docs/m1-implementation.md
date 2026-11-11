@@ -226,7 +226,8 @@ type Provider interface {
 - system 放顶层 `system` 字段，不进 `messages`。
 - `max_tokens` 必填：模型未配 `maxOutput` 时用默认值 4096。
 - 工具声明：`tools[].{name,description,input_schema}`。
-- assistant 历史：文本与 `tool_use` block 放在同一条 assistant 消息；不回传 Reasoning（thinking block 需服务端签名，且历史可能来自其他协议）。
+- assistant 历史：文本与 `tool_use` block 放在同一条 assistant 消息；不回传 Reasoning 文本（thinking block 需服务端签名，且历史可能来自其他协议）。
+  开启思考后，同一模型产生的带思考块的消息改为原样回传 `Message.Native`，见 `docs/effort.md` §4。
 - 工具结果：`tool_result` block 放进 user 消息，连续多条合并为一条；找不到配对 `tool_use` 的孤儿结果降级为 text block。
 - 图片：`{"type":"image","source":{"type":"base64","media_type":...,"data":...}}`；工具结果带图片时
   `tool_result.content` 从字符串改为 text / image block 数组。
@@ -379,7 +380,8 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
 - 记录类型（每行一条，`type` 区分）：`session`（头）、`user`、`assistant`（含 `tool_calls`）、`tool`（含完整 stdout/stderr、退出码、耗时）、`usage`、`turn`（`reason`）、`error`。
 - 带图片的 `user` 记录多一个 `images: [{file, media_type, bytes}]`，`file` 是相对会话文件的路径；
   图片文件存在 `<会话名>.images/` 目录里，按内容哈希命名（同一张图重复发只存一份）。JSONL 里不内联 base64。
-- 会话记录器是 `event.Sink`，与 surface 订阅同一条事件流；`message.delta`、`reasoning.delta` 和 `tool.requested` 不落盘；`assistant` 记录带完整 `reasoning`（有思维链时）。
+- 会话记录器是 `event.Sink`，与 surface 订阅同一条事件流；`message.delta`、`reasoning.delta` 和 `tool.requested` 不落盘；`assistant` 记录带完整 `reasoning`（有思维链时），
+  以及协议原始内容 `native`（目前只有开启思考的 Anthropic 消息会有，见 `docs/effort.md` §5）。
 - 文件在第一个可落盘事件到来时才创建；启动后什么都没做就退出不会留下空文件。权限 0600。
 - 同目录 `meta.json` 是该工作目录下所有会话的索引：`{cwd, sessions: {<文件名>: {id, provider, model, tools, startedAt, version}}}`，原子替换写入，损坏时重建。不加跨进程锁，两个实例同时在同一目录启动可能丢一条登记，JSONL 本身不受影响。
 - 写入失败只记日志，不影响 agent。

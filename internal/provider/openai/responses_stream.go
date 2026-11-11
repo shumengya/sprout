@@ -18,6 +18,9 @@ type respStream struct {
 	text    strings.Builder
 	textIdx map[int]bool // 已经通过增量输出过文本的 output_index
 	calls   map[int]*respCall
+	// reasoning 是思考摘要（或兼容服务给出的原始思考文本）；thinkIdx 记录已经流式输出过的 reasoning 条目。
+	reasoning strings.Builder
+	thinkIdx  map[int]bool
 }
 
 type respCall struct {
@@ -26,7 +29,7 @@ type respCall struct {
 }
 
 func newRespStream(emit func(agent.Chunk) error) *respStream {
-	return &respStream{emit: emit, textIdx: map[int]bool{}, calls: map[int]*respCall{}}
+	return &respStream{emit: emit, textIdx: map[int]bool{}, calls: map[int]*respCall{}, thinkIdx: map[int]bool{}}
 }
 
 func (s *respStream) call(idx int) *respCall {
@@ -45,6 +48,15 @@ func (s *respStream) addText(idx int, t string) error {
 	s.textIdx[idx] = true
 	s.text.WriteString(t)
 	return s.emit(agent.Chunk{TextDelta: t})
+}
+
+func (s *respStream) addReasoning(idx int, t string) error {
+	if t == "" {
+		return nil
+	}
+	s.thinkIdx[idx] = true
+	s.reasoning.WriteString(t)
+	return s.emit(agent.Chunk{ReasoningDelta: t})
 }
 
 // finishItem 处理一个完整的 output item，来自 output_item.done 或 response.completed 的 output。
@@ -68,6 +80,17 @@ func (s *respStream) finishItem(idx int, it responsesItem) error {
 		if !s.textIdx[idx] {
 			return s.addText(idx, it.text())
 		}
+	case "reasoning":
+		// 同上：没有流式输出过摘要时用完整 item 补上，多段摘要之间空一行。
+		if !s.thinkIdx[idx] {
+			var parts []string
+			for _, p := range it.Summary {
+				if p.Text != "" {
+					parts = append(parts, p.Text)
+				}
+			}
+			return s.addReasoning(idx, strings.Join(parts, "\n\n"))
+		}
 	}
 	return nil
 }
@@ -77,6 +100,13 @@ func (s *respStream) handle(e responsesEvent, httpStatus int) (*responsesDone, e
 	switch e.Type {
 	case "response.output_text.delta", "response.refusal.delta":
 		return nil, s.addText(e.OutputIndex, e.Delta)
+	case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
+		// 前者是 OpenAI 的思考摘要；后者是部分兼容服务直接给出的思考原文。
+		return nil, s.addReasoning(e.OutputIndex, e.Delta)
+	case "response.reasoning_summary_part.added":
+		if e.SummaryIndex > 0 && s.thinkIdx[e.OutputIndex] {
+			return nil, s.addReasoning(e.OutputIndex, "\n\n")
+		}
 	case "response.output_item.added":
 		if e.Item != nil && e.Item.Type == "function_call" {
 			return nil, s.finishItem(e.OutputIndex, *e.Item)

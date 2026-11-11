@@ -53,7 +53,7 @@ func (p *provider) Stream(ctx context.Context, req agent.Request, emit func(agen
 	headers := http.Header{}
 	headers.Set("x-goog-api-key", p.apiKey)
 	resp, err := p.transport.Post(ctx, transport.RequestOptions{
-		Path: streamPath(req.Model), Headers: headers, ParseError: parseError,
+		Path: streamPath(req.Model), Headers: headers, ParseError: parseError, Extra: req.Thinking.Extra,
 	}, buildRequest(req))
 	if err != nil {
 		return agent.Response{}, err

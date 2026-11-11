@@ -19,6 +19,8 @@ type args struct {
 	runPrompt *string
 	// images 是 run 模式随提问一起发送的图片路径，可重复指定。
 	images []string
+	// effort 是启动时的思考档位，覆盖 models.jsonc 里的 default。
+	effort string
 }
 
 // stringList 收集可重复出现的字符串选项（--image a --image b）。
@@ -34,8 +36,9 @@ func (l *stringList) Set(v string) error {
 }
 
 const usage = `用法:
-  sprout [--data-dir DIR] [-c | --resume ID]            启动终端界面
-  sprout run [--data-dir DIR] [-c | --resume ID] [--image 文件]... "提问"
+  sprout [--data-dir DIR] [-c | --resume ID] [--effort 档位]
+                                                   启动终端界面
+  sprout run [--data-dir DIR] [-c | --resume ID] [--effort 档位] [--image 文件]... "提问"
                                                    单次运行，答案写 stdout，进度写 stderr
   sprout --version
 
@@ -43,6 +46,7 @@ const usage = `用法:
   -c, --continue   恢复当前目录最近使用的会话，接着聊
   --resume ID      恢复指定会话：序号（见 TUI 里的 /resume 列表）或 ID 前缀
   --image 文件     随提问发送一张图片（png/jpeg/gif/webp），可重复；仅 run 模式支持
+  --effort 档位    思考程度，如 auto / low / high / max；可选档位由 models.jsonc 里该模型的 effort 声明决定
   --data-dir DIR   数据目录（配置、会话、日志）。优先级: --data-dir > SPROUT_DATA_DIR > <程序所在目录>/data/.sprout
                    用 go run 启动时必须显式指定，例如 --data-dir ./data/.sprout
 `
@@ -60,6 +64,7 @@ func parseArgs(argv []string) (args, error) {
 		fs.BoolVar(&cont, "c", cont, "")
 		fs.BoolVar(&cont, "continue", cont, "")
 		fs.StringVar(&resume, "resume", resume, "")
+		fs.StringVar(&a.effort, "effort", a.effort, "")
 	}
 	// --resume 明确指定的优先于 -c；-c 等价于 --resume latest。
 	finish := func() {

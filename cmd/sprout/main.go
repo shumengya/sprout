@@ -79,6 +79,7 @@ func realMain(argv []string, stdout, stderr io.Writer) (code int) {
 	}
 	ap, err := buildApp(dataDir, env{
 		getenv: os.Getenv, cwd: cwd, version: version, now: time.Now, detect: platform.DetectShells,
+		effort: a.effort,
 	}, log)
 	if err != nil {
 		log.Error("startup failed", "error", err.Error())
@@ -87,7 +88,7 @@ func realMain(argv []string, stdout, stderr io.Writer) (code int) {
 	}
 	defer ap.close()
 	log.Info("start", "version", version, "data_dir", dataDir, "model", ap.sel.Ref(),
-		"protocol", ap.sel.Provider.Protocol, "enabled", ap.ag != nil, "tools", len(ap.info.Tools))
+		"protocol", ap.sel.Provider.Protocol, "enabled", ap.ag != nil, "tools", len(ap.info.Tools), "effort", ap.effort)
 
 	if a.runPrompt != nil {
 		return runOnce(ap, *a.runPrompt, a.images, a.resume, stdout, stderr)
@@ -147,6 +148,7 @@ func runTUI(ap *app, resume string, stderr io.Writer) int {
 		opts.Runner = runnerFunc{ap}
 		opts.Sessions = sessionStore{ap}
 		opts.Models = modelStore{ap}
+		opts.Efforts = effortStore{ap}
 		if resume != "" {
 			if st, notice, err := ap.resume(resume); err != nil {
 				opts.Notices = append(opts.Notices, "恢复会话失败，已开启新会话："+err.Error())

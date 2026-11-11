@@ -50,14 +50,16 @@ type RequestOptions struct {
 	Headers http.Header
 	// ParseError 把非 2xx 的响应体转成 ProviderError。为 nil 时用 ParseAPIError（OpenAI 风格）。
 	ParseError func(status int, body []byte) *agent.ProviderError
+	// Extra 是合并进请求体顶层的额外字段（来自 models.jsonc 的思考档位声明），同名字段覆盖原值。
+	Extra map[string]json.RawMessage
 }
 
 // Post 发送 JSON 请求。成功返回未读取的响应（调用方负责关闭 Body）；
 // 非 2xx 返回 *agent.ProviderError；ctx 被取消返回 ctx.Err()。
 func (c *Client) Post(ctx context.Context, opts RequestOptions, body any) (*http.Response, error) {
-	payload, err := json.Marshal(body)
+	payload, err := encodeBody(body, opts.Extra)
 	if err != nil {
-		return nil, fmt.Errorf("编码请求失败: %w", err)
+		return nil, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+opts.Path, bytes.NewReader(payload))
 	if err != nil {
@@ -114,3 +116,31 @@ func ClipText(s string, n int) string {
 
 // TrimSpaceBytes 便于把响应体转成可显示文本。保留在此避免各包重复写。
 func TrimSpaceBytes(b []byte) string { return strings.TrimSpace(string(b)) }
+
+// encodeBody 编码请求体，并把 extra 合并到顶层。请求体必须是 JSON 对象；
+// 合并只发生在有 extra 时，没有时与直接 json.Marshal 逐字节一致。
+func encodeBody(body any, extra map[string]json.RawMessage) ([]byte, error) {
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("编码请求失败: %w", err)
+	}
+	if len(extra) == 0 {
+		return payload, nil
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &obj); err != nil {
+		return nil, fmt.Errorf("请求体不是 JSON 对象，无法合并额外字段: %w", err)
+	}
+	for k, v := range extra {
+		if !json.Valid(v) {
+			return nil, fmt.Errorf("额外字段 %s 不是合法的 JSON", k)
+		}
+		obj[k] = v
+	}
+	// map 编码按键排序，请求体稳定，便于测试和服务端缓存。
+	out, err := json.Marshal(obj)
+	if err != nil {
+		return nil, fmt.Errorf("编码请求失败: %w", err)
+	}
+	return out, nil
+}

@@ -23,10 +23,10 @@ type State struct {
 	Skipped int // 损坏或写了一半的行数（比如进程被杀时最后一行）
 }
 
-// StripReasoning 清掉历史里的思维链。换了模型/服务商后不应把别家的 reasoning_content 回传给新模型。
+// StripReasoning 清掉历史里的思维链及协议原始内容。换了模型/服务商后不应把别家的思维链回传给新模型。
 func (s *State) StripReasoning() {
 	for i := range s.History {
-		s.History[i].Reasoning = ""
+		s.History[i] = s.History[i].StripReasoning()
 	}
 }
 
@@ -46,6 +46,7 @@ type rawRec struct {
 	Reasoning  string        `json:"reasoning"`
 	ToolCalls  []toolCallRec `json:"tool_calls"`
 	StopReason string        `json:"stop_reason"`
+	Native     *event.Native `json:"native"`
 
 	ToolCallID string `json:"tool_call_id"`
 	Name       string `json:"name"`

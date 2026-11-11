@@ -17,6 +17,14 @@ type responsesRequest struct {
 	Stream          bool            `json:"stream"`
 	Store           bool            `json:"store"` // 必须显式发 false，不能 omitempty
 	MaxOutputTokens int             `json:"max_output_tokens,omitempty"`
+	// Reasoning 是思考设置，只在 models.jsonc 为当前档位声明了强度时才发。
+	Reasoning *responsesReasoning `json:"reasoning,omitempty"`
+}
+
+type responsesReasoning struct {
+	Effort string `json:"effort,omitempty"`
+	// Summary 为 auto 时服务端在流里返回可读的思考摘要（reasoning_summary_text 事件）。
+	Summary string `json:"summary,omitempty"`
 }
 
 type responsesMessage struct {
@@ -82,6 +90,12 @@ func buildResponsesRequest(req agent.Request) responsesRequest {
 		Model: req.Model, Instructions: req.System, Stream: true, Store: false,
 		MaxOutputTokens: req.MaxOutputTokens, Input: []any{},
 	}
+	if t := req.Thinking; t.Effort != "" {
+		out.Reasoning = &responsesReasoning{Effort: t.Effort}
+		if t.Summary {
+			out.Reasoning.Summary = "auto"
+		}
+	}
 	// function_call_output 只放文本，工具结果的图片在这组输出之后用一条 user 消息补发（同 Chat）。
 	var toolImages []agent.Block
 	flushImages := func() {
@@ -132,6 +146,8 @@ type responsesEvent struct {
 	Arguments   string         `json:"arguments"`
 	Item        *responsesItem `json:"item"`
 	Response    *responsesDone `json:"response"`
+	// reasoning_summary_part.added 的摘要序号，用来在多段摘要之间补空行。
+	SummaryIndex int `json:"summary_index"`
 	// type == "error" 时的字段。
 	Code    string `json:"code"`
 	Message string `json:"message"`
@@ -148,6 +164,10 @@ type responsesItem struct {
 		Text    string `json:"text"`
 		Refusal string `json:"refusal"`
 	} `json:"content"`
+	// Summary 是 reasoning 条目的可读摘要，流里没有发增量时用它补上。
+	Summary []struct {
+		Text string `json:"text"`
+	} `json:"summary"`
 }
 
 // text 拼出 message 条目里的全部文本。

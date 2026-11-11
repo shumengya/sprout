@@ -18,7 +18,19 @@
           "contextWindow": 1000000,
           "maxOutput": 384000,
           "tools": true,
-          "vision": true
+          "vision": true,
+          // 思考程度（/effort 切换）。没写 effort 的模型不能调节，也不会发送任何思考参数。
+          // 每个档位写要发给服务端的值：字符串是强度，整数是 token 预算，对象可以再带私有字段 body。
+          // auto 是保留档位：什么都不发，由服务端按模型默认处理；没写 default 时启动就在 auto。
+          // DeepSeek 思考默认开启、强度 high；关闭要用它私有的 thinking 开关。
+          "effort": {
+            "levels": {
+              "off": { "body": { "thinking": { "type": "disabled" } } },
+              "low": "low",
+              "high": "high",
+              "max": "max"
+            }
+          }
         }
       }
     },
@@ -34,7 +46,13 @@
           "contextWindow": 1000000,
           "maxOutput": 384000,
           "tools": true,
-          "vision": true
+          "vision": true,
+          // Responses 协议用 reasoning.effort，none 表示关闭思考。
+          // summary 设为 false：不要求返回思考摘要（不是所有兼容服务都认这个参数）。
+          "effort": {
+            "summary": false,
+            "levels": { "off": "none", "low": "low", "high": "high", "max": "max" }
+          }
         }
       }
     },
@@ -49,7 +67,17 @@
           "contextWindow": 1000000,
           "maxOutput": 384000,
           "tools": true,
-          "vision": true
+          "vision": true,
+          // DeepSeek 的 Anthropic 入口用 thinking.type=enabled/disabled 开关思考、output_config.effort 调强度。
+          // 预算 0 发送 thinking.type=disabled；其余档位用 body 把 thinking 改成 enabled。
+          "effort": {
+            "levels": {
+              "off": 0,
+              "low": { "effort": "low", "body": { "thinking": { "type": "enabled" } } },
+              "high": { "effort": "high", "body": { "thinking": { "type": "enabled" } } },
+              "max": { "effort": "max", "body": { "thinking": { "type": "enabled" } } }
+            }
+          }
         }
       }
     },
@@ -78,7 +106,9 @@
           "contextWindow": 400000,
           "maxOutput": 32768,
           "tools": true,
-          "vision": true
+          "vision": true,
+          // 数组写法：档位名就是 reasoning.effort 的取值。
+          "effort": { "levels": ["minimal", "low", "medium", "high"] }
         }
       }
     },
@@ -93,7 +123,10 @@
           "contextWindow": 200000,
           "maxOutput": 8192,
           "tools": true,
-          "vision": true
+          "vision": true,
+          // Claude 4.6 起用 thinking.type=adaptive + output_config.effort；新模型已不接受 budget_tokens。
+          // 老模型（Haiku 4.5 等）改用预算写法，例如 "levels": { "off": 0, "low": 2048, "high": 16000 }。
+          "effort": { "levels": ["low", "medium", "high", "xhigh", "max"] }
         }
       }
     },
@@ -109,7 +142,12 @@
           "contextWindow": 1048576,
           "maxOutput": 65536,
           "tools": true,
-          "vision": true
+          "vision": true,
+          // Gemini 2.5 用 thinkingBudget（token 数，-1 动态，Flash 可用 0 关闭）；
+          // Gemini 3 起改用 thinkingLevel，写成字符串即可，例如 "levels": ["low", "high"]。
+          "effort": {
+            "levels": { "low": 1024, "medium": 8192, "high": 24576, "max": 32768 }
+          }
         }
       }
     }

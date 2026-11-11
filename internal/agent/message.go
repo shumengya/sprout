@@ -64,6 +64,9 @@ type Message struct {
 	Reasoning string
 	ToolCalls []ToolCall
 	ToolID    string
+	// Native 是 assistant 消息的协议原始内容（目前只有开启思考的 Anthropic 消息会有），
+	// 同一协议同一模型时由适配器原样回传；换模型时随 Reasoning 一起清空。
+	Native *Native
 }
 
 // Text 返回全部文本块的拼接，供展示、压缩、token 估算等只要文字的场合使用。
@@ -88,6 +91,12 @@ func (m Message) HasImages() bool {
 		}
 	}
 	return false
+}
+
+// StripReasoning 清空思维链及其协议附属数据，用于换模型：别家的思维链不该回传给新模型。
+func (m Message) StripReasoning() Message {
+	m.Reasoning, m.Native = "", nil
+	return m
 }
 
 // WithoutImages 返回去掉图片块的副本，图片处留下占位文本，用于模型不支持视觉时降级。

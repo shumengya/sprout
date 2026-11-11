@@ -96,7 +96,10 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [ ] 按工具声明“是否可并行”：现在同批调用一律并行（上限 4），靠系统提示词要求模型不要把有依赖的命令放同一批。
 - [ ] 配置热加载、模型选择器、运行中切换模型（改 `models.jsonc` 需重启）。
 - [ ] 交互式 CLI REPL；`sprout run` 不支持从 stdin 读提问。
-- [ ] Responses 协议下的思维链（reasoning item）处理。
+- [x] 思考程度调节：`/effort` 档位条与 `--effort`，档位由 `models.jsonc` 的 `effort` 按模型声明；四种协议按各自真实字段发送，Anthropic 思考块带签名原样回传（`docs/effort.md`）。
+- [x] Responses 协议下的思考摘要：`reasoning.summary=auto` 时接收 `reasoning_summary_text` 并显示。
+- [ ] Responses 协议回传 reasoning 条目（需要 `include: reasoning.encrypted_content`），现在 `store:false` 下多轮工具调用拿不到上一步的思考。
+- [ ] Gemini 3 的 `thoughtSignature` 回传：函数调用时要求带回，目前未保存；遇到相应报错时按 `Message.Native` 的方式补上。
 - [ ] 会话与日志的清理/轮转（`sessions/`、`logs/` 只增不减）。
 
 ## 四、已知限制与风险
@@ -116,7 +119,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 
 - [ ] **会话路径与 `AGENTS.md` 不一致**：`AGENTS.md` 决策表写 `sessions/<工作目录 slug>/<session-id>.jsonl`，实际按 `m1-minimal.md` 实现为 `sessions/--<cwd slug>--/<时间戳>_<id>.jsonl`。要改代码还是改决策表？
 - [ ] **`meta.json` 语义**：现在是工作目录分组下所有会话的索引；如果你想要“每个会话一份元数据”，需要改格式。
-- [ ] **是否提供关闭思考的开关**：DeepSeek 默认开启思考模式，会增加延迟和 token。可以给模型加一个配置项，请求时发 `thinking: {"type":"disabled"}`。
+- [x] **是否提供关闭思考的开关**：已由 `/effort off` 实现，模板里 DeepSeek 的 off 档位发送 `thinking: {"type":"disabled"}`。
 - [ ] **按模型切换 `max_tokens` / `max_completion_tokens`**：要不要在 `models.jsonc` 里加字段，解决 o 系列在 Chat 协议下的参数名问题。
 - [ ] **输出上限的默认值**：`deepseek-flash` 的 `maxOutput` 现为官方上限 384000，是否过大；不填则不发该参数。
 

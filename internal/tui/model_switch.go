@@ -126,6 +126,7 @@ func (m *Model) onSwitched(msg switchDoneMsg) {
 	m.opts.Info.Provider = msg.res.Info.Provider
 	m.opts.Info.Tools = msg.res.Info.Tools
 	m.opts.Info.Vision = msg.res.Info.Vision
+	m.opts.Info.Effort = msg.res.Info.Effort
 	m.add(&entry{kind: kindNotice, text: msg.res.Notice})
 }
 

@@ -54,6 +54,8 @@ type assistantRec struct {
 	Reasoning  string        `json:"reasoning,omitempty"`
 	ToolCalls  []toolCallRec `json:"tool_calls,omitempty"`
 	StopReason string        `json:"stop_reason,omitempty"`
+	// Native 是协议原始内容（如带签名的 Anthropic 思考块）。恢复会话后同一模型要原样回传，所以必须落盘。
+	Native *event.Native `json:"native,omitempty"`
 }
 
 // toolRec 的 exit_code 不能 omitempty：0 是有意义的值。
@@ -130,7 +132,7 @@ func toRecord(e event.Event, now time.Time) (any, bool) {
 	case event.TurnStarted:
 		return userRec{h("user"), e.Prompt, imageRecs(e.Images)}, true
 	case event.MessageCompleted:
-		rec := assistantRec{header: h("assistant"), Content: e.Content, Reasoning: e.Reasoning, StopReason: e.StopReason}
+		rec := assistantRec{header: h("assistant"), Content: e.Content, Reasoning: e.Reasoning, StopReason: e.StopReason, Native: e.Native}
 		for _, c := range e.ToolCalls {
 			rec.ToolCalls = append(rec.ToolCalls, toolCallRec{c.ID, c.Name, c.Arguments})
 		}

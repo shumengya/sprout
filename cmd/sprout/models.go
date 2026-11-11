@@ -76,13 +76,16 @@ func (s modelStore) Switch(ref string) (*tui.SwitchResult, error) {
 	}
 
 	// 工具是全局能力，不随模型变；只有 tools=false 的模型不提供工具。
-	oldSel, oldReg, oldInfo := a.sel, a.reg, a.info
+	oldSel, oldReg, oldInfo, oldEffort := a.sel, a.reg, a.info, a.effort
+	restore := func() { a.sel, a.reg, a.info, a.effort = oldSel, oldReg, oldInfo, oldEffort }
 	a.sel = sel
+	a.effort = carryEffort(sel, a.effort)
 	a.info.Model, a.info.Provider = sel.ModelName, sel.ProviderName+"，"+sel.Provider.Protocol
 	a.info.Vision = sel.Model.SupportsVision()
+	a.info.Effort = effortLabel(sel, a.effort)
 	reg, err := a.registerTools(a.cfg, a.env)
 	if err != nil {
-		a.sel, a.reg, a.info = oldSel, oldReg, oldInfo
+		restore()
 		return nil, err
 	}
 
@@ -90,12 +93,12 @@ func (s modelStore) Switch(ref string) (*tui.SwitchResult, error) {
 	if sel.Ref() != oldSel.Ref() {
 		// 换了模型：别家的思维链不该回传给新模型，与恢复旧会话时的处理一致。对话内容保留。
 		for i := range history {
-			history[i].Reasoning = ""
+			history[i] = history[i].StripReasoning()
 		}
 	}
 	ag, err := a.buildAgent(sel, key, reg, a.rec, a.env, a.log)
 	if err != nil {
-		a.sel, a.reg, a.info = oldSel, oldReg, oldInfo
+		restore()
 		return nil, err
 	}
 	ag.Restore(history, summary)
@@ -103,6 +106,12 @@ func (s modelStore) Switch(ref string) (*tui.SwitchResult, error) {
 	a.rec.NoteModelChange(sel.ProviderName, sel.ModelName, reg.Names())
 
 	notice := fmt.Sprintf("已切换模型：%s → %s（保留 %d 条历史消息）", oldSel.Ref(), sel.Ref(), len(history))
+	switch {
+	case a.info.Effort != "" && a.effort != oldEffort:
+		notice += fmt.Sprintf("；思考程度 %s → %s（新模型没有 %s 档位）", oldEffort, a.effort, oldEffort)
+	case a.info.Effort != "":
+		notice += "；思考程度 " + a.effort
+	}
 	return &tui.SwitchResult{Info: a.info, Notice: notice}, nil
 }
 

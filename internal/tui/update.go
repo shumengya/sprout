@@ -116,6 +116,10 @@ func (m *Model) onKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.refresh()
 		return m, cmd
 	}
+	if m.effortKey(k) { // 档位条同上
+		m.refresh()
+		return m, nil
+	}
 	m.status, m.statusOK = "", false
 	m.clearSel() // 内容已经在选中时复制过了；继续操作就让高亮消失
 	switch k.String() {

@@ -15,6 +15,9 @@ type chatRequest struct {
 	Stream        bool            `json:"stream"`
 	StreamOptions *chatStreamOpts `json:"stream_options,omitempty"`
 	MaxTokens     int             `json:"max_tokens,omitempty"`
+	// ReasoningEffort 是思考强度（OpenAI o 系列 / GPT-5、DeepSeek 等）。只在 models.jsonc 为当前档位
+	// 声明了取值时才发；Chat 协议没有预算字段，按 token 的预算在配置校验时就被拒绝。
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
 type chatStreamOpts struct {
@@ -61,6 +64,8 @@ func buildChatRequest(req agent.Request) chatRequest {
 		Stream:        true,
 		StreamOptions: &chatStreamOpts{IncludeUsage: true},
 		MaxTokens:     req.MaxOutputTokens,
+		// Chat 协议没有“返回思考摘要”的开关：支持的服务（DeepSeek 等）直接在 reasoning_content 里返回。
+		ReasoningEffort: req.Thinking.Effort,
 	}
 	if req.System != "" {
 		out.Messages = append(out.Messages, chatMessage{Role: "system", Content: req.System})

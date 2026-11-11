@@ -82,7 +82,21 @@ func PruneToolOutputs(history []Message, keepRecent int) int {
 		m.Content = []Block{TextBlock(head + "\n" + fmt.Sprintf(pruneMarker, total))}
 		pruned++
 	}
+	if pruned > 0 {
+		DropNative(history) // 改了中间的工具结果，之后所有思考块绑定的前缀都变了
+	}
 	return pruned
+}
+
+// DropNative 清掉历史里全部协议原始内容，文本、思维链文本和工具调用保留。
+//
+// 原始思考块的签名绑定了产生它时的完整前缀（系统提示词、工具、之前的全部消息）。压缩改写了历史、
+// 恢复会话换了系统提示词（里面有日期）之后再回传，会被服务端判定为改过的历史：新账号直接 400，
+// 老账号也会被丢弃。去掉思考块是服务端文档给出的做法——从前面删块是允许的，改中间不行。
+func DropNative(history []Message) {
+	for i := range history {
+		history[i].Native = nil
+	}
 }
 
 func isPruned(s string) bool { return rePruned.MatchString(s) }
