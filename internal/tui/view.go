@@ -25,7 +25,7 @@ func (m *Model) View() tea.View {
 	}
 
 	sep := styFaint.Render(strings.Repeat("─", m.w))
-	input := m.in.View()
+	input := m.inputView()
 	if m.picker != nil {
 		input = m.pickerView(m.w, pickerMaxRows) // 选择器替换输入框，对话区不被遮挡
 	}

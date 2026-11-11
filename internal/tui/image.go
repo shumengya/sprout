@@ -77,7 +77,20 @@ func (m *Model) pasteImages(content string) string {
 	return content
 }
 
+// pasteMark 是粘贴图片在输入框里的显示形式。
 func pasteMark(img agent.Image) string { return "[" + img.Name + "]" }
+
+// inputView 是输入框的渲染结果：待发送图片的 [文件名] 上绿色，和对话区保持一致。
+// textarea 自己只输出纯文本样式，所以在它渲染完之后替换；样式序列不占宽度，
+// 光标位置和折行都不受影响。标记被拆到两行时匹配不到，保持原样即可。
+func (m *Model) inputView() string {
+	out := m.in.View()
+	for _, img := range m.pending {
+		mark := pasteMark(img)
+		out = strings.ReplaceAll(out, mark, styImg.Render(mark))
+	}
+	return out
+}
 
 // expandPasted 把输入框里粘贴图片的 [文件名] 换回原始路径，发给模型和写进会话的仍是用户粘贴的原文。
 // 标记被用户删掉的图片不再发送；/image 附加的图片（没有 Source）不在正文里，总是保留。

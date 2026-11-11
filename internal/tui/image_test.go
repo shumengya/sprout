@@ -176,6 +176,10 @@ func TestPasteImagePathShowsMarkInInput(t *testing.T) {
 	if len(m.pending) != 1 || m.pending[0].Source != path {
 		t.Fatalf("粘贴时应附加图片并记下原始路径: %+v", m.pending)
 	}
+	// 输入框里的标记和对话区一样是绿色的：样式序列只在渲染时加，不进输入框的值。
+	if !strings.Contains(m.View().Content, styImg.Render("[截图.png]")) {
+		t.Errorf("输入框里的 [文件名] 应显示为绿色:\n%q", m.View().Content)
+	}
 
 	runProgram(t, m, func(send func(tea.Msg)) { send(keyEnter) }, finishedOneTurn)
 	var in agent.Input
