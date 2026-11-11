@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/shumengya/sprout/internal/agent"
 	"github.com/shumengya/sprout/internal/agent/event"
 )
 
@@ -90,8 +91,8 @@ func TestProgramFullTurnThroughRealEventLoop(t *testing.T) {
 
 func TestProgramPassesPromptToRunner(t *testing.T) {
 	got := make(chan string, 1)
-	r := fakeRunner{run: func(_ context.Context, prompt string, sink event.Sink) error {
-		got <- prompt
+	r := fakeRunner{run: func(_ context.Context, in agent.Input, sink event.Sink) error {
+		got <- in.Text
 		sink.Emit(event.TurnFinished{Reason: event.ReasonStop})
 		return nil
 	}}
@@ -104,7 +105,7 @@ func TestProgramPassesPromptToRunner(t *testing.T) {
 
 func TestProgramCtrlCCancelsRunningTurn(t *testing.T) {
 	started := make(chan struct{})
-	r := fakeRunner{run: func(ctx context.Context, _ string, sink event.Sink) error {
+	r := fakeRunner{run: func(ctx context.Context, _ agent.Input, sink event.Sink) error {
 		close(started)
 		<-ctx.Done() // 阻塞到被取消，模拟进行中的 HTTP 请求或工具
 		sink.Emit(event.TurnFinished{Reason: event.ReasonCancelled})
@@ -124,7 +125,7 @@ func TestProgramCtrlCCancelsRunningTurn(t *testing.T) {
 func TestProgramShutdownWaitsForAgentToFinish(t *testing.T) {
 	started := make(chan struct{})
 	var finalized atomic.Bool
-	r := fakeRunner{run: func(ctx context.Context, _ string, sink event.Sink) error {
+	r := fakeRunner{run: func(ctx context.Context, _ agent.Input, sink event.Sink) error {
 		close(started)
 		<-ctx.Done()
 		time.Sleep(150 * time.Millisecond) // 取消后还要收尾，比如写会话记录
@@ -162,7 +163,7 @@ func TestShutdownWithoutTurnIsImmediate(t *testing.T) {
 }
 
 func TestProgramRunnerPanicBecomesErrorEntry(t *testing.T) {
-	r := fakeRunner{run: func(context.Context, string, event.Sink) error { panic("炸了") }}
+	r := fakeRunner{run: func(context.Context, agent.Input, event.Sink) error { panic("炸了") }}
 	m := newProgModel(r)
 	runProgram(t, m, func(send func(tea.Msg)) { send(keyEnter) }, finishedOneTurn)
 	mustContain(t, plain(m), "内部错误: 炸了")
@@ -170,7 +171,7 @@ func TestProgramRunnerPanicBecomesErrorEntry(t *testing.T) {
 }
 
 func TestProgramRunnerReturningWithoutFinishedDoesNotHang(t *testing.T) {
-	r := fakeRunner{run: func(context.Context, string, event.Sink) error { return nil }}
+	r := fakeRunner{run: func(context.Context, agent.Input, event.Sink) error { return nil }}
 	m := newProgModel(r)
 	runProgram(t, m, func(send func(tea.Msg)) { send(keyEnter) }, finishedOneTurn)
 	mustContain(t, plain(m), "意外结束")
@@ -179,9 +180,9 @@ func TestProgramRunnerReturningWithoutFinishedDoesNotHang(t *testing.T) {
 
 func TestProgramSecondTurnAfterFirst(t *testing.T) {
 	var n atomic.Int32
-	r := fakeRunner{run: func(_ context.Context, prompt string, sink event.Sink) error {
+	r := fakeRunner{run: func(_ context.Context, in agent.Input, sink event.Sink) error {
 		n.Add(1)
-		sink.Emit(event.MessageDelta{Text: "回答:" + prompt})
+		sink.Emit(event.MessageDelta{Text: "回答:" + in.Text})
 		sink.Emit(event.TurnFinished{Reason: event.ReasonStop})
 		return nil
 	}}

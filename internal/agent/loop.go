@@ -74,11 +74,12 @@ func (t *turn) loop() error {
 
 		msg := resp.Message
 		msg.Role = RoleAssistant
+		msg.Content = assistantMessage(msg.Text()).Content
 		msg.ToolCalls = normalizeCalls(msg.ToolCalls)
 		a.history = append(a.history, msg)
 
 		t.out.Emit(event.MessageCompleted{
-			Content: msg.Content, Reasoning: msg.Reasoning,
+			Content: msg.Text(), Reasoning: msg.Reasoning,
 			ToolCalls: eventCalls(msg.ToolCalls), StopReason: resp.StopReason,
 			ReasoningTokensEst: EstimateTokens(msg.Reasoning),
 		})

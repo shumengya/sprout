@@ -45,8 +45,20 @@ type ToolCall struct {
 }
 
 // TurnStarted 在用户提交一条输入后发出，每轮必有且仅有一次。
+// Images 是本轮携带的图片；Data 是 base64 原始数据，会话记录器会把它落盘并清空，转发给 surface 的副本不含 Data。
 type TurnStarted struct {
 	Prompt string
+	Images []ImageInfo
+}
+
+// ImageInfo 描述一张随输入提交的图片。Name 只是给用户看的文件名，不参与落盘路径；
+// Path 由会话记录器在落盘后回填（相对会话文件的路径），未落盘的图片为空。
+type ImageInfo struct {
+	Name      string
+	MediaType string
+	Bytes     int
+	Data      string // base64；记录器落盘后清空，避免事件流里重复携带大块内容
+	Path      string
 }
 
 // MessageDelta 是 assistant 文本的流式增量。

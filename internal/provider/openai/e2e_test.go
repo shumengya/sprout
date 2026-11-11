@@ -117,7 +117,7 @@ func runE2E(t *testing.T, c e2eCase, command, final string) (*collectSink, *fake
 		t.Fatal(err)
 	}
 	var sink collectSink
-	if err := a.Run(context.Background(), "看一下当前目录", &sink); err != nil {
+	if err := a.Run(context.Background(), agent.Input{Text: "看一下当前目录"}, &sink); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	return &sink, srv, name

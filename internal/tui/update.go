@@ -5,6 +5,8 @@ import (
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/shumengya/sprout/internal/agent"
 )
 
 // Update 只改状态、返回 Cmd，不做 IO。每条消息处理完都让对话区高度跟上底部：
@@ -154,10 +156,16 @@ func (m *Model) submit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.in.Reset()
-	m.add(&entry{kind: kindUser, text: text})
+	in := agent.Input{Text: text, Images: m.pending}
+	marks := m.pendingMarks()
+	m.pending = nil
+	m.add(&entry{kind: kindUser, text: text, images: marks})
+	if len(marks) > 0 && !m.opts.Info.Vision {
+		m.status = "当前模型没有标注 vision，图片会被省略（models.jsonc 里加 \"vision\": true 才不会）"
+	}
 	m.running, m.follow = true, true
 	m.refresh()
-	return m, m.startTurn(text)
+	return m, m.startTurn(in)
 }
 
 func firstLine(s string) string {

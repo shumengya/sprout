@@ -70,7 +70,8 @@ const Template = `// Sprout 模型配置（JSONC：支持 // 和 /* */ 注释，
         "gpt-4o-mini": {
           "contextWindow": 128000,
           "maxOutput": 16384,
-          "tools": true
+          "tools": true,
+          "vision": true
         }
       }
     },
@@ -84,7 +85,8 @@ const Template = `// Sprout 模型配置（JSONC：支持 // 和 /* */ 注释，
         "gpt-5": {
           "contextWindow": 400000,
           "maxOutput": 32768,
-          "tools": true
+          "tools": true,
+          "vision": true
         }
       }
     },
@@ -98,7 +100,8 @@ const Template = `// Sprout 模型配置（JSONC：支持 // 和 /* */ 注释，
         "claude-sonnet-5-5": {
           "contextWindow": 200000,
           "maxOutput": 8192,
-          "tools": true
+          "tools": true,
+          "vision": true
         }
       }
     },
@@ -113,7 +116,8 @@ const Template = `// Sprout 模型配置（JSONC：支持 // 和 /* */ 注释，
         "gemini-2.5-pro": {
           "contextWindow": 1048576,
           "maxOutput": 65536,
-          "tools": true
+          "tools": true,
+          "vision": true
         }
       }
     }

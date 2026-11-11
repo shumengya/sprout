@@ -70,11 +70,11 @@ func (t *turn) runTools(calls []ToolCall) error {
 			t.out.Emit(event.ToolRequested{Call: event.ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments}})
 		case m.skipped:
 			t.out.Emit(event.ToolFinished{ID: call.ID, Name: call.Name, Cancelled: true, Err: cancelledToolReply, Content: cancelledToolReply})
-			results[m.idx] = Message{Role: RoleTool, ToolID: call.ID, Content: cancelledToolReply}
+			results[m.idx] = toolMessage(call.ID, cancelledToolReply)
 		default:
 			m.fin.Content = m.content
 			t.out.Emit(m.fin)
-			results[m.idx] = Message{Role: RoleTool, ToolID: call.ID, Content: m.content}
+			results[m.idx] = toolMessage(call.ID, m.content)
 		}
 	}
 

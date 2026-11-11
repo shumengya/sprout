@@ -123,7 +123,7 @@ func (m *Model) onResumed(msg resumeDoneMsg) {
 func (m *Model) replay(events []event.Event) {
 	for _, e := range events {
 		if ts, ok := e.(event.TurnStarted); ok {
-			m.add(&entry{kind: kindUser, text: ts.Prompt})
+			m.add(&entry{kind: kindUser, text: ts.Prompt, images: imageMarks(ts.Images)})
 			continue
 		}
 		m.onEvent(e)

@@ -29,6 +29,7 @@ const helpText = `快捷键
 命令
   /model              打开模型选择器，切换后保留对话历史；/model 引用 直接切换
   /new                开始新会话（清空对话区和上下文，旧会话可用 /resume 找回）
+  /image 路径          附加一张图片到下一条消息；/image 查看待发送的图片，/image clear 清空
   /resume             列出当前目录的历史会话；/resume 序号 恢复其中一个
   /think              展开 / 折叠全部思考过程；点击单条思考过程可以单独展开或收起
   /mouse              开关鼠标上报（滚轮与拖选复制；关闭后改用终端自带的选中）
@@ -51,6 +52,8 @@ func (m *Model) slash(text string) (handled bool, cmd tea.Cmd) {
 		return true, m.resumeCmd(strings.TrimSpace(arg))
 	case "/new":
 		m.newSessionCmd()
+	case "/image":
+		m.imageCmd(strings.TrimSpace(arg))
 	case "/install-sprout", "/uninstall-sprout":
 		m.follow = true
 		return true, m.installCmd(name == "/uninstall-sprout")

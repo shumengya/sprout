@@ -21,7 +21,7 @@ func TestStreamsTextThoughtAndUsage(t *testing.T) {
 	if strings.Join(text, "|") != "你|好|。" || strings.Join(reasoning, "|") != "想" {
 		t.Errorf("增量 text=%q reasoning=%q", text, reasoning)
 	}
-	if resp.Message.Content != "你好。" || resp.Message.Reasoning != "想" {
+	if resp.Message.Text() != "你好。" || resp.Message.Reasoning != "想" {
 		t.Errorf("消息 = %+v", resp.Message)
 	}
 	if resp.StopReason != agent.StopStop {
@@ -97,11 +97,11 @@ func TestFunctionCallWithoutArgsGetsEmptyObject(t *testing.T) {
 func TestHistoryMapping(t *testing.T) {
 	srv := newServer(t, 200, sse(`{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}`))
 	req := agent.Request{Model: "m", Messages: []agent.Message{
-		{Role: agent.RoleUser, Content: "问"},
+		{Role: agent.RoleUser, Content: []agent.Block{agent.TextBlock("问")}},
 		{Role: agent.RoleAssistant, ToolCalls: []agent.ToolCall{{ID: "c1", Name: "bash", Arguments: `{"command":"ls"}`}}},
-		{Role: agent.RoleTool, ToolID: "c1", Content: "a.txt"},
-		{Role: agent.RoleTool, ToolID: "c2", Content: "孤儿结果"},
-		{Role: agent.RoleUser, Content: "继续"},
+		{Role: agent.RoleTool, ToolID: "c1", Content: []agent.Block{agent.TextBlock("a.txt")}},
+		{Role: agent.RoleTool, ToolID: "c2", Content: []agent.Block{agent.TextBlock("孤儿结果")}},
+		{Role: agent.RoleUser, Content: []agent.Block{agent.TextBlock("继续")}},
 	}}
 	if _, _, _, err := collect(t, newProvider(t, srv), req); err != nil {
 		t.Fatal(err)

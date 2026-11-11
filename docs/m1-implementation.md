@@ -140,11 +140,21 @@ bin/
 ### 内部模型
 
 ```go
+// 内容是一串块，纯文本消息只有一个 text 块；带图片的消息按原顺序排列，图文交错不会丢
+// （M2 起，见 docs/m2-vision.md）。
 type Message struct {
     Role      string        // system / user / assistant / tool
-    Content   string
+    Content   []Block
+    Reasoning string
     ToolCalls []ToolCall
     ToolID    string
+}
+
+type Block struct {
+    Type      string // text | image
+    Text      string
+    MediaType string // image 专用，如 image/png
+    Data      string // image 专用，base64
 }
 
 type ToolCall struct {
@@ -190,7 +200,10 @@ type Provider interface {
 - 工具声明：`tools[].function.{name,description,parameters}`。
 - 流式文本：`choices[0].delta.content`。
 - 工具调用：按 `index` 累积 `delta.tool_calls[]` 的 `id`、`function.name`、`function.arguments`。
-- 工具结果：`{"role":"tool","tool_call_id":"...","content":"..."}`。
+- 工具结果：`{"role":"tool","tool_call_id":"...","content":"..."}`；`content` 始终是字符串。
+- 图片：user 消息的 `content` 从字符串改成 parts 数组，文本 `{"type":"text","text":...}`、
+  图片 `{"type":"image_url","image_url":{"url":"data:<mime>;base64,..."}}`。纯文本消息仍发字符串，兼容性最好。
+- 工具结果的图片（Chat 的 tool 消息只能带文本）：把图片攒到这组 tool 消息之后，用一条 user 消息补发。
 - 结束：`finish_reason` 为 `stop` 或 `tool_calls`。
 - 有 tool call 时不要求 `finish_reason` 一定是 `tool_calls`，以实际累积结果为准。
 
@@ -202,7 +215,8 @@ type Provider interface {
 - 工具声明是扁平结构：`{type:"function", name, description, parameters}`。
 - 文本流：`response.output_text.delta`。
 - 函数调用：`response.output_item.added` + `response.function_call_arguments.delta` / `done`，或 `response.output_item.done` 的完整 item。
-- 工具结果：`{type:"function_call_output", call_id, output}`。
+- 工具结果：`{type:"function_call_output", call_id, output}`；`output` 始终是字符串，工具结果的图片同样在其后用 user 消息补发。
+- 图片：user 消息 `content` 用 `input_text` / `input_image`（data URL）数组。
 - 结束：`response.completed`；错误看 `response.failed`。
 - usage 从 `response.completed.response.usage` 取。
 
@@ -214,6 +228,8 @@ type Provider interface {
 - 工具声明：`tools[].{name,description,input_schema}`。
 - assistant 历史：文本与 `tool_use` block 放在同一条 assistant 消息；不回传 Reasoning（thinking block 需服务端签名，且历史可能来自其他协议）。
 - 工具结果：`tool_result` block 放进 user 消息，连续多条合并为一条；找不到配对 `tool_use` 的孤儿结果降级为 text block。
+- 图片：`{"type":"image","source":{"type":"base64","media_type":...,"data":...}}`；工具结果带图片时
+  `tool_result.content` 从字符串改为 text / image block 数组。
 - 流式事件：`message_start`（input usage）→ `content_block_start/delta/stop`（`text_delta`、`thinking_delta`、`input_json_delta`）→ `message_delta`（stop_reason、output usage）→ `message_stop`。
 - 停止原因：`tool_use` → tool_calls，`max_tokens` → length，其余 → stop。没有 `message_stop` 视为流被截断，可重试。
 - 错误：HTTP 错误体与流内 `error` 事件都是 `{type:"error", error:{type,message}}`；529 overloaded 可重试，`prompt is too long` 识别为上下文超长。
@@ -224,6 +240,8 @@ type Provider interface {
 - system 放 `systemInstruction.parts[]`；`maxOutput` 为 0 时不发 `generationConfig`。
 - 角色映射：assistant → `model`；工具结果作为 user 消息里的 `functionResponse` part，连续多条合并。
 - `functionResponse` 按 `name` 配对，name 从历史里的调用 id 反查；`response` 必须是对象，包成 `{"result": 输出}`。
+- 图片：part 用 `{"inlineData":{"mimeType":...,"data":...}}`。`functionResponse.response` 只能放 JSON 对象，
+  工具结果的图片放不进去：结果文本里注明附了图片，图片本身在同一组 functionResponse 之后用 user 消息补发。
 - Gemini 不返回调用 id，本地生成 `call_<随机>_<函数名>`。参数缺省时补 `{}`。
 - 流式：每个 SSE data 是完整 `GenerateContentResponse`；`thought:true` 的 text part 归为 Reasoning。
 - 结束：没有显式结束事件，以出现 `finishReason` 为准；有 functionCall 时停止原因为 tool_calls，`MAX_TOKENS` → length。流结束仍无 finishReason 视为截断，可重试。
@@ -343,7 +361,7 @@ type Tool interface {
 - Input：textarea，提示符 `❯`，按内容增高（空时一行，最多显示 8 行，再多在框内滚动，内容不受限），发送后回到一行。Enter 发送，Ctrl+J 换行，Ctrl+C 取消/退出，Ctrl+D 退出。活动行出现、输入框增高时对话区相应变矮，跟随底部时保持贴底。
 - Transcript：viewport，流式文本、工具卡片、错误。
 - Status：见上面的活动行。
-- `/tools` 查看检测结果；`/help`；`/quit`。
+- `/tools` 查看检测结果；`/image 路径` 附加图片到下一条消息（`/image` 查看、`/image clear` 清空）；`/new` 开新会话；`/resume` 恢复历史会话；`/help`；`/quit`。
 - 工具卡片：命令、退出码、耗时、输出预览（最多 8 行，截断标注）。
 - 不做代码高亮。（Markdown、代码高亮与鼠标滚轮是后补的，见 §15。）
 
@@ -359,6 +377,8 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
 
 - 路径：`<dataDir>/sessions/--<cwd slug>--/<yyyymmdd-hhmmss>_<id>.jsonl`。slug 去掉开头的分隔符，把 `/`、`\`、`:` 换成 `-`，如 `D:\SmyProjects\sprout` → `--D--SmyProjects-sprout--`。
 - 记录类型（每行一条，`type` 区分）：`session`（头）、`user`、`assistant`（含 `tool_calls`）、`tool`（含完整 stdout/stderr、退出码、耗时）、`usage`、`turn`（`reason`）、`error`。
+- 带图片的 `user` 记录多一个 `images: [{file, media_type, bytes}]`，`file` 是相对会话文件的路径；
+  图片文件存在 `<会话名>.images/` 目录里，按内容哈希命名（同一张图重复发只存一份）。JSONL 里不内联 base64。
 - 会话记录器是 `event.Sink`，与 surface 订阅同一条事件流；`message.delta`、`reasoning.delta` 和 `tool.requested` 不落盘；`assistant` 记录带完整 `reasoning`（有思维链时）。
 - 文件在第一个可落盘事件到来时才创建；启动后什么都没做就退出不会留下空文件。权限 0600。
 - 同目录 `meta.json` 是该工作目录下所有会话的索引：`{cwd, sessions: {<文件名>: {id, provider, model, tools, startedAt, version}}}`，原子替换写入，损坏时重建。不加跨进程锁，两个实例同时在同一目录启动可能丢一条登记，JSONL 本身不受影响。
@@ -434,7 +454,7 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
 - 新增 `message.completed`：一次模型调用结束后携带完整 assistant 消息（正文、tool calls、stop reason）。会话记录器只订阅事件流，不让 agent 依赖 session 包，所以完整消息必须出现在事件里。
 - `tool.finished` 带完整 stdout/stderr（已受 50KB 上限约束）和 `Cancelled`、`Err` 字段。被取消而没来得及执行的调用只有 `tool.finished`，没有 `tool.requested`。
 - 每轮必以一个 `turn.finished` 结束，`reason` 为 `stop` / `cancelled` / `error` / `max_steps` / `length`。`error` 事件之后一定跟着 `turn.finished`。
-- 事件协议里没有单独的 `Command` 类型：取消通过 `context` 完成，提交通过 `Agent.Run(ctx, prompt, sink)`。
+- 事件协议里没有单独的 `Command` 类型：取消通过 `context` 完成，提交通过 `Agent.Run(ctx, Input{Text, Images}, sink)`。
 
 **内核语义**
 

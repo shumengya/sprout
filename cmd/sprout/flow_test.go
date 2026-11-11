@@ -105,7 +105,7 @@ func TestNetworkFailureIsReadableAndExits1(t *testing.T) {
 	}
 	defer ap.close() // 会话文件开着的话，Windows 清理临时目录会失败
 	var out, errOut bytes.Buffer
-	code := cli.Run(context.Background(), ap.ag, "你好", &out, &errOut)
+	code := cli.Run(context.Background(), ap.ag, agent.Input{Text: "你好"}, &out, &errOut)
 	if code != 1 || !strings.Contains(errOut.String(), "通信失败") {
 		t.Fatalf("code=%d stderr=%q", code, errOut.String())
 	}
@@ -125,7 +125,7 @@ func TestNetworkFailureRetriesBeforeGivingUp(t *testing.T) {
 	}
 	defer ap.close()
 	var out, errOut bytes.Buffer
-	code := cli.Run(context.Background(), ap.ag, "你好", &out, &errOut)
+	code := cli.Run(context.Background(), ap.ag, agent.Input{Text: "你好"}, &out, &errOut)
 	if code != 1 || strings.Count(errOut.String(), "后重试") != 2 || !strings.Contains(errOut.String(), "（2/2）") {
 		t.Fatalf("应重试 2 次后报错: code=%d stderr=%q", code, errOut.String())
 	}

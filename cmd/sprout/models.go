@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/shumengya/sprout/internal/agent"
 	"github.com/shumengya/sprout/internal/agent/config"
 	"github.com/shumengya/sprout/internal/agent/event"
 	"github.com/shumengya/sprout/internal/tui"
@@ -43,6 +44,9 @@ func describeModel(m config.Model) string {
 	if !m.SupportsTools() {
 		parts = append(parts, "不支持工具")
 	}
+	if m.SupportsVision() {
+		parts = append(parts, "支持图片")
+	}
 	return strings.Join(parts, " · ")
 }
 
@@ -75,6 +79,7 @@ func (s modelStore) Switch(ref string) (*tui.SwitchResult, error) {
 	oldSel, oldReg, oldInfo := a.sel, a.reg, a.info
 	a.sel = sel
 	a.info.Model, a.info.Provider = sel.ModelName, sel.ProviderName+"，"+sel.Provider.Protocol
+	a.info.Vision = sel.Model.SupportsVision()
 	reg, err := a.registerTools(a.cfg, a.env)
 	if err != nil {
 		a.sel, a.reg, a.info = oldSel, oldReg, oldInfo
@@ -107,6 +112,6 @@ var _ tui.Models = modelStore{}
 // /model 切换会替换 app.ag，TUI 持有的 Runner 必须跟着变。
 type runnerFunc struct{ a *app }
 
-func (r runnerFunc) Run(ctx context.Context, prompt string, sink event.Sink) error {
-	return r.a.ag.Run(ctx, prompt, sink)
+func (r runnerFunc) Run(ctx context.Context, in agent.Input, sink event.Sink) error {
+	return r.a.ag.Run(ctx, in, sink)
 }

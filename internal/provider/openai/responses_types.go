@@ -22,7 +22,30 @@ type responsesRequest struct {
 type responsesMessage struct {
 	Type    string `json:"type"`
 	Role    string `json:"role"`
-	Content string `json:"content"`
+	Content any    `json:"content"` // 字符串或 input_text / input_image 内容数组
+}
+
+type responsesPart struct {
+	Type     string `json:"type"` // input_text | input_image
+	Text     string `json:"text,omitempty"`
+	ImageURL string `json:"image_url,omitempty"` // data:image/png;base64,...
+}
+
+// responsesContent 把内部内容块转成 Responses 的 content。纯文本发字符串，
+// 带图片时发内容数组（Responses 的图片只能走 input_image part）。
+func responsesContent(m agent.Message) any {
+	if !m.HasImages() {
+		return m.Text()
+	}
+	parts := make([]responsesPart, 0, len(m.Content))
+	for _, blk := range m.Content {
+		if blk.Type == agent.BlockImage {
+			parts = append(parts, responsesPart{Type: "input_image", ImageURL: dataURL(blk)})
+			continue
+		}
+		parts = append(parts, responsesPart{Type: "input_text", Text: blk.Text})
+	}
+	return parts
 }
 
 type responsesFunctionCall struct {
@@ -59,13 +82,25 @@ func buildResponsesRequest(req agent.Request) responsesRequest {
 		Model: req.Model, Instructions: req.System, Stream: true, Store: false,
 		MaxOutputTokens: req.MaxOutputTokens, Input: []any{},
 	}
+	// function_call_output 只放文本，工具结果的图片在这组输出之后用一条 user 消息补发（同 Chat）。
+	var toolImages []agent.Block
+	flushImages := func() {
+		if len(toolImages) > 0 {
+			blocks := append([]agent.Block{agent.TextBlock(toolImagesNote)}, toolImages...)
+			out.Input = append(out.Input, responsesMessage{Type: "message", Role: "user", Content: responsesContent(agent.Message{Content: blocks})})
+			toolImages = nil
+		}
+	}
 	for _, m := range req.Messages {
+		if m.Role != agent.RoleTool {
+			flushImages()
+		}
 		switch m.Role {
 		case agent.RoleUser:
-			out.Input = append(out.Input, responsesMessage{Type: "message", Role: "user", Content: m.Content})
+			out.Input = append(out.Input, responsesMessage{Type: "message", Role: "user", Content: responsesContent(m)})
 		case agent.RoleAssistant:
-			if m.Content != "" {
-				out.Input = append(out.Input, responsesMessage{Type: "message", Role: "assistant", Content: m.Content})
+			if text := m.Text(); text != "" {
+				out.Input = append(out.Input, responsesMessage{Type: "message", Role: "assistant", Content: text})
 			}
 			for _, tc := range m.ToolCalls {
 				out.Input = append(out.Input, responsesFunctionCall{
@@ -74,10 +109,12 @@ func buildResponsesRequest(req agent.Request) responsesRequest {
 			}
 		case agent.RoleTool:
 			out.Input = append(out.Input, responsesFunctionOutput{
-				Type: "function_call_output", CallID: m.ToolID, Output: m.Content,
+				Type: "function_call_output", CallID: m.ToolID, Output: m.Text(),
 			})
+			toolImages = append(toolImages, imageBlocks(m)...)
 		}
 	}
+	flushImages()
 	for _, t := range req.Tools {
 		out.Tools = append(out.Tools, responsesTool{
 			Type: "function", Name: t.Name, Description: t.Description, Parameters: t.Parameters,

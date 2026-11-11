@@ -23,7 +23,7 @@ type chatStreamOpts struct {
 
 type chatMessage struct {
 	Role    string `json:"role"`
-	Content string `json:"content"` // 始终输出，哪怕是空串：部分兼容服务要求该字段存在
+	Content any    `json:"content"` // 纯文本发字符串，带图片时发 parts 数组；始终输出，部分兼容服务要求该字段存在
 	// ReasoningContent 是 DeepSeek 等思考模式模型的思维链。带 tools 的请求必须原样回传历史里的这个字段，
 	// 否则服务端可能返回 400。没有思维链时为空，omitempty 保证对其他服务商不多发字段。
 	ReasoningContent string         `json:"reasoning_content,omitempty"`
@@ -65,13 +65,28 @@ func buildChatRequest(req agent.Request) chatRequest {
 	if req.System != "" {
 		out.Messages = append(out.Messages, chatMessage{Role: "system", Content: req.System})
 	}
+	// tool 消息只能放文本：工具结果里的图片攒起来，等这一组 tool 消息结束后用一条 user 消息补发，
+	// 不能插在 tool 消息之间，否则 tool_calls 与结果的配对会被打断。
+	var toolImages []agent.Block
+	flushImages := func() {
+		if len(toolImages) > 0 {
+			blocks := append([]agent.Block{agent.TextBlock(toolImagesNote)}, toolImages...)
+			out.Messages = append(out.Messages, chatMessage{Role: "user", Content: chatContent(agent.Message{Content: blocks})})
+			toolImages = nil
+		}
+	}
 	for _, m := range req.Messages {
-		cm := chatMessage{Role: string(m.Role), Content: m.Content}
+		if m.Role != agent.RoleTool {
+			flushImages()
+		}
+		cm := chatMessage{Role: string(m.Role), Content: chatContent(m)}
 		if m.Role == agent.RoleAssistant {
 			cm.ReasoningContent = m.Reasoning
 		}
 		if m.Role == agent.RoleTool {
 			cm.ToolCallID = m.ToolID
+			cm.Content = m.Text()
+			toolImages = append(toolImages, imageBlocks(m)...)
 		}
 		for _, tc := range m.ToolCalls {
 			cm.ToolCalls = append(cm.ToolCalls, chatToolCall{
@@ -80,6 +95,7 @@ func buildChatRequest(req agent.Request) chatRequest {
 		}
 		out.Messages = append(out.Messages, cm)
 	}
+	flushImages()
 	for _, t := range req.Tools {
 		out.Tools = append(out.Tools, chatTool{
 			Type:     "function",
@@ -87,6 +103,52 @@ func buildChatRequest(req agent.Request) chatRequest {
 		})
 	}
 	return out
+}
+
+type chatPart struct {
+	Type     string        `json:"type"` // text | image_url
+	Text     string        `json:"text,omitempty"`
+	ImageURL *chatImageURL `json:"image_url,omitempty"`
+}
+
+type chatImageURL struct {
+	URL string `json:"url"` // data:image/png;base64,...
+}
+
+// chatContent 把内部内容块转成 Chat 的 content。纯文本直接发字符串（兼容性最好，不含图片时
+// 不引入 parts 数组，避免部分兼容服务不认）；带图片时按原顺序发 parts 数组。
+func chatContent(m agent.Message) any {
+	if !m.HasImages() {
+		return m.Text()
+	}
+	parts := make([]chatPart, 0, len(m.Content))
+	for _, blk := range m.Content {
+		if blk.Type == agent.BlockImage {
+			parts = append(parts, chatPart{Type: "image_url", ImageURL: &chatImageURL{URL: dataURL(blk)}})
+			continue
+		}
+		parts = append(parts, chatPart{Type: "text", Text: blk.Text})
+	}
+	return parts
+}
+
+// toolImagesNote 是补发工具结果图片时的说明文字，让模型知道图片来自上面的工具结果。
+const toolImagesNote = "（以上工具结果附带的图片）"
+
+// imageBlocks 取出消息里的图片块。
+func imageBlocks(m agent.Message) []agent.Block {
+	var out []agent.Block
+	for _, blk := range m.Content {
+		if blk.Type == agent.BlockImage {
+			out = append(out, blk)
+		}
+	}
+	return out
+}
+
+// dataURL 拼出各协议通用的 data URL。
+func dataURL(blk agent.Block) string {
+	return "data:" + blk.MediaType + ";base64," + blk.Data
 }
 
 // chatChunk 是流式响应里的一个 data 事件。

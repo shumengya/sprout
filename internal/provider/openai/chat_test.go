@@ -32,7 +32,7 @@ func TestChatStreamsTextAndUsage(t *testing.T) {
 	if strings.Join(deltas, "|") != "|你|好" && strings.Join(deltas, "|") != "你|好" {
 		t.Errorf("文本增量 = %q", deltas)
 	}
-	if resp.Message.Content != "你好" || resp.StopReason != agent.StopStop || len(resp.Message.ToolCalls) != 0 {
+	if resp.Message.Text() != "你好" || resp.StopReason != agent.StopStop || len(resp.Message.ToolCalls) != 0 {
 		t.Errorf("响应 = %+v", resp)
 	}
 	if resp.Usage != (agent.Usage{InputTokens: 11, OutputTokens: 2, TotalTokens: 13}) {
@@ -80,7 +80,7 @@ func TestChatHistoryWithToolRoundTrip(t *testing.T) {
 	req := userReq("找入口")
 	req.Messages = append(req.Messages,
 		agent.Message{Role: agent.RoleAssistant, ToolCalls: []agent.ToolCall{{ID: "c1", Name: "bash", Arguments: `{"command":"ls"}`}}},
-		agent.Message{Role: agent.RoleTool, ToolID: "c1", Content: "exit_code: 0"},
+		agent.Message{Role: agent.RoleTool, ToolID: "c1", Content: []agent.Block{agent.TextBlock("exit_code: 0")}},
 	)
 	if _, _, err := collect(newProvider(t, config.ProtocolChat, srv), req); err != nil {
 		t.Fatal(err)
@@ -197,7 +197,7 @@ func TestChatReasoningStreamedAndAccumulated(t *testing.T) {
 	if strings.Join(reasoning, "|") != "先想|一下" || strings.Join(text, "|") != "答案" {
 		t.Errorf("增量: reasoning=%q text=%q", reasoning, text)
 	}
-	if resp.Message.Reasoning != "先想一下" || resp.Message.Content != "答案" {
+	if resp.Message.Reasoning != "先想一下" || resp.Message.Text() != "答案" {
 		t.Errorf("响应 = %+v", resp.Message)
 	}
 }
@@ -209,8 +209,8 @@ func TestChatReplaysReasoningOnAssistantMessages(t *testing.T) {
 	req.Messages = append(req.Messages,
 		agent.Message{Role: agent.RoleAssistant, Reasoning: "我要先看目录",
 			ToolCalls: []agent.ToolCall{{ID: "c1", Name: "bash", Arguments: `{}`}}},
-		agent.Message{Role: agent.RoleTool, ToolID: "c1", Content: "out"},
-		agent.Message{Role: agent.RoleAssistant, Content: "好了", Reasoning: "整理一下"},
+		agent.Message{Role: agent.RoleTool, ToolID: "c1", Content: []agent.Block{agent.TextBlock("out")}},
+		agent.Message{Role: agent.RoleAssistant, Content: []agent.Block{agent.TextBlock("好了")}, Reasoning: "整理一下"},
 	)
 	if _, _, err := collect(newProvider(t, config.ProtocolChat, srv), req); err != nil {
 		t.Fatal(err)
@@ -225,8 +225,8 @@ func TestChatOmitsReasoningContentWhenEmpty(t *testing.T) {
 	// 没有思维链时不能多发字段：别的 OpenAI 兼容服务可能因为未知字段而拒绝请求。
 	srv := newServer(t, okBody(sse(chatDelta("ok"), `{"choices":[{"delta":{},"finish_reason":"stop"}]}`, "[DONE]")))
 	req := userReq("q")
-	req.Messages = append(req.Messages, agent.Message{Role: agent.RoleAssistant, Content: "旧回答"},
-		agent.Message{Role: agent.RoleUser, Content: "再问"})
+	req.Messages = append(req.Messages, agent.Message{Role: agent.RoleAssistant, Content: []agent.Block{agent.TextBlock("旧回答")}},
+		agent.Message{Role: agent.RoleUser, Content: []agent.Block{agent.TextBlock("再问")}})
 	if _, _, err := collect(newProvider(t, config.ProtocolChat, srv), req); err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +246,7 @@ func TestChatLengthStop(t *testing.T) {
 func TestChatAcceptsMissingDONEWhenFinished(t *testing.T) {
 	srv := newServer(t, okBody(sse(chatDelta("ok"), `{"choices":[{"delta":{},"finish_reason":"stop"}]}`)))
 	resp, _, err := collect(newProvider(t, config.ProtocolChat, srv), userReq("q"))
-	if err != nil || resp.Message.Content != "ok" {
+	if err != nil || resp.Message.Text() != "ok" {
 		t.Fatalf("已有 finish_reason 时缺少 [DONE] 应接受: %+v, %v", resp, err)
 	}
 }

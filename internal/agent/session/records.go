@@ -23,9 +23,18 @@ type sessionRec struct {
 	Version  string   `json:"version,omitempty"`
 }
 
+// imageRec 是用户输入里的一张图片。文件放在会话目录下的 <会话名>.images/ 里，
+// File 存相对会话目录的路径，会话整体搬走也能恢复；不把 base64 写进 JSONL，避免单行过大。
+type imageRec struct {
+	File      string `json:"file"`
+	MediaType string `json:"media_type"`
+	Bytes     int    `json:"bytes"`
+}
+
 type userRec struct {
 	header
-	Content string `json:"content"`
+	Content string     `json:"content"`
+	Images  []imageRec `json:"images,omitempty"`
 }
 
 type toolCallRec struct {
@@ -114,7 +123,7 @@ func toRecord(e event.Event, now time.Time) (any, bool) {
 	h := func(t string) header { return header{Type: t, Time: now} }
 	switch e := e.(type) {
 	case event.TurnStarted:
-		return userRec{h("user"), e.Prompt}, true
+		return userRec{h("user"), e.Prompt, imageRecs(e.Images)}, true
 	case event.MessageCompleted:
 		rec := assistantRec{header: h("assistant"), Content: e.Content, Reasoning: e.Reasoning, StopReason: e.StopReason}
 		for _, c := range e.ToolCalls {
@@ -140,4 +149,23 @@ func toRecord(e event.Event, now time.Time) (any, bool) {
 		return retryRec{h("retry"), e.Attempt, e.Max, e.Delay.Milliseconds(), e.Reason}, true
 	}
 	return nil, false
+}
+
+// imageRecs 把事件里的图片描述转成记录里的图片引用。文件路径由记录器在落盘图片后回填，
+// 这里只保留名称、类型和大小；没有落盘的图片（写文件失败）不该出现在记录里。
+func imageRecs(infos []event.ImageInfo) []imageRec {
+	if len(infos) == 0 {
+		return nil
+	}
+	out := make([]imageRec, 0, len(infos))
+	for _, in := range infos {
+		if in.Path == "" { // 没落盘的图片不进记录，否则重放时会多出一条“无法恢复”的说明
+			continue
+		}
+		out = append(out, imageRec{File: in.Path, MediaType: in.MediaType, Bytes: in.Bytes})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

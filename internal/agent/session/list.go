@@ -89,6 +89,13 @@ func briefOf(path string) (Brief, bool) {
 				var r rawRec
 				if json.Unmarshal(line, &r) == nil {
 					b.Prompt = oneLine(r.Content, 40)
+					if len(r.Images) > 0 {
+						if b.Prompt == "" {
+							b.Prompt = "[图片]"
+						} else {
+							b.Prompt += " [图片]"
+						}
+					}
 				}
 			}
 		}

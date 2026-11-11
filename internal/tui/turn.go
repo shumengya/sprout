@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/shumengya/sprout/internal/agent"
 	"github.com/shumengya/sprout/internal/agent/event"
 )
 
@@ -34,7 +35,7 @@ func (s chanSink) Emit(e event.Event) {
 
 // startTurn 在 Update 里调用：这里只准备状态，不做 IO。
 // agent 的实际启动放在返回的 Cmd 里，由 Bubble Tea 在 Update 之外执行。
-func (m *Model) startTurn(prompt string) tea.Cmd {
+func (m *Model) startTurn(in agent.Input) tea.Cmd {
 	m.turn++
 	turn := m.turn
 	m.started = time.Now()
@@ -58,7 +59,7 @@ func (m *Model) startTurn(prompt string) tea.Cmd {
 					sink.Emit(event.TurnFinished{Reason: event.ReasonError})
 				}
 			}()
-			_ = runner.Run(ctx, prompt, sink) // 失败已作为 Error 事件发出
+			_ = runner.Run(ctx, in, sink) // 失败已作为 Error 事件发出
 		}()
 		return nil
 	}

@@ -20,7 +20,7 @@ func TestRetrySucceedsAfterTransientFailures(t *testing.T) {
 	a := newAgentCfg(t, Config{Provider: p, Retry: fast})
 	var c collector
 
-	if err := a.Run(context.Background(), "q", &c); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "q"}, &c); err != nil {
 		t.Fatalf("重试成功后不应返回错误: %v", err)
 	}
 	if len(p.reqs) != 3 {
@@ -51,7 +51,7 @@ func TestRetryGivesUpAfterMaxRetries(t *testing.T) {
 	a := newAgentCfg(t, Config{Provider: p, Retry: fast})
 	var c collector
 
-	err := a.Run(context.Background(), "q", &c)
+	err := a.Run(context.Background(), Input{Text: "q"}, &c)
 	var pe *ProviderError
 	if !errors.As(err, &pe) || pe.Status != 503 {
 		t.Fatalf("耗尽重试后应返回原错误，得到 %v", err)
@@ -71,7 +71,7 @@ func TestNonRetryableErrorIsNotRetried(t *testing.T) {
 	p := &scripted{steps: []scriptStep{{err: &ProviderError{Status: 401}}, say("不该到这")}}
 	a := newAgentCfg(t, Config{Provider: p, Retry: fast})
 	var c collector
-	_ = a.Run(context.Background(), "q", &c)
+	_ = a.Run(context.Background(), Input{Text: "q"}, &c)
 	if len(p.reqs) != 1 || c.has(event.KindRetrying) {
 		t.Fatalf("401 不应重试: 调用 %d 次", len(p.reqs))
 	}
@@ -80,7 +80,7 @@ func TestNonRetryableErrorIsNotRetried(t *testing.T) {
 func TestZeroPolicyDisablesRetry(t *testing.T) {
 	p := &scripted{steps: []scriptStep{{err: transient()}, say("不该到这")}}
 	a := newAgentCfg(t, Config{Provider: p, Retry: &RetryPolicy{}})
-	_ = a.Run(context.Background(), "q", &collector{})
+	_ = a.Run(context.Background(), Input{Text: "q"}, &collector{})
 	if len(p.reqs) != 1 {
 		t.Fatalf("空策略应关闭重试，调用了 %d 次", len(p.reqs))
 	}
@@ -101,7 +101,7 @@ func TestNoRetryOnceOutputWasEmitted(t *testing.T) {
 	}}
 	a := newAgentCfg(t, Config{Provider: p, Retry: fast})
 	var c collector
-	if err := a.Run(context.Background(), "q", &c); err == nil {
+	if err := a.Run(context.Background(), Input{Text: "q"}, &c); err == nil {
 		t.Fatal("应返回错误")
 	}
 	if len(p.reqs) != 1 || c.has(event.KindRetrying) {
@@ -160,7 +160,7 @@ func TestCancelDuringBackoffReturnsImmediately(t *testing.T) {
 	time.AfterFunc(80*time.Millisecond, cancel)
 
 	start := time.Now()
-	err := a.Run(ctx, "q", &c)
+	err := a.Run(ctx, Input{Text: "q"}, &c)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("应返回 context.Canceled，得到 %v", err)
 	}
@@ -180,7 +180,7 @@ func TestRetryInLaterStepKeepsEarlierToolResults(t *testing.T) {
 		say("好了"),
 	}}
 	a := newAgentCfg(t, Config{Provider: p, Retry: fast, Tools: registry(t, okTool("bash", tool.Result{}))})
-	if err := a.Run(context.Background(), "q", &collector{}); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "q"}, &collector{}); err != nil {
 		t.Fatal(err)
 	}
 	if len(p.reqs) != 3 || len(p.reqs[1].Messages) != 3 || len(p.reqs[2].Messages) != 3 {

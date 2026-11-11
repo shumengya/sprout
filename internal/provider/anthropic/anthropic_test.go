@@ -28,7 +28,7 @@ func TestStreamsTextReasoningAndUsage(t *testing.T) {
 	if strings.Join(text, "") != "你好" || strings.Join(reasoning, "") != "想" {
 		t.Errorf("增量 text=%q reasoning=%q", text, reasoning)
 	}
-	if resp.Message.Content != "你好" || resp.Message.Reasoning != "想" || resp.Message.Role != agent.RoleAssistant {
+	if resp.Message.Text() != "你好" || resp.Message.Reasoning != "想" || resp.Message.Role != agent.RoleAssistant {
 		t.Errorf("消息 = %+v", resp.Message)
 	}
 	if resp.StopReason != agent.StopStop || len(resp.Message.ToolCalls) != 0 {
@@ -114,11 +114,11 @@ func TestHistoryMapping(t *testing.T) {
 	req := agent.Request{
 		Model: "m",
 		Messages: []agent.Message{
-			{Role: agent.RoleUser, Content: "问"},
+			{Role: agent.RoleUser, Content: []agent.Block{agent.TextBlock("问")}},
 			{Role: agent.RoleAssistant, ToolCalls: []agent.ToolCall{{ID: "t1", Name: "bash", Arguments: `{"command":"ls"}`}}},
-			{Role: agent.RoleTool, ToolID: "t1", Content: "a.txt"},
-			{Role: agent.RoleTool, ToolID: "t2", Content: "孤儿结果"},
-			{Role: agent.RoleUser, Content: "继续"},
+			{Role: agent.RoleTool, ToolID: "t1", Content: []agent.Block{agent.TextBlock("a.txt")}},
+			{Role: agent.RoleTool, ToolID: "t2", Content: []agent.Block{agent.TextBlock("孤儿结果")}},
+			{Role: agent.RoleUser, Content: []agent.Block{agent.TextBlock("继续")}},
 		},
 	}
 	if _, _, _, err := collect(t, newProvider(t, srv), req); err != nil {
@@ -152,12 +152,12 @@ func TestConsecutiveToolResultsMergeIntoOneUserMessage(t *testing.T) {
 		"message_stop\x00"+`{"type":"message_stop"}`,
 	))
 	req := agent.Request{Model: "m", Messages: []agent.Message{
-		{Role: agent.RoleUser, Content: "q"},
+		{Role: agent.RoleUser, Content: []agent.Block{agent.TextBlock("q")}},
 		{Role: agent.RoleAssistant, ToolCalls: []agent.ToolCall{
 			{ID: "a", Name: "bash", Arguments: "{}"}, {ID: "b", Name: "powershell", Arguments: "{}"},
 		}},
-		{Role: agent.RoleTool, ToolID: "a", Content: "ra"},
-		{Role: agent.RoleTool, ToolID: "b", Content: "rb"},
+		{Role: agent.RoleTool, ToolID: "a", Content: []agent.Block{agent.TextBlock("ra")}},
+		{Role: agent.RoleTool, ToolID: "b", Content: []agent.Block{agent.TextBlock("rb")}},
 	}}
 	if _, _, _, err := collect(t, newProvider(t, srv), req); err != nil {
 		t.Fatal(err)

@@ -30,6 +30,9 @@ type Config struct {
 	// MaxParallelTools 是同一批 tool call 同时执行的上限：<= 0 取 DefaultMaxParallelTools，1 表示串行。
 	// 工具的 Run 因此必须能被并发调用。
 	MaxParallelTools int
+	// Vision 表示模型支持图片输入。为 false 时，历史里的图片会被替换成占位文本，
+	// 保证换到不支持视觉的模型后仍能继续对话，而不是被服务端拒掉整个请求。
+	Vision bool
 	// ContextWindow 是模型的上下文窗口（token）。> 0 时，历史接近窗口会自动压缩；0 表示未知，不主动压缩
 	// （服务端报告超长时仍会压缩一次再重试）。
 	ContextWindow int
@@ -108,26 +111,32 @@ func (a *Agent) request() Request {
 	if a.summary != "" {
 		system += "\n\n## 之前对话的摘要\n以下是更早对话的摘要（原文已因篇幅被压缩），请把它当作已发生的事实：\n" + a.summary
 	}
+	msgs := slices.Clone(a.history)
+	if !a.cfg.Vision {
+		for i := range msgs {
+			msgs[i] = msgs[i].WithoutImages("（图片已省略：当前模型不支持图片输入）")
+		}
+	}
 	return Request{
 		Model:           a.cfg.Model,
 		System:          system,
-		Messages:        slices.Clone(a.history),
+		Messages:        msgs,
 		Tools:           a.specs,
 		MaxOutputTokens: a.cfg.MaxOutputTokens,
 	}
 }
 
-// Run 处理用户的一条输入：循环调用模型和工具，直到模型不再请求工具。
+// Run 处理用户的一条输入（文字 + 可选的图片）：循环调用模型和工具，直到模型不再请求工具。
 // 过程通过 sink（以及 Config.Recorder）以事件形式发出，每轮必定以一个 TurnFinished 结束。
 //
 // 返回值：nil 表示模型给出了最终答案；ctx 被取消时返回 ctx.Err()；其他失败返回对应的 error。
 // 失败的一轮不会在历史里留下悬空的 tool call，之后可以继续 Run。
-func (a *Agent) Run(ctx context.Context, prompt string, sink event.Sink) (err error) {
+func (a *Agent) Run(ctx context.Context, in Input, sink event.Sink) (err error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
 	t := &turn{a: a, ctx: ctx, out: event.Multi(sink, a.cfg.Recorder), base: len(a.history), reason: event.ReasonStop}
-	t.out.Emit(event.TurnStarted{Prompt: prompt})
+	t.out.Emit(event.TurnStarted{Prompt: in.Text, Images: eventImages(in.Images)})
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -142,6 +151,6 @@ func (a *Agent) Run(ctx context.Context, prompt string, sink event.Sink) (err er
 		t.out.Emit(event.TurnFinished{Reason: t.reason})
 	}()
 
-	a.history = append(a.history, Message{Role: RoleUser, Content: prompt})
+	a.history = append(a.history, in.Message())
 	return t.loop()
 }

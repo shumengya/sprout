@@ -6,6 +6,8 @@ package session
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -16,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shumengya/sprout/internal/agent"
 	"github.com/shumengya/sprout/internal/agent/event"
 )
 
@@ -126,6 +129,17 @@ func (r *Recorder) Emit(e event.Event) {
 	if r.failed || r.closed {
 		return
 	}
+	if ts, ok := e.(event.TurnStarted); ok && len(ts.Images) > 0 {
+		if r.f == nil && !r.open() {
+			return
+		}
+		ts = r.storeImages(ts)
+		if r.failed {
+			// 图片没写成功：这一轮的用户记录也不能写，否则重放时历史与运行时不一致。
+			return
+		}
+		e = ts
+	}
 	rec, ok := toRecord(e, r.now())
 	if !ok {
 		return
@@ -134,6 +148,39 @@ func (r *Recorder) Emit(e event.Event) {
 		return
 	}
 	r.write(rec)
+}
+
+// storeImages 把输入图片写成会话目录旁边的文件，并在事件里回填相对路径、清空 base64 数据。
+// 存放位置是 <会话目录>/<会话名>.images/，和 JSONL 放在一起，整个目录搬走也能恢复。
+// 文件名取自内容哈希，同一张图重复发只会存一份。调用方持有 mu。
+func (r *Recorder) storeImages(ts event.TurnStarted) event.TurnStarted {
+	base := strings.TrimSuffix(r.path, ".jsonl")
+	dir := base + ".images"
+	// 事件按值分发给多个 sink，但 Images 的底层数组是共享的：TUI 可能正在另一个 goroutine 读它。
+	// 先复制一份再改，否则清空 Data 会和 surface 产生数据竞争。
+	ts.Images = append([]event.ImageInfo(nil), ts.Images...)
+	for i := range ts.Images {
+		img := &ts.Images[i]
+		raw, err := base64.StdEncoding.DecodeString(img.Data)
+		if err != nil {
+			r.fail(fmt.Errorf("解码输入图片失败: %w", err))
+			return ts
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			r.fail(fmt.Errorf("创建图片目录失败: %w", err))
+			return ts
+		}
+		sum := sha256.Sum256(raw)
+		name := hex.EncodeToString(sum[:8]) + agent.ImageExt(img.MediaType)
+		if err := os.WriteFile(filepath.Join(dir, name), raw, 0o600); err != nil {
+			r.fail(fmt.Errorf("写入输入图片失败: %w", err))
+			return ts
+		}
+		img.Path = filepath.ToSlash(filepath.Join(filepath.Base(dir), name))
+		img.Bytes = len(raw)
+		img.Data = ""
+	}
+	return ts
 }
 
 // Close 关闭会话文件，可重复调用。

@@ -65,8 +65,8 @@ func TestKilledMidToolsGetsInterruptedResults(t *testing.T) {
 	if roles(st.History) != "user,assistant,tool,tool" {
 		t.Fatalf("历史 = %s", roles(st.History))
 	}
-	if st.History[2].ToolID != "c1" || !strings.Contains(st.History[2].Content, "被中断") ||
-		st.History[3].ToolID != "c2" || st.History[3].Content != "结果2" {
+	if st.History[2].ToolID != "c1" || !strings.Contains(st.History[2].Text(), "被中断") ||
+		st.History[3].ToolID != "c2" || st.History[3].Text() != "结果2" {
 		t.Errorf("tool 消息应按调用顺序，缺失的补“被中断”: %+v", st.History[2:])
 	}
 	last := st.Events[len(st.Events)-1].(event.TurnFinished)
@@ -128,7 +128,7 @@ func TestLegacyToolRecordWithoutContent(t *testing.T) {
 	st := load(t, u1, call,
 		`{"type":"tool","tool_call_id":"c1","name":"bash","stdout":"旧输出","exit_code":0}`,
 		`{"type":"tool","tool_call_id":"c2","name":"bash","error":"起不来"}`, t1)
-	if st.History[2].Content != "旧输出" || st.History[3].Content != "工具执行失败: 起不来" {
+	if st.History[2].Text() != "旧输出" || st.History[3].Text() != "工具执行失败: 起不来" {
 		t.Errorf("旧记录应尽力还原: %+v", st.History[2:])
 	}
 }
@@ -165,7 +165,7 @@ func TestReplayEventsMatchWhatTUIExpects(t *testing.T) {
 func TestStripReasoning(t *testing.T) {
 	st := load(t, u1, `{"type":"assistant","content":"答","reasoning":"别家的思维链"}`, t1)
 	st.StripReasoning()
-	if st.History[1].Reasoning != "" || st.History[1].Content != "答" {
+	if st.History[1].Reasoning != "" || st.History[1].Text() != "答" {
 		t.Errorf("换模型后应清掉思维链、保留正文: %+v", st.History[1])
 	}
 }

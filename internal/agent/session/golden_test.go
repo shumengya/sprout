@@ -70,14 +70,14 @@ func TestReplayReproducesLiveHistoryExactly(t *testing.T) {
 		}
 		last := req.Messages[len(req.Messages)-1]
 		switch {
-		case last.Role == agent.RoleUser && last.Content == "并行":
+		case last.Role == agent.RoleUser && last.Text() == "并行":
 			return calls("先同时跑两个", agent.ToolCall{ID: "ca", Name: "a", Arguments: "{}"}, agent.ToolCall{ID: "cb", Name: "b", Arguments: "{}"})
-		case last.Role == agent.RoleUser && last.Content == "大输出":
+		case last.Role == agent.RoleUser && last.Text() == "大输出":
 			return calls("", agent.ToolCall{ID: "ch", Name: "huge", Arguments: ""})
 		case last.Role == agent.RoleTool:
 			return answer("工具都跑完了：" + strings.Repeat("字", 120))
 		}
-		return agent.Response{Message: agent.Message{Reasoning: "想一想", Content: strings.Repeat("长回答", 20)}, StopReason: agent.StopStop}
+		return agent.Response{Message: agent.Message{Reasoning: "想一想", Content: []agent.Block{agent.TextBlock(strings.Repeat("长回答", 20))}}, StopReason: agent.StopStop}
 	})
 
 	dir := t.TempDir()
@@ -98,7 +98,7 @@ func TestReplayReproducesLiveHistoryExactly(t *testing.T) {
 		questions = append(questions, fmt.Sprintf("继续聊 %d", i))
 	}
 	for _, q := range questions {
-		if err := ag.Run(context.Background(), q, &ev); err != nil {
+		if err := ag.Run(context.Background(), agent.Input{Text: q}, &ev); err != nil {
 			t.Fatalf("%q: %v", q, err)
 		}
 	}
@@ -157,7 +157,7 @@ func assertGoldenPremises(t *testing.T, path string) {
 func TestReplayReappliesPruneExactly(t *testing.T) {
 	prov := funcProvider(func(req agent.Request) agent.Response {
 		last := req.Messages[len(req.Messages)-1]
-		if last.Role == agent.RoleUser && last.Content == "大输出" {
+		if last.Role == agent.RoleUser && last.Text() == "大输出" {
 			return calls("", agent.ToolCall{ID: "ch", Name: "huge", Arguments: "{}"})
 		}
 		return answer("好的：" + strings.Repeat("字", 30))
@@ -181,7 +181,7 @@ func TestReplayReappliesPruneExactly(t *testing.T) {
 		questions = append(questions, fmt.Sprintf("短问题 %d", i))
 	}
 	for _, q := range questions {
-		if err := ag.Run(context.Background(), q, &ev); err != nil {
+		if err := ag.Run(context.Background(), agent.Input{Text: q}, &ev); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -198,7 +198,7 @@ func TestReplayReappliesPruneExactly(t *testing.T) {
 	}
 	pruned := 0
 	for _, m := range ag.History() {
-		if m.Role == agent.RoleTool && strings.Contains(m.Content, "旧输出已裁剪") {
+		if m.Role == agent.RoleTool && strings.Contains(m.Text(), "旧输出已裁剪") {
 			pruned++
 		}
 	}

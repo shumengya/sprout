@@ -41,10 +41,16 @@ type Model struct {
 	MaxOutput     int `json:"maxOutput"`
 	// Tools 用指针区分“没写”和“写了 false”：没写按支持工具处理。
 	Tools *bool `json:"tools"`
+	// Vision 表示模型是否支持图片输入。缺省为 false：绝大多数模型没有视觉能力，
+	// 未标注时发图片会被服务端拒绝，宁可在本地降级成占位文本。
+	Vision *bool `json:"vision"`
 }
 
 // SupportsTools 报告模型是否支持工具调用，缺省为 true。
 func (m Model) SupportsTools() bool { return m.Tools == nil || *m.Tools }
+
+// SupportsVision 报告模型是否支持图片输入，缺省为 false。
+func (m Model) SupportsVision() bool { return m.Vision != nil && *m.Vision }
 
 // Shell 是 shell 探测的显式覆盖，留空则自动探测。
 type Shell struct {

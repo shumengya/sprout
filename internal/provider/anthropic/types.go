@@ -39,7 +39,34 @@ type toolUseBlock struct {
 type toolResultBlock struct {
 	Type      string `json:"type"` // "tool_result"
 	ToolUseID string `json:"tool_use_id"`
-	Content   string `json:"content"`
+	Content   any    `json:"content"` // 纯文本发字符串，带图片时发 text / image block 数组
+}
+
+// imageBlock 是 base64 内联图片。Anthropic 也支持 url source，这里只用 base64，避免依赖外部可达性。
+type imageBlock struct {
+	Type   string      `json:"type"` // "image"
+	Source imageSource `json:"source"`
+}
+
+type imageSource struct {
+	Type      string `json:"type"` // "base64"
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
+}
+
+// contentBlocks 把内部内容块转成 Anthropic 的 block 数组，顺序不变。
+func contentBlocks(m agent.Message) []any {
+	blocks := make([]any, 0, len(m.Content))
+	for _, blk := range m.Content {
+		if blk.Type == agent.BlockImage {
+			blocks = append(blocks, imageBlock{Type: "image", Source: imageSource{
+				Type: "base64", MediaType: blk.MediaType, Data: blk.Data,
+			}})
+			continue
+		}
+		blocks = append(blocks, textBlock{Type: "text", Text: blk.Text})
+	}
+	return blocks
 }
 
 type tool struct {
@@ -67,15 +94,13 @@ func buildRequest(req agent.Request) request {
 	for _, m := range req.Messages {
 		switch m.Role {
 		case agent.RoleUser:
-			out.Messages = append(out.Messages, message{
-				Role: "user", Content: []any{textBlock{Type: "text", Text: m.Content}},
-			})
+			out.Messages = append(out.Messages, message{Role: "user", Content: contentBlocks(m)})
 		case agent.RoleAssistant:
 			var blocks []any
 			// 不回传 Reasoning：thinking block 必须带服务端签名，缺签名会被拒绝，
 			// 而且历史可能来自别的协议。本适配器不开启 extended thinking，丢弃思维链不影响正确性。
-			if m.Content != "" || len(m.ToolCalls) == 0 {
-				blocks = append(blocks, textBlock{Type: "text", Text: m.Content})
+			if text := m.Text(); text != "" || len(m.ToolCalls) == 0 {
+				blocks = append(blocks, textBlock{Type: "text", Text: text})
 			}
 			for _, tc := range m.ToolCalls {
 				input := json.RawMessage(tc.Arguments)
@@ -86,17 +111,17 @@ func buildRequest(req agent.Request) request {
 			}
 			out.Messages = append(out.Messages, message{Role: "assistant", Content: blocks})
 		case agent.RoleTool:
-			block := toolResultBlock{Type: "tool_result", ToolUseID: m.ToolID, Content: m.Content}
+			block := toolResultBlock{Type: "tool_result", ToolUseID: m.ToolID, Content: toolResultContent(m)}
 			// tool_result 必须紧跟对应的 tool_use。历史被截断后可能只剩结果、没有配对调用，
 			// 原样发会被服务端拒绝，这里改为普通文本，保住信息也不破坏协议约束。
 			if !hasToolUse(out.Messages, m.ToolID) {
 				if n := len(out.Messages); n > 0 && out.Messages[n-1].Role == "user" && isPlainUserText(out.Messages[n-1]) {
 					out.Messages[n-1].Content = append(out.Messages[n-1].Content,
-						textBlock{Type: "text", Text: "[工具结果 " + m.ToolID + "]\n" + m.Content})
+						textBlock{Type: "text", Text: "[工具结果 " + m.ToolID + "]\n" + m.Text()})
 					continue
 				}
 				out.Messages = append(out.Messages, message{Role: "user", Content: []any{
-					textBlock{Type: "text", Text: "[工具结果 " + m.ToolID + "]\n" + m.Content},
+					textBlock{Type: "text", Text: "[工具结果 " + m.ToolID + "]\n" + m.Text()},
 				}})
 				continue
 			}
@@ -116,6 +141,14 @@ func buildRequest(req agent.Request) request {
 		out.Tools = append(out.Tools, tool{Name: t.Name, Description: t.Description, InputSchema: schema})
 	}
 	return out
+}
+
+// toolResultContent 构造 tool_result 的 content：纯文本发字符串，带图片时发块数组。
+func toolResultContent(m agent.Message) any {
+	if !m.HasImages() {
+		return m.Text()
+	}
+	return contentBlocks(m)
 }
 
 // isToolResult 判断消息是否只含 tool_result block（由本包构造，类型可断言）。

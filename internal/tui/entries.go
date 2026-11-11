@@ -38,6 +38,9 @@ type entry struct {
 	kind kind
 	text string // user / assistant / notice / error 的正文
 
+	// images 是用户消息附带的图片说明（如 "screenshot.png  1.2 MB"），每张一行。
+	images []string
+
 	// 工具条目
 	name    string
 	command string
@@ -76,7 +79,17 @@ func (e *entry) draw(w int) string {
 	switch e.kind {
 	case kindUser:
 		// 不加前缀，靠颜色和助手回答区分；助手回答保持终端默认前景色。
-		return styUser.Render(wrap(sanitize(e.text), w))
+		body := styUser.Render(wrap(sanitize(e.text), w))
+		if len(e.images) == 0 {
+			return body
+		}
+		var b strings.Builder
+		for _, img := range e.images {
+			b.WriteString(styFaint.Render(wrap("[图片] "+sanitize(img), w)))
+			b.WriteString("\n")
+		}
+		b.WriteString(body)
+		return b.String()
 	case kindAssistant:
 		return renderMarkdown(sanitize(e.text), w)
 	case kindTool:

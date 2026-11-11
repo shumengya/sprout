@@ -20,8 +20,8 @@ func (f funcProvider) Stream(_ context.Context, req agent.Request, emit func(age
 			return agent.Response{}, err
 		}
 	}
-	if resp.Message.Content != "" {
-		if err := emit(agent.Chunk{TextDelta: resp.Message.Content}); err != nil {
+	if text := resp.Message.Text(); text != "" {
+		if err := emit(agent.Chunk{TextDelta: text}); err != nil {
 			return agent.Response{}, err
 		}
 	}
@@ -31,11 +31,11 @@ func (f funcProvider) Stream(_ context.Context, req agent.Request, emit func(age
 // isSummaryRequest 判断请求是不是上下文摘要请求：不带工具，只有一条包含固定标题的用户消息。
 func isSummaryRequest(req agent.Request) bool {
 	return len(req.Tools) == 0 && len(req.Messages) == 1 &&
-		strings.Contains(req.Messages[0].Content, "需要并入摘要的对话")
+		strings.Contains(req.Messages[0].Text(), "需要并入摘要的对话")
 }
 
 func answer(text string) agent.Response {
-	return agent.Response{Message: agent.Message{Content: text}, StopReason: agent.StopStop}
+	return agent.Response{Message: agent.NewTextMessage(agent.RoleAssistant, text), StopReason: agent.StopStop}
 }
 
 func calls(reasoning string, cs ...agent.ToolCall) agent.Response {

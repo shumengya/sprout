@@ -1,6 +1,10 @@
 package session
 
 import (
+	"encoding/base64"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -31,7 +35,8 @@ func (r *replayer) flush() {
 	for _, c := range r.pending {
 		m, ok := r.results[c.ID]
 		if !ok {
-			m = agent.Message{Role: agent.RoleTool, ToolID: c.ID, Content: interruptedReply}
+			m = agent.NewTextMessage(agent.RoleTool, interruptedReply)
+			m.ToolID = c.ID
 			r.st.Events = append(r.st.Events, event.ToolFinished{
 				ID: c.ID, Name: c.Name, Cancelled: true, Err: interruptedReply, Content: interruptedReply,
 			})
@@ -50,11 +55,30 @@ func (r *replayer) handle(rec rawRec) {
 	case "user":
 		r.flush()
 		r.base, r.inTurn, r.panicked = len(r.history), true, false
-		r.history = append(r.history, agent.Message{Role: agent.RoleUser, Content: rec.Content})
-		r.emit(event.TurnStarted{Prompt: rec.Content})
+		// 与 Input.Message 的规则一致：纯图片提问不补空文本块（部分协议会拒绝空 text block）。
+		var content []agent.Block
+		if rec.Content != "" || len(rec.Images) == 0 {
+			content = append(content, agent.TextBlock(rec.Content))
+		}
+		var images []event.ImageInfo
+		for _, img := range rec.Images {
+			blk, err := loadImageFile(r.st.Path, img)
+			if err != nil {
+				// 图片文件被删或损坏：保留一条文字说明，别让整轮无法恢复。
+				content = append(content, agent.TextBlock("（图片无法恢复："+img.File+"）"))
+				continue
+			}
+			content = append(content, blk)
+			images = append(images, event.ImageInfo{Name: filepath.Base(img.File), MediaType: img.MediaType, Bytes: img.Bytes})
+		}
+		r.history = append(r.history, agent.Message{Role: agent.RoleUser, Content: content})
+		r.emit(event.TurnStarted{Prompt: rec.Content, Images: images})
 	case "assistant":
 		r.flush()
-		msg := agent.Message{Role: agent.RoleAssistant, Content: rec.Content, Reasoning: rec.Reasoning}
+		msg := agent.Message{Role: agent.RoleAssistant, Reasoning: rec.Reasoning}
+		if rec.Content != "" { // 空文本与运行时一致：不产生文本块
+			msg.Content = []agent.Block{agent.TextBlock(rec.Content)}
+		}
 		var calls []event.ToolCall
 		for _, c := range rec.ToolCalls {
 			msg.ToolCalls = append(msg.ToolCalls, agent.ToolCall{ID: c.ID, Name: c.Name, Arguments: c.Arguments})
@@ -95,13 +119,24 @@ func (r *replayer) tool(rec rawRec) {
 	if content == "" { // 旧版本的会话没有保存回给模型的文本，退而求其次
 		content = legacyContent(rec)
 	}
-	r.results[call.ID] = agent.Message{Role: agent.RoleTool, ToolID: call.ID, Content: content}
+	tm := agent.NewTextMessage(agent.RoleTool, content)
+	tm.ToolID = call.ID
+	r.results[call.ID] = tm
 	r.emit(event.ToolRequested{Call: event.ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments}})
 	r.emit(event.ToolFinished{
 		ID: call.ID, Name: rec.Name, Command: rec.Command, Stdout: rec.Stdout, Stderr: rec.Stderr,
 		ExitCode: rec.ExitCode, Truncated: rec.Truncated, TimedOut: rec.TimedOut, Cancelled: rec.Cancelled,
 		Duration: time.Duration(rec.DurationMS) * time.Millisecond, Err: rec.Error, Content: content,
 	})
+}
+
+// loadImageFile 读取 user 记录引用的图片文件并转成图片块。路径相对会话文件所在目录。
+func loadImageFile(sessionPath string, img imageRec) (agent.Block, error) {
+	raw, err := os.ReadFile(filepath.Join(filepath.Dir(sessionPath), filepath.FromSlash(img.File)))
+	if err != nil {
+		return agent.Block{}, fmt.Errorf("读取图片失败: %w", err)
+	}
+	return agent.ImageBlock(img.MediaType, base64.StdEncoding.EncodeToString(raw)), nil
 }
 
 // legacyContent 为没有保存 content 的旧记录重建一个等价的文本。

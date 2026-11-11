@@ -19,7 +19,7 @@ func TestProviderErrorRollsBackAndAgentStaysUsable(t *testing.T) {
 	a := newAgent(t, p, nil, nil)
 	var c collector
 
-	err := a.Run(context.Background(), "q", &c)
+	err := a.Run(context.Background(), Input{Text: "q"}, &c)
 	var got *ProviderError
 	if !errors.As(err, &got) || got.Status != 401 {
 		t.Fatalf("应返回 ProviderError，得到 %v", err)
@@ -35,7 +35,7 @@ func TestProviderErrorRollsBackAndAgentStaysUsable(t *testing.T) {
 		t.Fatalf("失败的首轮应撤销用户消息，历史 = %+v", a.History())
 	}
 
-	if err := a.Run(context.Background(), "重试", &collector{}); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "重试"}, &collector{}); err != nil {
 		t.Fatal(err)
 	}
 	if n := len(p.reqs[1].Messages); n != 1 {
@@ -46,7 +46,7 @@ func TestProviderErrorRollsBackAndAgentStaysUsable(t *testing.T) {
 func TestRetryableFlagPropagates(t *testing.T) {
 	p := &scripted{steps: []scriptStep{{err: &ProviderError{Status: 503, Retryable: true}}}}
 	var c collector
-	_ = newAgent(t, p, nil, nil).Run(context.Background(), "q", &c)
+	_ = newAgent(t, p, nil, nil).Run(context.Background(), Input{Text: "q"}, &c)
 	if e := c.events[1].(event.Error); !e.Retryable {
 		t.Fatalf("Retryable 应透传: %+v", e)
 	}
@@ -62,7 +62,7 @@ func TestMaxStepsStopsRunawayToolLoop(t *testing.T) {
 	a := newAgent(t, p, registry(t, okTool("bash", tool.Result{})), nil)
 	var c collector
 
-	err := a.Run(context.Background(), "q", &c)
+	err := a.Run(context.Background(), Input{Text: "q"}, &c)
 	if !errors.Is(err, ErrMaxSteps) {
 		t.Fatalf("应返回 ErrMaxSteps，得到 %v", err)
 	}
@@ -85,7 +85,7 @@ func TestCancelDuringStreamRollsBack(t *testing.T) {
 	a := newAgent(t, p, nil, nil)
 	var c collector
 
-	err := a.Run(ctx, "q", &c)
+	err := a.Run(ctx, Input{Text: "q"}, &c)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("应返回 context.Canceled，得到 %v", err)
 	}
@@ -95,7 +95,7 @@ func TestCancelDuringStreamRollsBack(t *testing.T) {
 	if len(a.History()) != 0 {
 		t.Fatalf("历史应回滚，得到 %+v", a.History())
 	}
-	if err := a.Run(context.Background(), "再来", &collector{}); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "再来"}, &collector{}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -118,7 +118,7 @@ func TestCancelDuringToolPadsRemainingCalls(t *testing.T) {
 	a := newAgentCfg(t, Config{Provider: p, Tools: registry(t, slow, never), Retry: &RetryPolicy{}, MaxParallelTools: 1})
 	var c collector
 
-	if err := a.Run(ctx, "q", &c); !errors.Is(err, context.Canceled) {
+	if err := a.Run(ctx, Input{Text: "q"}, &c); !errors.Is(err, context.Canceled) {
 		t.Fatalf("得到 %v", err)
 	}
 	if c.finishedReason(t) != event.ReasonCancelled {
@@ -140,10 +140,10 @@ func TestCancelDuringToolPadsRemainingCalls(t *testing.T) {
 	if len(h) != 4 || h[2].ToolID != "a" || h[3].ToolID != "b" {
 		t.Fatalf("历史 = %+v", h)
 	}
-	if !strings.Contains(h[2].Content, "部分输出") || !strings.Contains(h[3].Content, "未执行") {
-		t.Fatalf("tool 消息内容不对: %q / %q", h[2].Content, h[3].Content)
+	if !strings.Contains(h[2].Text(), "部分输出") || !strings.Contains(h[3].Text(), "未执行") {
+		t.Fatalf("tool 消息内容不对: %q / %q", h[2].Text(), h[3].Text())
 	}
-	if err := a.Run(context.Background(), "继续", &collector{}); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "继续"}, &collector{}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -159,11 +159,11 @@ func TestToolPanicBecomesToolFailureAndTurnContinues(t *testing.T) {
 	a := newAgent(t, p, registry(t, boom, fine), nil)
 	var c collector
 
-	if err := a.Run(context.Background(), "q", &c); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "q"}, &c); err != nil {
 		t.Fatalf("工具 panic 不应让整轮失败: %v", err)
 	}
 	h := a.History()
-	if len(h) != 5 || !strings.Contains(h[2].Content, "内部错误: 炸了") || !strings.Contains(h[3].Content, "好的") {
+	if len(h) != 5 || !strings.Contains(h[2].Text(), "内部错误: 炸了") || !strings.Contains(h[3].Text(), "好的") {
 		t.Fatalf("历史 = %+v", h)
 	}
 	if c.finishedReason(t) != event.ReasonStop {
@@ -180,7 +180,7 @@ func TestProviderPanicIsRecoveredAndHistoryRestored(t *testing.T) {
 	a := newAgent(t, p, nil, nil)
 	var c collector
 
-	err := a.Run(context.Background(), "q", &c)
+	err := a.Run(context.Background(), Input{Text: "q"}, &c)
 	if err == nil || !strings.Contains(err.Error(), "炸了") {
 		t.Fatalf("panic 应转成 error，得到 %v", err)
 	}
@@ -194,10 +194,10 @@ func TestProviderPanicIsRecoveredAndHistoryRestored(t *testing.T) {
 
 func TestLengthStopWithoutToolCalls(t *testing.T) {
 	p := &scripted{steps: []scriptStep{{
-		chunks: []string{"被截"}, resp: Response{Message: Message{Content: "被截"}, StopReason: StopLength},
+		chunks: []string{"被截"}, resp: Response{Message: Message{Content: []Block{TextBlock("被截")}}, StopReason: StopLength},
 	}}}
 	var c collector
-	if err := newAgent(t, p, nil, nil).Run(context.Background(), "q", &c); err != nil {
+	if err := newAgent(t, p, nil, nil).Run(context.Background(), Input{Text: "q"}, &c); err != nil {
 		t.Fatalf("长度截断不是错误: %v", err)
 	}
 	if c.finishedReason(t) != event.ReasonLength {
@@ -213,7 +213,7 @@ func TestEmptyToolArgumentsNormalized(t *testing.T) {
 	}}
 	p := &scripted{steps: []scriptStep{callTools(call("1", "t", "")), say("ok")}}
 	a := newAgent(t, p, registry(t, spy), nil)
-	if err := a.Run(context.Background(), "q", &collector{}); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "q"}, &collector{}); err != nil {
 		t.Fatal(err)
 	}
 	if gotArgs != "{}" {

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shumengya/sprout/internal/agent"
 	"github.com/shumengya/sprout/internal/agent/event"
 )
 
@@ -23,14 +24,14 @@ const (
 
 // Runner 是 CLI 眼中的内核，*agent.Agent 满足它。
 type Runner interface {
-	Run(ctx context.Context, prompt string, sink event.Sink) error
+	Run(ctx context.Context, in agent.Input, sink event.Sink) error
 }
 
 // Run 执行一次提问并返回退出码。所有面向用户的输出（含错误）都已在这里打印，
 // 调用方不需要再打印返回值对应的错误。
-func Run(ctx context.Context, r Runner, prompt string, stdout, stderr io.Writer) int {
+func Run(ctx context.Context, r Runner, in agent.Input, stdout, stderr io.Writer) int {
 	p := &printer{out: stdout, err: stderr, atLineStart: true}
-	err := r.Run(ctx, prompt, p)
+	err := r.Run(ctx, in, p)
 	p.endOutput()
 	switch {
 	case err == nil:

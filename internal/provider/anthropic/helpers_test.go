@@ -84,7 +84,7 @@ func newProvider(t *testing.T, srv *fakeServer) agent.Provider {
 func userReq(text string) agent.Request {
 	return agent.Request{
 		Model: "claude-x", System: "SYS", MaxOutputTokens: 77,
-		Messages: []agent.Message{{Role: agent.RoleUser, Content: text}},
+		Messages: []agent.Message{{Role: agent.RoleUser, Content: []agent.Block{agent.TextBlock(text)}}},
 	}
 }
 

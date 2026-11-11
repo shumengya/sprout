@@ -70,7 +70,7 @@ func (p *responsesProvider) Stream(ctx context.Context, req agent.Request, emit 
 		}
 	}
 	return agent.Response{
-		Message:    agent.Message{Role: agent.RoleAssistant, Content: st.text.String(), ToolCalls: calls},
+		Message:    agent.Message{Role: agent.RoleAssistant, Content: []agent.Block{agent.TextBlock(st.text.String())}, ToolCalls: calls},
 		Usage:      usage,
 		StopReason: stop,
 	}, nil

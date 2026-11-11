@@ -74,7 +74,7 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 	a := &app{dataDir: dataDir, cwd: e.cwd, cfg: cfg, env: e, log: log, sel: sel}
 	a.info = tui.Info{
 		Model: sel.ModelName, Provider: sel.ProviderName + "，" + sel.Provider.Protocol,
-		Cwd: e.cwd, DataDir: dataDir,
+		Cwd: e.cwd, DataDir: dataDir, Vision: sel.Model.SupportsVision(),
 	}
 	reg, err := a.registerTools(cfg, e)
 	if err != nil {
@@ -143,6 +143,7 @@ func (a *app) buildAgent(sel config.Selection, key string, reg *tool.Registry, r
 			OS: platform.OSName(), Cwd: e.cwd, Now: e.now(), Tools: reg.Names(),
 		}),
 		MaxOutputTokens: sel.Model.MaxOutput, ContextWindow: sel.Model.ContextWindow,
+		Vision: sel.Model.SupportsVision(),
 		Recorder: rec, Retry: e.retry, Logger: log,
 	})
 }

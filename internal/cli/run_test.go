@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shumengya/sprout/internal/agent"
 	"github.com/shumengya/sprout/internal/agent/event"
 )
 
@@ -17,7 +18,7 @@ type fakeRunner struct {
 	err    error
 }
 
-func (f fakeRunner) Run(_ context.Context, _ string, sink event.Sink) error {
+func (f fakeRunner) Run(_ context.Context, _ agent.Input, sink event.Sink) error {
 	for _, e := range f.events {
 		sink.Emit(e)
 	}
@@ -26,7 +27,7 @@ func (f fakeRunner) Run(_ context.Context, _ string, sink event.Sink) error {
 
 func run(ctx context.Context, r Runner) (code int, stdout, stderr string) {
 	var o, e bytes.Buffer
-	code = Run(ctx, r, "q", &o, &e)
+	code = Run(ctx, r, agent.Input{Text: "q"}, &o, &e)
 	return code, o.String(), e.String()
 }
 

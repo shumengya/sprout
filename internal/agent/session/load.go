@@ -42,6 +42,7 @@ type rawRec struct {
 	Version  string   `json:"version"`
 
 	Content    string        `json:"content"`
+	Images     []imageRec    `json:"images"`
 	Reasoning  string        `json:"reasoning"`
 	ToolCalls  []toolCallRec `json:"tool_calls"`
 	StopReason string        `json:"stop_reason"`

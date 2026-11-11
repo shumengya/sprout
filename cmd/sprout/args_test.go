@@ -26,6 +26,8 @@ func TestParseArgs(t *testing.T) {
 		{"version", []string{"--version"}, "", nil, true, false},
 		{"help", []string{"-h"}, "", nil, false, true},
 		{"help 长写法", []string{"--help"}, "", nil, false, true},
+		{"run 带一张图", []string{"run", "--image", "a.png", "看图"}, "", prompt("看图"), false, false},
+		{"run 只有图没有文字", []string{"run", "--image", "a.png"}, "", prompt(""), false, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

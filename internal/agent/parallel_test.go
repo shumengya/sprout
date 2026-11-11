@@ -48,7 +48,7 @@ func TestToolsRunConcurrently(t *testing.T) {
 	a := parallelAgent(t, p, 0, barrierTool(t, "gate", 3))
 
 	start := time.Now()
-	if err := a.Run(context.Background(), "q", &collector{}); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "q"}, &collector{}); err != nil {
 		t.Fatal(err)
 	}
 	if time.Since(start) > 4*time.Second {
@@ -87,7 +87,7 @@ func TestResultsKeepCallOrderRegardlessOfCompletionOrder(t *testing.T) {
 			}
 		}
 	})
-	if err := a.Run(context.Background(), "q", event.Multi(&c, gate)); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "q"}, event.Multi(&c, gate)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -113,7 +113,7 @@ func TestRequestedEventsFollowCallOrder(t *testing.T) {
 	}}
 	a := parallelAgent(t, p, 0, okTool("a", tool.Result{}))
 	var c collector
-	if err := a.Run(context.Background(), "q", &c); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "q"}, &c); err != nil {
 		t.Fatal(err)
 	}
 	var ids []string
@@ -158,7 +158,7 @@ func TestConcurrencyIsCapped(t *testing.T) {
 		var g gauge
 		p := &scripted{steps: []scriptStep{fiveCalls(), say("好")}}
 		a := parallelAgent(t, p, limit, g.tool("w", 30*time.Millisecond))
-		if err := a.Run(context.Background(), "q", &collector{}); err != nil {
+		if err := a.Run(context.Background(), Input{Text: "q"}, &collector{}); err != nil {
 			t.Fatal(err)
 		}
 		if got := int(g.peak.Load()); got != limit {
@@ -174,7 +174,7 @@ func TestDefaultLimitIsFour(t *testing.T) {
 	var g gauge
 	p := &scripted{steps: []scriptStep{fiveCalls(), say("好")}}
 	a := parallelAgent(t, p, 0, g.tool("w", 40*time.Millisecond))
-	if err := a.Run(context.Background(), "q", &collector{}); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "q"}, &collector{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := int(g.peak.Load()); got != DefaultMaxParallelTools {
@@ -187,7 +187,7 @@ func TestSerialModeKeepsRequestedFinishedInterleaved(t *testing.T) {
 	p := &scripted{steps: []scriptStep{callTools(call("1", "w", `{}`), call("2", "w", `{}`)), say("好")}}
 	a := parallelAgent(t, p, 1, okTool("w", tool.Result{}))
 	var c collector
-	if err := a.Run(context.Background(), "q", &c); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "q"}, &c); err != nil {
 		t.Fatal(err)
 	}
 	var seq []event.Kind
@@ -216,7 +216,7 @@ func TestCancelAbortsAllRunningTools(t *testing.T) {
 	a := parallelAgent(t, p, 0, blocker)
 	var c collector
 
-	if err := a.Run(ctx, "q", &c); !errors.Is(err, context.Canceled) {
+	if err := a.Run(ctx, Input{Text: "q"}, &c); !errors.Is(err, context.Canceled) {
 		t.Fatalf("得到 %v", err)
 	}
 	if c.finishedReason(t) != event.ReasonCancelled || len(p.reqs) != 1 {
@@ -244,14 +244,14 @@ func TestQueuedCallsAreSkippedWhenCancelled(t *testing.T) {
 	}}
 	a := parallelAgent(t, p, 2, w)
 	var c collector
-	if err := a.Run(ctx, "q", &c); !errors.Is(err, context.Canceled) {
+	if err := a.Run(ctx, Input{Text: "q"}, &c); !errors.Is(err, context.Canceled) {
 		t.Fatalf("得到 %v", err)
 	}
 	if executed.Load() != 2 {
 		t.Fatalf("排队的调用不应开始执行，实际执行了 %d 个", executed.Load())
 	}
 	h := a.History()
-	if len(h) != 6 || h[4].Content != cancelledToolReply || h[5].Content != cancelledToolReply {
+	if len(h) != 6 || h[4].Text() != cancelledToolReply || h[5].Text() != cancelledToolReply {
 		t.Fatalf("排队的两个应补“未执行”: %+v", h)
 	}
 }
@@ -263,11 +263,11 @@ func TestOneFailingToolDoesNotAffectOthers(t *testing.T) {
 	good := okTool("good", tool.Result{Command: "ok", Stdout: "成功"})
 	p := &scripted{steps: []scriptStep{callTools(call("1", "bad", `{}`), call("2", "good", `{}`)), say("好")}}
 	a := parallelAgent(t, p, 0, bad, good)
-	if err := a.Run(context.Background(), "q", &collector{}); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "q"}, &collector{}); err != nil {
 		t.Fatal(err)
 	}
 	h := a.History()
-	if h[2].Content != "工具执行失败: 起不来" || h[3].Content == "" {
+	if h[2].Text() != "工具执行失败: 起不来" || h[3].Text() == "" {
 		t.Fatalf("历史 = %+v", h)
 	}
 }

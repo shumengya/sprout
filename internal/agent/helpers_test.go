@@ -53,7 +53,7 @@ func (s *scripted) Stream(ctx context.Context, req Request, emit func(Chunk) err
 }
 
 func say(text string) scriptStep {
-	return scriptStep{chunks: []string{text}, resp: Response{Message: Message{Content: text}, StopReason: StopStop}}
+	return scriptStep{chunks: []string{text}, resp: Response{Message: NewTextMessage(RoleAssistant, text), StopReason: StopStop}}
 }
 
 func callTools(calls ...ToolCall) scriptStep {

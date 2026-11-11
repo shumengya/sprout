@@ -17,8 +17,8 @@ func textTurns(n, size int) []Message {
 	var h []Message
 	for i := 0; i < n; i++ {
 		h = append(h,
-			Message{Role: RoleUser, Content: strings.Repeat("问", size)},
-			Message{Role: RoleAssistant, Content: strings.Repeat("答", size)})
+			Message{Role: RoleUser, Content: []Block{TextBlock(strings.Repeat("问", size))}},
+			Message{Role: RoleAssistant, Content: []Block{TextBlock(strings.Repeat("答", size))}})
 	}
 	return h
 }
@@ -46,14 +46,14 @@ func TestProactiveSummaryCompaction(t *testing.T) {
 	a := compactAgent(t, p, 800, textTurns(8, 100))
 	var c collector
 
-	if err := a.Run(context.Background(), "新问题", &c); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "新问题"}, &c); err != nil {
 		t.Fatal(err)
 	}
 	if len(p.reqs) != 2 || !isSummaryReq(p.reqs[0]) || isSummaryReq(p.reqs[1]) {
 		t.Fatalf("应先发摘要请求再发正式请求: %d 次", len(p.reqs))
 	}
 	sum := p.reqs[0]
-	if len(sum.Tools) != 0 || len(sum.Messages) != 1 || !strings.Contains(sum.Messages[0].Content, "问问问") {
+	if len(sum.Tools) != 0 || len(sum.Messages) != 1 || !strings.Contains(sum.Messages[0].Text(), "问问问") {
 		t.Errorf("摘要请求不应带工具，且内容里要有被压缩的对话: %+v", sum)
 	}
 
@@ -65,7 +65,7 @@ func TestProactiveSummaryCompaction(t *testing.T) {
 		t.Errorf("历史应从用户消息开始且变短: %d 条", len(main.Messages))
 	}
 	last := main.Messages[len(main.Messages)-1]
-	if last.Role != RoleUser || last.Content != "新问题" {
+	if last.Role != RoleUser || last.Text() != "新问题" {
 		t.Errorf("本轮的用户消息必须保留: %+v", last)
 	}
 
@@ -83,7 +83,7 @@ func TestNoProactiveCompactionWithoutWindow(t *testing.T) {
 	p := &scripted{steps: []scriptStep{say("好")}}
 	a := compactAgent(t, p, 0, textTurns(30, 200))
 	var c collector
-	if err := a.Run(context.Background(), "q", &c); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "q"}, &c); err != nil {
 		t.Fatal(err)
 	}
 	if len(p.reqs) != 1 || len(compactedEvents(&c)) != 0 {
@@ -95,7 +95,7 @@ func TestNoCompactionWhenUnderBudget(t *testing.T) {
 	p := &scripted{steps: []scriptStep{say("好")}}
 	a := compactAgent(t, p, 100000, textTurns(3, 20))
 	var c collector
-	_ = a.Run(context.Background(), "q", &c)
+	_ = a.Run(context.Background(), Input{Text: "q"}, &c)
 	if len(p.reqs) != 1 || len(compactedEvents(&c)) != 0 {
 		t.Fatal("没超预算不应压缩")
 	}
@@ -103,7 +103,7 @@ func TestNoCompactionWhenUnderBudget(t *testing.T) {
 
 func TestPruneAloneIsEnoughNoSummaryCall(t *testing.T) {
 	// 历史里是几个很大的旧工具输出：裁掉它们就够了，不需要为此多调一次模型做摘要。
-	h := []Message{{Role: RoleUser, Content: "旧问题"}}
+	h := []Message{{Role: RoleUser, Content: []Block{TextBlock("旧问题")}}}
 	for i := 0; i < 4; i++ {
 		h = append(h, Message{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "c", Name: "bash", Arguments: "{}"}}},
 			bigTool("c", 3000))
@@ -112,7 +112,7 @@ func TestPruneAloneIsEnoughNoSummaryCall(t *testing.T) {
 	p := &scripted{steps: []scriptStep{say("好")}}
 	a := compactAgent(t, p, 2000, h)
 	var c collector
-	if err := a.Run(context.Background(), "q", &c); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "q"}, &c); err != nil {
 		t.Fatal(err)
 	}
 	evs := compactedEvents(&c)
@@ -120,7 +120,7 @@ func TestPruneAloneIsEnoughNoSummaryCall(t *testing.T) {
 		t.Fatalf("只应裁剪、不应摘要: 请求 %d 次，事件 %+v", len(p.reqs), evs)
 	}
 	for _, m := range p.reqs[0].Messages {
-		if m.Role == RoleTool && len([]rune(m.Content)) > 1000 && !strings.Contains(m.Content, "已裁剪") {
+		if m.Role == RoleTool && len([]rune(m.Text())) > 1000 && !strings.Contains(m.Text(), "已裁剪") {
 			t.Fatal("发给模型的历史里不应再有未裁剪的大输出")
 		}
 	}
@@ -136,7 +136,7 @@ func TestSummaryFailureKeepsHistoryAndTurnContinues(t *testing.T) {
 	a := compactAgent(t, p, 800, h)
 	var c collector
 
-	if err := a.Run(context.Background(), "q", &c); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "q"}, &c); err != nil {
 		t.Fatalf("摘要失败不应让本轮失败: %v", err)
 	}
 	evs := compactedEvents(&c)
@@ -161,7 +161,7 @@ func TestSummaryFailureNotRetriedEveryStep(t *testing.T) {
 	a := newAgentCfg(t, Config{Provider: p, ContextWindow: 800, Retry: &RetryPolicy{},
 		Tools: registry(t, okTool("bash", toolResultOK()))})
 	a.Restore(textTurns(8, 100), "")
-	if err := a.Run(context.Background(), "q", &collector{}); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "q"}, &collector{}); err != nil {
 		t.Fatal(err)
 	}
 	n := 0
@@ -182,7 +182,7 @@ func TestReactiveCompactionAfterServerSaysTooLong(t *testing.T) {
 	a := compactAgent(t, p, 0, textTurns(8, 100))
 	var c collector
 
-	if err := a.Run(context.Background(), "q", &c); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "q"}, &c); err != nil {
 		t.Fatalf("压缩后重试应成功: %v", err)
 	}
 	if len(p.reqs) != 3 || !isSummaryReq(p.reqs[1]) || isSummaryReq(p.reqs[2]) {
@@ -203,7 +203,7 @@ func TestReactiveCompactionOnlyOncePerStep(t *testing.T) {
 	a := compactAgent(t, p, 0, textTurns(8, 100))
 	var c collector
 
-	err := a.Run(context.Background(), "q", &c)
+	err := a.Run(context.Background(), Input{Text: "q"}, &c)
 	var pe *ProviderError
 	if !errors.As(err, &pe) || !pe.ContextTooLong() {
 		t.Fatalf("应返回超长错误: %v", err)
@@ -218,7 +218,7 @@ func TestTooLongWithNothingToCompactJustFails(t *testing.T) {
 	tooLong := &ProviderError{Status: 400, Code: "context_length_exceeded"}
 	p := &scripted{steps: []scriptStep{{err: tooLong}, say("不该到这")}}
 	a := compactAgent(t, p, 0, nil)
-	err := a.Run(context.Background(), "q", &collector{})
+	err := a.Run(context.Background(), Input{Text: "q"}, &collector{})
 	if err == nil || len(p.reqs) != 1 {
 		t.Fatalf("err=%v 请求 %d 次", err, len(p.reqs))
 	}
@@ -228,15 +228,15 @@ func toolResultOK() tool.Result { return tool.Result{Command: "ls", Stdout: "ok"
 
 func TestCutPointNeverSplitsToolCallFromItsResults(t *testing.T) {
 	h := []Message{
-		{Role: RoleUser, Content: "第一轮"},
+		{Role: RoleUser, Content: []Block{TextBlock("第一轮")}},
 		{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "a"}, {ID: "b"}}},
-		{Role: RoleTool, ToolID: "a", Content: "ra"},
-		{Role: RoleTool, ToolID: "b", Content: "rb"},
-		{Role: RoleAssistant, Content: "第一轮结束"},
-		{Role: RoleUser, Content: "第二轮"},
+		{Role: RoleTool, ToolID: "a", Content: []Block{TextBlock("ra")}},
+		{Role: RoleTool, ToolID: "b", Content: []Block{TextBlock("rb")}},
+		{Role: RoleAssistant, Content: []Block{TextBlock("第一轮结束")}},
+		{Role: RoleUser, Content: []Block{TextBlock("第二轮")}},
 		{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "c"}}},
-		{Role: RoleTool, ToolID: "c", Content: "rc"},
-		{Role: RoleAssistant, Content: "第二轮结束"},
+		{Role: RoleTool, ToolID: "c", Content: []Block{TextBlock("rc")}},
+		{Role: RoleAssistant, Content: []Block{TextBlock("第二轮结束")}},
 	}
 	a := &Agent{history: h}
 	for _, target := range []int{1, 10, 100, 100000} {
@@ -300,15 +300,15 @@ func TestRequestTokensUsesServerReportedUsage(t *testing.T) {
 
 func TestSummaryRejectsTruncatedOrEmptyAnswers(t *testing.T) {
 	cases := map[string]scriptStep{
-		"被长度截断": {resp: Response{Message: Message{Content: "半截摘要"}, StopReason: StopLength}},
-		"空摘要":   {resp: Response{Message: Message{Content: "   "}, StopReason: StopStop}},
+		"被长度截断": {resp: Response{Message: Message{Content: []Block{TextBlock("半截摘要")}}, StopReason: StopLength}},
+		"空摘要":   {resp: Response{Message: Message{Content: []Block{TextBlock("   ")}}, StopReason: StopStop}},
 	}
 	for name, step := range cases {
 		t.Run(name, func(t *testing.T) {
 			p := &scripted{steps: []scriptStep{step, say("照常回答")}}
 			a := compactAgent(t, p, 800, textTurns(8, 100))
 			var c collector
-			if err := a.Run(context.Background(), "q", &c); err != nil {
+			if err := a.Run(context.Background(), Input{Text: "q"}, &c); err != nil {
 				t.Fatal(err)
 			}
 			evs := compactedEvents(&c)
@@ -323,11 +323,11 @@ func TestSecondCompactionMergesPreviousSummary(t *testing.T) {
 	p := &scripted{steps: []scriptStep{say("合并后的新摘要"), say("回答")}}
 	a := compactAgent(t, p, 800, textTurns(8, 100))
 	a.Restore(textTurns(8, 100), "旧摘要内容")
-	if err := a.Run(context.Background(), "q", &collector{}); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "q"}, &collector{}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(p.reqs[0].Messages[0].Content, "此前的摘要") ||
-		!strings.Contains(p.reqs[0].Messages[0].Content, "旧摘要内容") {
+	if !strings.Contains(p.reqs[0].Messages[0].Text(), "此前的摘要") ||
+		!strings.Contains(p.reqs[0].Messages[0].Text(), "旧摘要内容") {
 		t.Error("再次压缩时应把旧摘要一并交给摘要请求")
 	}
 	if a.Summary() != "合并后的新摘要" {
@@ -350,7 +350,7 @@ func TestRenderForSummaryBoundsInputAndNotesDrops(t *testing.T) {
 	}
 	withTools := renderForSummary("", []Message{
 		{Role: RoleAssistant, ToolCalls: []ToolCall{{Name: "bash", Arguments: `{"command":"ls"}`}}},
-		{Role: RoleTool, Content: "输出"},
+		{Role: RoleTool, Content: []Block{TextBlock("输出")}},
 	}, 10000)
 	if !strings.Contains(withTools, "[调用 bash]") || !strings.Contains(withTools, "[结果] 输出") {
 		t.Errorf("工具调用和结果都要渲染: %q", withTools)
@@ -362,8 +362,8 @@ func TestRestoreReplacesStateAndResetsCalibration(t *testing.T) {
 	a.calibTokens, a.calibLen = 999, 2
 	h := textTurns(1, 5)
 	a.Restore(h, "摘要")
-	h[0].Content = "被外部篡改"
-	if got := a.History(); len(got) != 2 || got[0].Content == "被外部篡改" || a.Summary() != "摘要" {
+	h[0].Content = []Block{TextBlock("被外部篡改")}
+	if got := a.History(); len(got) != 2 || got[0].Text() == "被外部篡改" || a.Summary() != "摘要" {
 		t.Errorf("Restore 应复制传入的历史: %+v", got)
 	}
 	if a.calibLen != 0 {
@@ -382,7 +382,7 @@ func TestSummaryRequestOutputCapHasAFloor(t *testing.T) {
 	a := newAgentCfg(t, Config{Provider: p, ContextWindow: 800, Retry: &RetryPolicy{}})
 	a.cfg.MaxOutputTokens = 123
 	a.Restore(textTurns(8, 100), "")
-	if err := a.Run(context.Background(), "q", &collector{}); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "q"}, &collector{}); err != nil {
 		t.Fatal(err)
 	}
 	if !isSummaryReq(p.reqs[0]) || p.reqs[0].MaxOutputTokens != minSummaryOutput {

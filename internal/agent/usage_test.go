@@ -10,12 +10,12 @@ import (
 func TestUsageEventCarriesReasoningTokens(t *testing.T) {
 	p := &scripted{steps: []scriptStep{{
 		chunks: []string{"答"},
-		resp: Response{Message: Message{Content: "答"}, StopReason: StopStop,
+		resp: Response{Message: Message{Content: []Block{TextBlock("答")}}, StopReason: StopStop,
 			Usage: Usage{InputTokens: 3, OutputTokens: 50, TotalTokens: 53, ReasoningTokens: 42}},
 	}}}
 	a := newAgent(t, p, nil, nil)
 	var c collector
-	if err := a.Run(context.Background(), "hi", &c); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "hi"}, &c); err != nil {
 		t.Fatal(err)
 	}
 	for _, e := range c.events {
@@ -32,11 +32,11 @@ func TestUsageEventCarriesReasoningTokens(t *testing.T) {
 func TestMessageCompletedCarriesReasoningEstimate(t *testing.T) {
 	p := &scripted{steps: []scriptStep{{
 		chunks: []string{"答"},
-		resp:   Response{Message: Message{Content: "答", Reasoning: "先看一下目录结构"}, StopReason: StopStop},
+		resp:   Response{Message: Message{Content: []Block{TextBlock("答")}, Reasoning: "先看一下目录结构"}, StopReason: StopStop},
 	}}}
 	a := newAgent(t, p, nil, nil)
 	var c collector
-	if err := a.Run(context.Background(), "hi", &c); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "hi"}, &c); err != nil {
 		t.Fatal(err)
 	}
 	for _, e := range c.events {

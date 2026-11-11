@@ -13,12 +13,13 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/shumengya/sprout/internal/agent"
 	"github.com/shumengya/sprout/internal/agent/event"
 )
 
 // Runner 是 TUI 眼中的内核：处理一条输入，过程以事件发给 sink。*agent.Agent 满足它。
 type Runner interface {
-	Run(ctx context.Context, prompt string, sink event.Sink) error
+	Run(ctx context.Context, in agent.Input, sink event.Sink) error
 }
 
 // ToolInfo 描述一个可用的终端工具。
@@ -35,6 +36,8 @@ type Info struct {
 	DataDir     string
 	Tools       []ToolInfo // 实际可用的工具
 	Unavailable []string   // 不可用的工具及原因，每项一行
+	// Vision 表示当前模型支持图片输入；为 false 时仍可附加图片，但会提示会被省略。
+	Vision bool
 }
 
 // Options 是构造 Model 所需的全部输入。
@@ -88,6 +91,8 @@ type Model struct {
 	status    string    // 状态行的临时提示，下次按键时清除
 	statusOK  bool      // status 是成功提示（如已复制），用绿色而不是警告色显示
 	tokens    int       // 本会话累计 token
+	// pending 是下一条消息待发送的图片（/image 附加），发送或 /image clear 后清空。
+	pending []agent.Image
 
 	// 对话区的拖选。选区用内容坐标记录；content 是当前送进 viewport 的完整文本，
 	// plain 是它去掉样式后的逐行文本（按需计算，plainSrc 记录算的是哪一版）。

@@ -27,8 +27,8 @@ func TestResponsesStreamsTextAndUsage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(deltas, "|") != "你|好" || resp.Message.Content != "你好" {
-		t.Errorf("文本 = %q / %q", deltas, resp.Message.Content)
+	if strings.Join(deltas, "|") != "你|好" || resp.Message.Text() != "你好" {
+		t.Errorf("文本 = %q / %q", deltas, resp.Message.Text())
 	}
 	if resp.StopReason != agent.StopStop || resp.Usage != (agent.Usage{InputTokens: 9, OutputTokens: 4, TotalTokens: 13}) {
 		t.Errorf("响应 = %+v", resp)
@@ -40,8 +40,8 @@ func TestResponsesRequestShape(t *testing.T) {
 	req := userReq("找入口")
 	req.Tools = []agent.ToolSpec{{Name: "bash", Description: "run", Parameters: []byte(`{"type":"object"}`)}}
 	req.Messages = append(req.Messages,
-		agent.Message{Role: agent.RoleAssistant, Content: "我来看看", ToolCalls: []agent.ToolCall{{ID: "c1", Name: "bash", Arguments: `{"command":"ls"}`}}},
-		agent.Message{Role: agent.RoleTool, ToolID: "c1", Content: "exit_code: 0"},
+		agent.Message{Role: agent.RoleAssistant, Content: []agent.Block{agent.TextBlock("我来看看")}, ToolCalls: []agent.ToolCall{{ID: "c1", Name: "bash", Arguments: `{"command":"ls"}`}}},
+		agent.Message{Role: agent.RoleTool, ToolID: "c1", Content: []agent.Block{agent.TextBlock("exit_code: 0")}},
 	)
 	if _, _, err := collect(newProvider(t, config.ProtocolResponses, srv), req); err != nil {
 		t.Fatal(err)
@@ -179,8 +179,8 @@ func TestResponsesTextNotDuplicatedByItemDone(t *testing.T) {
 		`{"type":"response.completed","response":{"status":"completed","output":[`+item+`]}}`,
 	)))
 	resp, deltas, err := collect(newProvider(t, config.ProtocolResponses, srv), userReq("q"))
-	if err != nil || resp.Message.Content != "你好" || len(deltas) != 2 {
-		t.Fatalf("文本重复了: content=%q deltas=%q err=%v", resp.Message.Content, deltas, err)
+	if err != nil || resp.Message.Text() != "你好" || len(deltas) != 2 {
+		t.Fatalf("文本重复了: content=%q deltas=%q err=%v", resp.Message.Text(), deltas, err)
 	}
 }
 
@@ -190,8 +190,8 @@ func TestResponsesTextFromItemDoneWhenNoDeltas(t *testing.T) {
 		completedUsage,
 	)))
 	resp, deltas, err := collect(newProvider(t, config.ProtocolResponses, srv), userReq("q"))
-	if err != nil || resp.Message.Content != "整段" || len(deltas) != 1 {
-		t.Fatalf("没有增量时应用完整 item 补发一次: content=%q deltas=%q err=%v", resp.Message.Content, deltas, err)
+	if err != nil || resp.Message.Text() != "整段" || len(deltas) != 1 {
+		t.Fatalf("没有增量时应用完整 item 补发一次: content=%q deltas=%q err=%v", resp.Message.Text(), deltas, err)
 	}
 }
 

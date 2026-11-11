@@ -127,7 +127,7 @@ func (t *turn) summarize(head []Message) (string, error) {
 	}
 	req := Request{
 		Model: a.cfg.Model, System: summarySystemPrompt, MaxOutputTokens: summaryMaxOutput(a.cfg.MaxOutputTokens),
-		Messages: []Message{{Role: RoleUser, Content: renderForSummary(a.summary, head, limit)}},
+		Messages: []Message{NewTextMessage(RoleUser, renderForSummary(a.summary, head, limit))},
 	}
 	resp, err := t.retrying(func(func()) (Response, error) {
 		return a.cfg.Provider.Stream(t.ctx, req, func(Chunk) error { return t.ctx.Err() })
@@ -135,7 +135,7 @@ func (t *turn) summarize(head []Message) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	text := strings.TrimSpace(resp.Message.Content)
+	text := strings.TrimSpace(resp.Message.Text())
 	switch {
 	case resp.StopReason == StopLength:
 		return "", errors.New("摘要被长度上限截断")
@@ -152,15 +152,15 @@ func renderForSummary(prev string, msgs []Message, limit int) string {
 	for _, m := range msgs {
 		switch m.Role {
 		case RoleUser:
-			lines = append(lines, "用户: "+clip(m.Content, 4000))
+			lines = append(lines, "用户: "+clip(m.Text(), 4000))
 		case RoleAssistant:
-			s := "助手: " + clip(m.Content, 4000)
+			s := "助手: " + clip(m.Text(), 4000)
 			for _, c := range m.ToolCalls {
 				s += fmt.Sprintf("\n  [调用 %s] %s", c.Name, clip(c.Arguments, 500))
 			}
 			lines = append(lines, s)
 		case RoleTool:
-			lines = append(lines, "  [结果] "+clip(m.Content, 1500))
+			lines = append(lines, "  [结果] "+clip(m.Text(), 1500))
 		}
 	}
 	total, start := 0, len(lines)

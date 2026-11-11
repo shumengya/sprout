@@ -32,9 +32,16 @@ var rePruned = regexp.MustCompile(`\n…\[旧输出已裁剪以节省上下文�
 // estimateText 是 EstimateTokens 在内核里的简写。
 func estimateText(s string) int { return EstimateTokens(s) }
 
-// estimateMessage 估算一条历史消息占用的 token。
+// estimateMessage 估算一条历史消息占用的 token。图片按尺寸折算，文本按字符类别折算。
 func estimateMessage(m Message) int {
-	n := msgOverhead + estimateText(m.Content) + estimateText(m.Reasoning)
+	n := msgOverhead + estimateText(m.Reasoning)
+	for _, blk := range m.Content {
+		if blk.Type == BlockImage {
+			n += EstimateImageTokens(blk.MediaType, blk.Data)
+		} else {
+			n += estimateText(blk.Text)
+		}
+	}
 	for _, c := range m.ToolCalls {
 		n += callOverhead + estimateText(c.Name) + estimateText(c.Arguments)
 	}
@@ -59,19 +66,20 @@ func contextBudget(window, maxOutput int) int {
 }
 
 // PruneToolOutputs 把 keepRecent 条之前的、较长的 tool 消息裁剪成“开头 + 标记”，返回被裁剪的条数。
-// 就地修改 history。幂等：已经裁剪过的不会再动。
+// 就地修改 history。幂等：已经裁剪过的不会再动。带图片的 tool 结果不裁剪（只截文本会把图片和文字的对应关系弄乱）。
 // 它是纯函数（只看 history），所以会话恢复时重放同样的调用能得到和当初完全一致的历史。
 func PruneToolOutputs(history []Message, keepRecent int) int {
 	pruned := 0
 	limit := len(history) - keepRecent
 	for i := 0; i < limit; i++ {
 		m := &history[i]
-		if m.Role != RoleTool || utf8.RuneCountInString(m.Content) <= pruneMinChars || isPruned(m.Content) {
+		text := m.Text()
+		if m.Role != RoleTool || m.HasImages() || utf8.RuneCountInString(text) <= pruneMinChars || isPruned(text) {
 			continue
 		}
-		total := utf8.RuneCountInString(m.Content)
-		head := string([]rune(m.Content)[:pruneKeepChars])
-		m.Content = head + "\n" + fmt.Sprintf(pruneMarker, total)
+		total := utf8.RuneCountInString(text)
+		head := string([]rune(text)[:pruneKeepChars])
+		m.Content = []Block{TextBlock(head + "\n" + fmt.Sprintf(pruneMarker, total))}
 		pruned++
 	}
 	return pruned

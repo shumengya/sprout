@@ -9,21 +9,22 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/shumengya/sprout/internal/agent"
 	"github.com/shumengya/sprout/internal/agent/event"
 )
 
 // fakeRunner 按脚本发事件。只用于测试，不在任何默认运行路径里。
 type fakeRunner struct {
-	run func(ctx context.Context, prompt string, sink event.Sink) error
+	run func(ctx context.Context, in agent.Input, sink event.Sink) error
 }
 
-func (f fakeRunner) Run(ctx context.Context, prompt string, sink event.Sink) error {
-	return f.run(ctx, prompt, sink)
+func (f fakeRunner) Run(ctx context.Context, in agent.Input, sink event.Sink) error {
+	return f.run(ctx, in, sink)
 }
 
 // scriptRunner 发出给定事件后返回。
 func scriptRunner(events ...event.Event) fakeRunner {
-	return fakeRunner{run: func(_ context.Context, _ string, sink event.Sink) error {
+	return fakeRunner{run: func(_ context.Context, _ agent.Input, sink event.Sink) error {
 		for _, e := range events {
 			sink.Emit(e)
 		}

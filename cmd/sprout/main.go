@@ -15,8 +15,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/shumengya/sprout/internal/agent"
 	"github.com/shumengya/sprout/internal/agent/config"
 	"github.com/shumengya/sprout/internal/agent/platform"
+	"github.com/shumengya/sprout/internal/media"
 	"github.com/shumengya/sprout/internal/cli"
 	"github.com/shumengya/sprout/internal/tui"
 )
@@ -88,7 +90,7 @@ func realMain(argv []string, stdout, stderr io.Writer) (code int) {
 		"protocol", ap.sel.Provider.Protocol, "enabled", ap.ag != nil, "tools", len(ap.info.Tools))
 
 	if a.runPrompt != nil {
-		return runOnce(ap, *a.runPrompt, a.resume, stdout, stderr)
+		return runOnce(ap, *a.runPrompt, a.images, a.resume, stdout, stderr)
 	}
 	return runTUI(ap, a.resume, stderr)
 }
@@ -96,13 +98,25 @@ func realMain(argv []string, stdout, stderr io.Writer) (code int) {
 // runOnce 实现 sprout run：答案写 stdout，其余写 stderr。
 // 带 -c / --resume 时先恢复会话；找不到可恢复的会话是错误而不是悄悄开新会话——
 // 在脚本里，用户期望的是“接着上次的上下文”，静默开新会话会得到完全不同的答案。
-func runOnce(ap *app, prompt, resume string, stdout, stderr io.Writer) int {
+func runOnce(ap *app, prompt string, images []string, resume string, stdout, stderr io.Writer) int {
 	for _, n := range append(append([]string{}, ap.notices...), ap.info.Unavailable...) {
 		fmt.Fprintln(stderr, "提示:", n)
 	}
 	if ap.ag == nil {
 		fmt.Fprintln(stderr, "错误:", ap.disabled)
 		return cli.ExitError
+	}
+	in := agent.Input{Text: prompt}
+	for _, p := range images {
+		img, _, err := media.LoadImage(p)
+		if err != nil {
+			fmt.Fprintln(stderr, "错误:", err)
+			return cli.ExitError
+		}
+		in.Images = append(in.Images, img)
+	}
+	if len(in.Images) > 0 && !ap.sel.Model.SupportsVision() {
+		fmt.Fprintln(stderr, "提示: 当前模型没有标注 vision，图片会被替换成占位文本。")
 	}
 	if resume != "" {
 		_, notice, err := ap.resume(resume)
@@ -114,7 +128,7 @@ func runOnce(ap *app, prompt, resume string, stdout, stderr io.Writer) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	return cli.Run(ctx, ap.ag, prompt, stdout, stderr)
+	return cli.Run(ctx, ap.ag, in, stdout, stderr)
 }
 
 // runTUI 启动终端界面。resume 非空时先恢复会话；失败不致命，只提示并开新会话。

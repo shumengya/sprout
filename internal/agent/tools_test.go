@@ -18,7 +18,7 @@ func runWithTool(t *testing.T, tl tool.Tool, toolName string) (event.ToolFinishe
 	p := &scripted{steps: []scriptStep{callTools(call("c1", toolName, `{"command":"x"}`)), say("好")}}
 	a := newAgent(t, p, registry(t, tl), nil)
 	var c collector
-	if err := a.Run(context.Background(), "q", &c); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "q"}, &c); err != nil {
 		t.Fatalf("工具失败不应终止 agent: %v", err)
 	}
 	var fin event.ToolFinished
@@ -35,7 +35,7 @@ func TestUnknownToolIsReportedToModel(t *testing.T) {
 	if !strings.Contains(fin.Err, "未知工具") || !strings.Contains(fin.Err, "bash") {
 		t.Errorf("Err = %q，应说明未知并列出可用工具", fin.Err)
 	}
-	if !strings.Contains(msg.Content, "未知工具") || msg.ToolID != "c1" {
+	if !strings.Contains(msg.Text(), "未知工具") || msg.ToolID != "c1" {
 		t.Errorf("tool 消息 = %+v", msg)
 	}
 }
@@ -43,10 +43,10 @@ func TestUnknownToolIsReportedToModel(t *testing.T) {
 func TestToolWithoutRegistry(t *testing.T) {
 	p := &scripted{steps: []scriptStep{callTools(call("c1", "bash", `{}`)), say("好")}}
 	a := newAgent(t, p, nil, nil)
-	if err := a.Run(context.Background(), "q", &collector{}); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "q"}, &collector{}); err != nil {
 		t.Fatal(err)
 	}
-	if got := p.reqs[1].Messages[2].Content; !strings.Contains(got, "未知工具") || !strings.Contains(got, "（无）") {
+	if got := p.reqs[1].Messages[2].Text(); !strings.Contains(got, "未知工具") || !strings.Contains(got, "（无）") {
 		t.Errorf("没有任何工具时的提示不对: %q", got)
 	}
 }
@@ -59,8 +59,8 @@ func TestToolStartFailureIsReportedToModel(t *testing.T) {
 	if !strings.Contains(fin.Err, "无法启动") || fin.Cancelled {
 		t.Errorf("ToolFinished = %+v", fin)
 	}
-	if !strings.HasPrefix(msg.Content, "工具执行失败: ") {
-		t.Errorf("tool 消息 = %q", msg.Content)
+	if !strings.HasPrefix(msg.Text(), "工具执行失败: ") {
+		t.Errorf("tool 消息 = %q", msg.Text())
 	}
 }
 
@@ -71,8 +71,8 @@ func TestNonZeroExitAndTimeoutReachTheModel(t *testing.T) {
 		t.Errorf("ToolFinished = %+v", fin)
 	}
 	for _, want := range []string{"exit_code: 2", "timed_out: true", "truncated: true", "boom"} {
-		if !strings.Contains(msg.Content, want) {
-			t.Errorf("tool 消息缺少 %q:\n%s", want, msg.Content)
+		if !strings.Contains(msg.Text(), want) {
+			t.Errorf("tool 消息缺少 %q:\n%s", want, msg.Text())
 		}
 	}
 }
@@ -114,7 +114,7 @@ func TestToolCallsRunSerially(t *testing.T) {
 		say("ok"),
 	}}
 	a := newAgentCfg(t, Config{Provider: p, Tools: registry(t, mk("a"), mk("b")), Retry: &RetryPolicy{}, MaxParallelTools: 1})
-	if err := a.Run(context.Background(), "q", &collector{}); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "q"}, &collector{}); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Join(order, "") != "aba" {

@@ -16,8 +16,8 @@ func TestSwitchModelKeepsHistoryAndUpdatesInfo(t *testing.T) {
 		t.Fatalf("装配失败: %v", err)
 	}
 	a.ag.Restore([]agent.Message{
-		{Role: "user", Content: "之前的问题"},
-		{Role: "assistant", Content: "之前的回答", Reasoning: "别家的思维链"},
+		{Role: "user", Content: []agent.Block{agent.TextBlock("之前的问题")}},
+		{Role: "assistant", Content: []agent.Block{agent.TextBlock("之前的回答")}, Reasoning: "别家的思维链"},
 	}, "")
 
 	store := modelStore{a}
@@ -38,7 +38,7 @@ func TestSwitchModelKeepsHistoryAndUpdatesInfo(t *testing.T) {
 	}
 
 	h := a.ag.History()
-	if len(h) != 2 || h[0].Content != "之前的问题" || h[1].Content != "之前的回答" {
+	if len(h) != 2 || h[0].Text() != "之前的问题" || h[1].Text() != "之前的回答" {
 		t.Fatalf("历史没保留: %+v", h)
 	}
 	// 换模型要清掉思维链：别家的 reasoning 不该回传。
@@ -109,7 +109,8 @@ func TestSwitchToToolLessModelDropsTools(t *testing.T) {
         "gpt-4o-mini": {
           "contextWindow": 128000,
           "maxOutput": 16384,
-          "tools": true
+          "tools": true,
+          "vision": true
         }
       }
     }`, `"openai": {
@@ -125,6 +126,9 @@ func TestSwitchToToolLessModelDropsTools(t *testing.T) {
         }
       }
     }`, 1)
+	if !strings.Contains(cfg, `"apiKey": "k2"`) {
+		t.Fatal("替换没生效：config.Template 里 openai 段的写法变了，需要同步这里的匹配串")
+	}
 	writeConfig(t, dir, cfg)
 	a, err := buildApp(dir, testEnv(map[string]string{"DEEPSEEK_API_KEY": "k"}, shellSet(true, true)), nil)
 	if err != nil || a.ag == nil {

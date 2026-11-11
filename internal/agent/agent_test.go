@@ -26,12 +26,12 @@ func TestNewValidates(t *testing.T) {
 func TestPlainAnswer(t *testing.T) {
 	p := &scripted{steps: []scriptStep{{
 		chunks: []string{"你", "好"},
-		resp:   Response{Message: Message{Content: "你好"}, Usage: Usage{InputTokens: 3, OutputTokens: 2, TotalTokens: 5}, StopReason: StopStop},
+		resp:   Response{Message: Message{Content: []Block{TextBlock("你好")}}, Usage: Usage{InputTokens: 3, OutputTokens: 2, TotalTokens: 5}, StopReason: StopStop},
 	}}}
 	a := newAgent(t, p, nil, nil)
 	var c collector
 
-	if err := a.Run(context.Background(), "hi", &c); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "hi"}, &c); err != nil {
 		t.Fatal(err)
 	}
 
@@ -49,7 +49,7 @@ func TestPlainAnswer(t *testing.T) {
 		t.Errorf("Usage = %+v", u)
 	}
 	h := a.History()
-	if len(h) != 2 || h[0].Role != RoleUser || h[1].Role != RoleAssistant || h[1].Content != "你好" {
+	if len(h) != 2 || h[0].Role != RoleUser || h[1].Role != RoleAssistant || h[1].Text() != "你好" {
 		t.Fatalf("历史 = %+v", h)
 	}
 }
@@ -57,7 +57,7 @@ func TestPlainAnswer(t *testing.T) {
 func TestRequestCarriesSystemModelToolsAndLimit(t *testing.T) {
 	p := &scripted{steps: []scriptStep{say("ok")}}
 	a := newAgent(t, p, registry(t, okTool("bash", tool.Result{})), nil)
-	if err := a.Run(context.Background(), "q", &collector{}); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "q"}, &collector{}); err != nil {
 		t.Fatal(err)
 	}
 	r := p.reqs[0]
@@ -81,7 +81,7 @@ func TestToolLoopFeedsResultBackToModel(t *testing.T) {
 	a := newAgent(t, p, registry(t, bash), nil)
 	var c collector
 
-	if err := a.Run(context.Background(), "找入口", &c); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "找入口"}, &c); err != nil {
 		t.Fatal(err)
 	}
 
@@ -101,8 +101,8 @@ func TestToolLoopFeedsResultBackToModel(t *testing.T) {
 		t.Fatalf("第二次请求应带上 assistant 的 tool call: %+v", second)
 	}
 	tm := second[2]
-	if tm.Role != RoleTool || tm.ToolID != "c1" || !strings.Contains(tm.Content, "main.go") ||
-		!strings.Contains(tm.Content, "exit_code: 0") {
+	if tm.Role != RoleTool || tm.ToolID != "c1" || !strings.Contains(tm.Text(), "main.go") ||
+		!strings.Contains(tm.Text(), "exit_code: 0") {
 		t.Fatalf("tool 消息不对: %+v", tm)
 	}
 	fin := c.events[3].(event.ToolFinished)
@@ -115,7 +115,7 @@ func TestHistoryAccumulatesAcrossRuns(t *testing.T) {
 	p := &scripted{steps: []scriptStep{say("一"), say("二")}}
 	a := newAgent(t, p, nil, nil)
 	for _, q := range []string{"q1", "q2"} {
-		if err := a.Run(context.Background(), q, &collector{}); err != nil {
+		if err := a.Run(context.Background(), Input{Text: q}, &collector{}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -137,7 +137,7 @@ func TestReasoningFlowsThroughAgentAndIsReplayed(t *testing.T) {
 	p := &scripted{steps: []scriptStep{think, say("好了")}}
 	a := newAgent(t, p, registry(t, okTool("bash", tool.Result{Command: "ls"})), nil)
 	var c collector
-	if err := a.Run(context.Background(), "q", &c); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "q"}, &c); err != nil {
 		t.Fatal(err)
 	}
 	second := p.reqs[1].Messages
@@ -153,11 +153,11 @@ func TestReasoningFlowsThroughAgentAndIsReplayed(t *testing.T) {
 func TestReasoningDeltasBecomeEvents(t *testing.T) {
 	p := &scripted{steps: []scriptStep{{
 		chunks:          []string{"答"},
-		resp:            Response{Message: Message{Content: "答"}, StopReason: StopStop},
+		resp:            Response{Message: Message{Content: []Block{TextBlock("答")}}, StopReason: StopStop},
 		reasoningChunks: []string{"想", "想"},
 	}}}
 	var c collector
-	if err := newAgent(t, p, nil, nil).Run(context.Background(), "q", &c); err != nil {
+	if err := newAgent(t, p, nil, nil).Run(context.Background(), Input{Text: "q"}, &c); err != nil {
 		t.Fatal(err)
 	}
 	want := []event.Kind{event.KindTurnStarted, event.KindReasoningDelta, event.KindReasoningDelta,
@@ -169,10 +169,10 @@ func TestReasoningDeltasBecomeEvents(t *testing.T) {
 
 func TestHistoryIsACopy(t *testing.T) {
 	a := newAgent(t, &scripted{steps: []scriptStep{say("x")}}, nil, nil)
-	_ = a.Run(context.Background(), "q", &collector{})
+	_ = a.Run(context.Background(), Input{Text: "q"}, &collector{})
 	h := a.History()
-	h[0].Content = "被篡改"
-	if a.History()[0].Content != "q" {
+	h[0].Content = []Block{TextBlock("被篡改")}
+	if a.History()[0].Text() != "q" {
 		t.Fatal("History 应返回副本")
 	}
 }
@@ -180,7 +180,7 @@ func TestHistoryIsACopy(t *testing.T) {
 func TestRecorderSeesSameEventsAsSink(t *testing.T) {
 	var sink, rec collector
 	a := newAgent(t, &scripted{steps: []scriptStep{say("x")}}, nil, &rec)
-	if err := a.Run(context.Background(), "q", &sink); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "q"}, &sink); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(sink.kinds(), rec.kinds()) || len(rec.events) == 0 {
@@ -190,7 +190,7 @@ func TestRecorderSeesSameEventsAsSink(t *testing.T) {
 
 func TestNilSinkIsAllowed(t *testing.T) {
 	a := newAgent(t, &scripted{steps: []scriptStep{say("x")}}, nil, nil)
-	if err := a.Run(context.Background(), "q", nil); err != nil {
+	if err := a.Run(context.Background(), Input{Text: "q"}, nil); err != nil {
 		t.Fatal(err)
 	}
 }

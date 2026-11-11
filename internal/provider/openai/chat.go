@@ -101,7 +101,7 @@ func (p *chatProvider) Stream(ctx context.Context, req agent.Request, emit func(
 	}
 	return agent.Response{
 		Message: agent.Message{
-			Role: agent.RoleAssistant, Content: text.String(), Reasoning: reasoning.String(), ToolCalls: calls,
+			Role: agent.RoleAssistant, Content: []agent.Block{agent.TextBlock(text.String())}, Reasoning: reasoning.String(), ToolCalls: calls,
 		},
 		Usage:      usage,
 		StopReason: stop,

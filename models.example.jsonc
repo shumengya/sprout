@@ -59,7 +59,8 @@
         "gpt-4o-mini": {
           "contextWindow": 128000,
           "maxOutput": 16384,
-          "tools": true
+          "tools": true,
+          "vision": true
         }
       }
     },
@@ -73,7 +74,8 @@
         "gpt-5": {
           "contextWindow": 400000,
           "maxOutput": 32768,
-          "tools": true
+          "tools": true,
+          "vision": true
         }
       }
     },
@@ -87,7 +89,8 @@
         "claude-sonnet-5-5": {
           "contextWindow": 200000,
           "maxOutput": 8192,
-          "tools": true
+          "tools": true,
+          "vision": true
         }
       }
     },
@@ -102,7 +105,8 @@
         "gemini-2.5-pro": {
           "contextWindow": 1048576,
           "maxOutput": 65536,
-          "tools": true
+          "tools": true,
+          "vision": true
         }
       }
     }
