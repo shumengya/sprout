@@ -142,7 +142,10 @@ func eventImages(imgs []Image) []event.ImageInfo {
 	}
 	out := make([]event.ImageInfo, len(imgs))
 	for i, img := range imgs {
-		out[i] = event.ImageInfo{MediaType: img.MediaType, Bytes: base64.StdEncoding.DecodedLen(len(img.Data)), Data: img.Data}
+		out[i] = event.ImageInfo{
+			Name: img.Name, MediaType: img.MediaType, Bytes: base64.StdEncoding.DecodedLen(len(img.Data)),
+			Data: img.Data, Source: img.Source,
+		}
 	}
 	return out
 }

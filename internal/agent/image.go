@@ -16,6 +16,10 @@ type Image struct {
 	Name      string // 展示用的文件名，可选
 	MediaType string // 如 image/png
 	Data      string // base64，不含 data: 前缀
+	// Source 是这条图片在消息文本里对应的原始片段（如用户直接写的路径），
+	// 界面可以把它显示成 [文件名]。为空表示图片不在文本里（/image 这类显式附加）。
+	// 只用于展示与恢复，不影响发给模型的内容。
+	Source string
 }
 
 // Input 是 Run 的输入：一段文本加若干图片。

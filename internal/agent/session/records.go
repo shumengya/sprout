@@ -29,6 +29,11 @@ type imageRec struct {
 	File      string `json:"file"`
 	MediaType string `json:"media_type"`
 	Bytes     int    `json:"bytes"`
+	// Name 是用户看到的原始文件名；File 是按内容哈希命名的落盘文件，不适合展示。
+	Name string `json:"name,omitempty"`
+	// Source 是图片在用户消息正文里对应的原始片段（如直接写的路径），恢复会话后
+	// 界面据此把路径显示成 [文件名]；不在正文里的图片（/image 显式附加）为空。
+	Source string `json:"source,omitempty"`
 }
 
 type userRec struct {
@@ -162,7 +167,7 @@ func imageRecs(infos []event.ImageInfo) []imageRec {
 		if in.Path == "" { // 没落盘的图片不进记录，否则重放时会多出一条“无法恢复”的说明
 			continue
 		}
-		out = append(out, imageRec{File: in.Path, MediaType: in.MediaType, Bytes: in.Bytes})
+		out = append(out, imageRec{File: in.Path, MediaType: in.MediaType, Bytes: in.Bytes, Name: in.Name, Source: in.Source})
 	}
 	if len(out) == 0 {
 		return nil

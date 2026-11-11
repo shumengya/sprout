@@ -68,7 +68,8 @@ func TestImageCommandAttachesAndSends(t *testing.T) {
 	if len(m.pending) != 0 {
 		t.Error("发送后应清空待发送图片")
 	}
-	mustContain(t, plain(m), "[图片] 截图.png")
+	// /image 显式附加的图片不在正文里，单独一行显示 [文件名] 和大小。
+	mustContain(t, plain(m), "[截图.png]", "90 B")
 }
 
 func TestImageCommandListAndClear(t *testing.T) {
@@ -113,7 +114,7 @@ func TestReplayShowsImageMarks(t *testing.T) {
 		event.TurnFinished{Reason: event.ReasonStop},
 	}
 	m := newSized(t, Options{Runner: scriptRunner(), Replay: events}, 120, 40)
-	mustContain(t, plain(m), "[图片] a.png", "2 KB")
+	mustContain(t, plain(m), "[a.png]", "2 KB")
 }
 
 func TestImageHelpMentionsImage(t *testing.T) {
@@ -147,9 +148,14 @@ func TestImagePathInMessageIsAttachedAutomatically(t *testing.T) {
 		t.Fatalf("路径应被识别成图片: %+v", in.Images)
 	}
 	if !strings.Contains(in.Text, path) {
-		t.Error("原始文本应保留")
+		t.Error("发给模型的原始文本应保留路径")
 	}
-	mustContain(t, plain(m), "[图片] 截图.png")
+	// 对话区里路径换成绿色的 [文件名]，不再铺一整条临时目录。
+	s := plain(m)
+	mustContain(t, s, "[截图.png]")
+	if strings.Contains(s, path) {
+		t.Errorf("对话区不应再显示完整路径:\n%s", s)
+	}
 }
 
 func TestAutoAttachNoticeListsSkippedFiles(t *testing.T) {

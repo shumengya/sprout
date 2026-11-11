@@ -59,6 +59,8 @@ type ImageInfo struct {
 	Bytes     int
 	Data      string // base64；记录器落盘后清空，避免事件流里重复携带大块内容
 	Path      string
+	// Source 是图片在消息文本里对应的原始片段，surface 用它把路径显示成 [文件名]。
+	Source string
 }
 
 // MessageDelta 是 assistant 文本的流式增量。

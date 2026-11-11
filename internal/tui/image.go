@@ -16,7 +16,7 @@ func (m *Model) imageCmd(arg string) {
 	case arg == "":
 		m.add(&entry{kind: kindNotice, text: m.pendingReport()})
 		return
-	case arg == "clear" || arg == "clear ":
+	case arg == "clear":
 		n := len(m.pending)
 		m.pending = nil
 		m.add(&entry{kind: kindNotice, text: fmt.Sprintf("已清空 %d 张待发送的图片。", n)})
@@ -50,35 +50,88 @@ func (m *Model) pendingReport() string {
 	return b.String()
 }
 
-// imageListMarks 把一串待发送图片转成用户条目上显示的说明。
-// 显式 /image 附加的和从消息路径自动识别的都要显示，用户才知道模型真的收到了图。
-func imageListMarks(imgs []agent.Image) []string {
+// imageListMarks 把待发送的图片转成用户条目上的显示信息。
+func imageListMarks(imgs []agent.Image) []entryImage {
 	if len(imgs) == 0 {
 		return nil
 	}
-	out := make([]string, len(imgs))
+	out := make([]entryImage, len(imgs))
 	for i, img := range imgs {
-		name := img.Name
-		if name == "" {
-			name = fmt.Sprintf("图片 %d", i+1)
-		}
-		out[i] = fmt.Sprintf("%s  %s", name, media.Size(len(img.Data)*3/4))
+		out[i] = entryImage{name: displayName(img.Name, i), source: img.Source, size: media.Size(len(img.Data) * 3 / 4)}
 	}
 	return out
 }
 
-// imageMarks 把事件里的图片说明转成用户条目上显示的文字（重放和实时共用）。
-func imageMarks(infos []event.ImageInfo) []string {
+// imageMarks 把事件里的图片说明转成用户条目上的显示信息（重放和实时共用）。
+func imageMarks(infos []event.ImageInfo) []entryImage {
 	if len(infos) == 0 {
 		return nil
 	}
-	out := make([]string, len(infos))
+	out := make([]entryImage, len(infos))
 	for i, in := range infos {
-		name := in.Name
-		if name == "" {
-			name = fmt.Sprintf("图片 %d", i+1)
-		}
-		out[i] = fmt.Sprintf("%s  %s", name, media.Size(in.Bytes))
+		out[i] = entryImage{name: displayName(in.Name, i), source: in.Source, size: media.Size(in.Bytes)}
 	}
 	return out
+}
+
+func displayName(name string, i int) string {
+	if name == "" {
+		return fmt.Sprintf("图片 %d", i+1)
+	}
+	return name
+}
+
+// imageMark 是正文里某个图片路径被换成的标记。
+type imageMark struct {
+	plain  string // 折行时用的纯文本，如 [截图.png]
+	styled string // 着色后的同一段，如绿色 [截图.png]
+}
+
+// drawUserText 渲染用户正文：图片的原始路径原位换成绿色的 [文件名]。
+//
+// 先在纯文本上替换和折行——样式序列会占宽度计算，先着色再折行容易被拆坏；
+// 折完再逐行给标记和普通文字分别上色。
+func drawUserText(text string, imgs []entryImage, w int) string {
+	text = sanitize(text)
+	var marks []imageMark
+	for _, img := range imgs {
+		src := sanitize(img.source)
+		if src == "" || !strings.Contains(text, src) {
+			continue
+		}
+		plain := "[" + sanitize(img.name) + "]"
+		text = strings.ReplaceAll(text, src, plain)
+		marks = append(marks, imageMark{plain: plain, styled: styImg.Render(plain)})
+	}
+
+	lines := strings.Split(wrap(text, w), "\n")
+	for i, line := range lines {
+		lines[i] = colorizeImageMarks(line, marks)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// colorizeImageMarks 给一行里的图片标记上绿色，其余部分套用户色。
+// 标记本身很短、折行时不会被拆开，所以逐行查找足够。
+func colorizeImageMarks(line string, marks []imageMark) string {
+	var b strings.Builder
+	for len(line) > 0 {
+		idx := -1
+		var hit imageMark
+		for _, mk := range marks {
+			if j := strings.Index(line, mk.plain); j >= 0 && (idx < 0 || j < idx) {
+				idx, hit = j, mk
+			}
+		}
+		if idx < 0 {
+			b.WriteString(styUser.Render(line))
+			break
+		}
+		if idx > 0 {
+			b.WriteString(styUser.Render(line[:idx]))
+		}
+		b.WriteString(hit.styled)
+		line = line[idx+len(hit.plain):]
+	}
+	return b.String()
 }

@@ -69,7 +69,13 @@ func (r *replayer) handle(rec rawRec) {
 				continue
 			}
 			content = append(content, blk)
-			images = append(images, event.ImageInfo{Name: filepath.Base(img.File), MediaType: img.MediaType, Bytes: img.Bytes})
+			name := img.Name
+			if name == "" { // 旧记录没有原始文件名
+				name = filepath.Base(img.File)
+			}
+			images = append(images, event.ImageInfo{
+				Name: name, MediaType: img.MediaType, Bytes: img.Bytes, Source: img.Source,
+			})
 		}
 		r.history = append(r.history, agent.Message{Role: agent.RoleUser, Content: content})
 		r.emit(event.TurnStarted{Prompt: rec.Content, Images: images})

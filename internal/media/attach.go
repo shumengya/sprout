@@ -16,6 +16,7 @@ const MaxAutoImages = 10
 // Attached 描述一张已经附加到消息上的图片。
 type Attached struct {
 	Name  string // 文件名，给用户看
+	Path  string // 在文本里匹配到的原始片段，surface 可以据此把路径换成 [文件名] 显示
 	Bytes int
 }
 
@@ -191,8 +192,9 @@ func AutoAttach(in agent.Input) (agent.Input, []Attached, []string) {
 			continue
 		}
 		seen[img.Data] = true
+		img.Source = p // 界面据此把正文里的路径显示成 [文件名]
 		in.Images = append(in.Images, img)
-		attached = append(attached, Attached{Name: name, Bytes: len(img.Data) * 3 / 4})
+		attached = append(attached, Attached{Name: name, Path: p, Bytes: len(img.Data) * 3 / 4})
 	}
 	return in, attached, skipped
 }

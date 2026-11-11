@@ -27,19 +27,29 @@ const (
 // 颜色用 ANSI 基础色，跟随终端主题，深浅色背景下都可读。
 var (
 	styUser  = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+	styImg   = lipgloss.NewStyle().Foreground(lipgloss.Color("2")) // 图片标记：[文件名]
 	styTool  = lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true)
 	styFaint = lipgloss.NewStyle().Faint(true)
 	styErr   = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
 	styWarn  = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 )
 
+// entryImage 是用户消息附带的一张图片。
+// source 是它在正文里对应的原始片段（如用户直接粘贴的路径），渲染时换成 [name]；
+// 为空表示图片不在正文里（/image 显式附加），单独列一行。
+type entryImage struct {
+	name   string
+	source string
+	size   string
+}
+
 // entry 是 transcript 里的一个条目。渲染结果按宽度缓存，流式追加时只重绘当前条目。
 type entry struct {
 	kind kind
 	text string // user / assistant / notice / error 的正文
 
-	// images 是用户消息附带的图片说明（如 "screenshot.png  1.2 MB"），每张一行。
-	images []string
+	// images 是用户消息附带的图片，见 entryImage。
+	images []entryImage
 
 	// 工具条目
 	name    string
@@ -79,16 +89,16 @@ func (e *entry) draw(w int) string {
 	switch e.kind {
 	case kindUser:
 		// 不加前缀，靠颜色和助手回答区分；助手回答保持终端默认前景色。
-		body := styUser.Render(wrap(sanitize(e.text), w))
-		if len(e.images) == 0 {
-			return body
-		}
 		var b strings.Builder
 		for _, img := range e.images {
-			b.WriteString(styFaint.Render(wrap("[图片] "+sanitize(img), w)))
+			if img.source != "" {
+				continue // 正文里的路径会原位换成 [文件名]，不再单独列一行
+			}
+			b.WriteString(styImg.Render(wrap("["+sanitize(img.name)+"]", w)))
+			b.WriteString(styFaint.Render("  " + img.size))
 			b.WriteString("\n")
 		}
-		b.WriteString(body)
+		b.WriteString(drawUserText(e.text, e.images, w))
 		return b.String()
 	case kindAssistant:
 		return renderMarkdown(sanitize(e.text), w)
