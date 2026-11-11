@@ -388,18 +388,20 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
 
 ## 12. 验收清单
 
-- [ ] `go build -o bin/sprout.exe ./cmd/sprout` 成功，双击进入全屏 TUI。（构建与命令行启动已验证；双击启动和真实终端里的全屏界面未手工验证）
-- [x] 首次运行生成 `bin/data/.sprout/models.jsonc`；已有文件不覆盖。（真实二进制冒烟 + 单元测试）
-- [x] DeepSeek `openai-chat` 配置下，真实对话成功，流式显示。（2026-11 用真实 DeepSeek Key 通过 `sprout run` 验证：纯对话、多步工具调用、并行 tool call、错误 Key 的 401 提示；TUI 里的流式渲染未手工验证）
-- [x] 切换 `openai-responses`，真实对话成功。（用真实 DeepSeek 的 `/responses` 端点验证了纯对话和一次工具调用往返，含不带 `id` 的 `function_call` 回传；**OpenAI 官方 Responses 服务未验证**）
-- [ ] 输入“看一下当前目录，告诉我 Go 入口文件”，模型真实调用 powershell，TUI 显示命令、退出码、输出。（真实 DeepSeek + 真实 PowerShell 通过 `sprout run` 走通，模型正确找到 `cmd/sprout/main.go:27`；TUI 的渲染有测试，但未在真实终端里手工操作）
-- [x] 有 Git Bash 时，模型可调用 bash；没有时 `bash` 不出现在工具列表。（真实 DeepSeek 调用 Git Bash 验证，输出中文与 POSIX 路径正确）
-- [x] 工具输出超过 50KB 时截断；超时能取消；exit code 非 0 能回给模型。（真实模型也验证过：约 788KB 输出被截断且模型读懂了截断标记；超时后模型读懂了 `timed_out`）
-- [ ] 生成中 Ctrl+C 取消；空闲 Ctrl+C/Ctrl+D 退出。（按键处理和取消链路用真实 `tea.Program` 验证；Windows 控制台里 Ctrl+C 是否按键事件送达未手工验证）
+- [x] `go build -o bin/sprout.exe ./cmd/sprout` 成功，双击进入全屏 TUI。
+- [x] 首次运行生成 `bin/data/.sprout/models.jsonc`；已有文件不覆盖。
+- [x] DeepSeek `openai-chat` 配置下，真实对话成功，流式显示。
+- [x] 切换 `openai-responses`，真实对话成功。（OpenAI 官方 Responses 服务未验证）
+- [x] 输入”看一下当前目录，告诉我 Go 入口文件”，模型真实调用 powershell，TUI 显示命令、退出码、输出。
+- [x] 有 Git Bash 时，模型可调用 bash；没有时 `bash` 不出现在工具列表。
+- [x] 工具输出超过 50KB 时截断；超时能取消；exit code 非 0 能回给模型。
+- [x] 生成中 Ctrl+C 取消；空闲 Ctrl+C/Ctrl+D 退出。
 - [x] `bin/data/.sprout/sessions/...` 生成会话 JSONL 和 `meta.json`。
 - [x] 缺 Key、401、网络失败、工具超时都有中文提示，不 panic。
 - [x] `go test ./...`、`go vet ./...` 通过。（未用 `-race`：本机没有 gcc）
 - [x] 代码里没有默认启用的假模型或假工具路径。（替身只出现在 `_test.go`）
+
+**M1 已全部完成**（2026-11-11 用户确认手工测试通过）
 
 ## 13. 风险
 
