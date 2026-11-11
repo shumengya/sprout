@@ -52,6 +52,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.onCopied(msg)
 		return m, nil
 
+	case tea.PasteMsg:
+		// 粘贴的内容里带现有图片路径时，图片当场附加、输入框里只留 [文件名]，和对话区一致。
+		if text := m.pasteImages(msg.Content); text != msg.Content {
+			m.in.InsertString(text)
+			return m, nil
+		}
+
 	case tea.MouseMsg:
 		// 其他鼠标事件（右键、中键等）不处理，也不转给输入框（否则会触发它自己的选区逻辑）。
 		return m, nil
@@ -157,9 +164,11 @@ func (m *Model) submit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.in.Reset()
+	// 输入框里的 [文件名] 是粘贴时换上的显示形式，发出去要恢复成用户粘贴的原始路径。
+	text, pending := expandPasted(text, m.pending)
 	// 消息里直接写图片路径（贴一条截图路径、从资源管理器拖进来）也要当图片发出去，
 	// 否则模型只看到一段路径文字，只能自己猜或去找 OCR。
-	in, _, skipped := media.AutoAttach(agent.Input{Text: text, Images: m.pending})
+	in, _, skipped := media.AutoAttach(agent.Input{Text: text, Images: pending})
 	marks := imageListMarks(in.Images)
 	m.pending = nil
 	m.add(&entry{kind: kindUser, text: text, images: marks})

@@ -158,6 +158,79 @@ func TestImagePathInMessageIsAttachedAutomatically(t *testing.T) {
 	}
 }
 
+// 粘贴图片路径时输入框里也一样显示 [文件名]：直接铺一整条长路径既占地方又难看。
+func TestPasteImagePathShowsMarkInInput(t *testing.T) {
+	got := make(chan agent.Input, 1)
+	r := fakeRunner{run: func(_ context.Context, in agent.Input, sink event.Sink) error {
+		got <- in
+		sink.Emit(event.TurnFinished{Reason: event.ReasonStop})
+		return nil
+	}}
+	m := newSized(t, Options{Runner: r, Info: Info{Model: "m", Vision: true}}, 120, 40)
+
+	path := tempPNG(t)
+	m.Update(tea.PasteMsg{Content: path + " 这是什么"})
+	if v := m.in.Value(); v != "[截图.png] 这是什么" {
+		t.Fatalf("输入框显示 = %q，应把路径换成 [文件名]", v)
+	}
+	if len(m.pending) != 1 || m.pending[0].Source != path {
+		t.Fatalf("粘贴时应附加图片并记下原始路径: %+v", m.pending)
+	}
+
+	runProgram(t, m, func(send func(tea.Msg)) { send(keyEnter) }, finishedOneTurn)
+	var in agent.Input
+	select {
+	case in = <-got:
+	default:
+		t.Fatal("runner 没有被调用")
+	}
+	if in.Text != path+" 这是什么" {
+		t.Errorf("发给模型的文本应恢复成原始路径，得到 %q", in.Text)
+	}
+	if len(in.Images) != 1 || in.Images[0].MediaType != "image/png" {
+		t.Fatalf("应随消息发送一张图片: %+v", in.Images)
+	}
+}
+
+// 用户把输入框里的 [文件名] 删掉，说明他不想带这张图了。
+func TestDeletingPasteMarkDropsImage(t *testing.T) {
+	got := make(chan agent.Input, 1)
+	r := fakeRunner{run: func(_ context.Context, in agent.Input, sink event.Sink) error {
+		got <- in
+		sink.Emit(event.TurnFinished{Reason: event.ReasonStop})
+		return nil
+	}}
+	m := newSized(t, Options{Runner: r, Info: Info{Model: "m", Vision: true}}, 120, 40)
+
+	m.Update(tea.PasteMsg{Content: tempPNG(t)})
+	m.in.SetValue("只看文字")
+	runProgram(t, m, func(send func(tea.Msg)) { send(keyEnter) }, finishedOneTurn)
+
+	select {
+	case in := <-got:
+		if len(in.Images) != 0 {
+			t.Errorf("标记已删除，不应再发图片: %+v", in.Images)
+		}
+		if in.Text != "只看文字" {
+			t.Errorf("文本 = %q", in.Text)
+		}
+	default:
+		t.Fatal("runner 没有被调用")
+	}
+}
+
+// 普通文本粘贴不受影响。
+func TestPastePlainTextUnchanged(t *testing.T) {
+	m := newSized(t, Options{Runner: scriptRunner()}, 120, 40)
+	m.Update(tea.PasteMsg{Content: "一段普通文字"})
+	if v := m.in.Value(); v != "一段普通文字" {
+		t.Fatalf("输入框 = %q", v)
+	}
+	if len(m.pending) != 0 {
+		t.Errorf("不应附加图片: %+v", m.pending)
+	}
+}
+
 func TestAutoAttachNoticeListsSkippedFiles(t *testing.T) {
 	big := tempPNG(t)
 	f, err := os.OpenFile(big, os.O_WRONLY|os.O_APPEND, 0o600)

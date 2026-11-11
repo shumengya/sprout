@@ -50,6 +50,55 @@ func (m *Model) pendingReport() string {
 	return b.String()
 }
 
+// pasteImages 把粘贴内容里现有的图片路径换成 [文件名]，图片当场附加到 pending。
+// 返回改写后的粘贴内容；读不了的图片（超限、损坏）保留原路径，提交时 AutoAttach 会说明原因。
+// 只拦截粘贴：逐键输入时路径还没打完，中途替换会打断用户。
+func (m *Model) pasteImages(content string) string {
+	for _, p := range media.FindImagePaths(content) {
+		if len(m.pending) >= media.MaxAutoImages {
+			break
+		}
+		img, _, err := media.LoadImage(p)
+		if err != nil {
+			continue
+		}
+		// 带引号粘贴（资源管理器“复制为路径”）时连引号一起换掉，否则输入框里会剩下 "[a.png]"。
+		frag := p
+		for _, q := range []string{`"`, `'`} {
+			if strings.Contains(content, q+p+q) {
+				frag = q + p + q
+				break
+			}
+		}
+		img.Source = frag
+		content = strings.Replace(content, frag, pasteMark(img), 1)
+		m.pending = append(m.pending, img)
+	}
+	return content
+}
+
+func pasteMark(img agent.Image) string { return "[" + img.Name + "]" }
+
+// expandPasted 把输入框里粘贴图片的 [文件名] 换回原始路径，发给模型和写进会话的仍是用户粘贴的原文。
+// 标记被用户删掉的图片不再发送；/image 附加的图片（没有 Source）不在正文里，总是保留。
+func expandPasted(text string, imgs []agent.Image) (string, []agent.Image) {
+	var keep []agent.Image
+	for _, img := range imgs {
+		if img.Source == "" {
+			keep = append(keep, img)
+			continue
+		}
+		mark := pasteMark(img)
+		i := strings.Index(text, mark)
+		if i < 0 {
+			continue
+		}
+		text = text[:i] + img.Source + text[i+len(mark):]
+		keep = append(keep, img)
+	}
+	return text, keep
+}
+
 // imageListMarks 把待发送的图片转成用户条目上的显示信息。
 func imageListMarks(imgs []agent.Image) []entryImage {
 	if len(imgs) == 0 {
