@@ -31,6 +31,8 @@ type Sessions interface {
 	// Resume 恢复选择器指定的会话（序号、ID 前缀或 latest）：让 agent 载入历史并接着写原来的会话文件。
 	// 它会阻塞到 agent 空闲，所以 TUI 在 tea.Cmd 里调用它。
 	Resume(selector string) (*Restored, error)
+	// New 开始一个空白会话：清空 agent 历史，之后的对话写进新的会话文件。不涉及网络，可以同步调用。
+	New() error
 }
 
 // resumeDoneMsg 是恢复完成后发回 Update 的消息。
@@ -58,6 +60,29 @@ func (m *Model) resumeCmd(arg string) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// newSessionCmd 处理 /new：清空对话区并开始新会话。失败时保留现有内容。
+func (m *Model) newSessionCmd() {
+	s := m.opts.Sessions
+	switch {
+	case s == nil:
+		m.add(&entry{kind: kindNotice, text: "当前不能新建会话（没有可用的 agent）。"})
+		return
+	case m.running || m.resuming || m.switching:
+		m.status = "正在生成、恢复或切换模型，暂时不能新建会话"
+		return
+	}
+	if err := s.New(); err != nil {
+		m.add(&entry{kind: kindError, text: "新建会话失败：" + err.Error()})
+		return
+	}
+	m.entries, m.tools, m.tokens = nil, map[string]*entry{}, 0
+	m.callThink, m.usageThink = nil, nil
+	m.clearSel()
+	m.add(&entry{kind: kindNotice, text: welcomeText})
+	m.add(&entry{kind: kindNotice, text: "已开始新会话，之前的会话可以用 /resume 找回。"})
+	m.unseen = false
 }
 
 func sessionListText(s Sessions) string {

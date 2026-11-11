@@ -17,12 +17,18 @@ type fakeSessions struct {
 	res       *Restored
 	resumeErr error
 	gotSel    string
+	newErr    error
+	newCalled bool
 }
 
 func (f *fakeSessions) List() ([]SessionInfo, error) { return f.list, f.listErr }
 func (f *fakeSessions) Resume(sel string) (*Restored, error) {
 	f.gotSel = sel
 	return f.res, f.resumeErr
+}
+func (f *fakeSessions) New() error {
+	f.newCalled = true
+	return f.newErr
 }
 
 func oldConversation() []event.Event {
@@ -186,4 +192,59 @@ func TestResumeHelpMentionsResume(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 100, 70)
 	submit(m, "/help")
 	mustContain(t, plain(m), "/resume")
+}
+
+func TestNewSessionClearsTranscriptAndHistory(t *testing.T) {
+	f := &fakeSessions{}
+	m := sessionsModel(t, f)
+	begin(m, "之前的内容")
+	m.running = false
+	m.tokens = 500
+
+	submit(m, "/new")
+	if !f.newCalled {
+		t.Fatal("应调用 New()")
+	}
+	s := plain(m)
+	mustContain(t, s, "已开始新会话", "可以用 /resume 找回")
+	mustNotContain(t, s, "之前的内容")
+	if m.tokens != 0 {
+		t.Errorf("token 计数应归零: %d", m.tokens)
+	}
+	if countKind(m, kindUser) > 0 || countKind(m, kindAssistant) > 0 {
+		t.Error("对话区应已清空")
+	}
+}
+
+func TestNewSessionFailureKeepsCurrentTranscript(t *testing.T) {
+	f := &fakeSessions{newErr: errors.New("记录器不可用")}
+	m := sessionsModel(t, f)
+	begin(m, "保留的内容")
+	m.running = false
+
+	submit(m, "/new")
+	mustContain(t, plain(m), "保留的内容", "新建会话失败：记录器不可用")
+}
+
+func TestCannotNewWhileRunningOrResuming(t *testing.T) {
+	f := &fakeSessions{}
+	m := sessionsModel(t, f)
+	m.running = true
+	submit(m, "/new")
+	if f.newCalled {
+		t.Error("生成中不能新建会话")
+	}
+	mustContain(t, plain(m), "暂时不能新建会话")
+
+	m.running, m.resuming = false, true
+	submit(m, "/new")
+	if f.newCalled {
+		t.Error("恢复中不能新建会话")
+	}
+}
+
+func TestNewUnavailableWithoutSessions(t *testing.T) {
+	m := newSized(t, Options{Runner: scriptRunner()}, 100, 30)
+	submit(m, "/new")
+	mustContain(t, plain(m), "当前不能新建会话")
 }

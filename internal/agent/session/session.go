@@ -93,6 +93,18 @@ func (r *Recorder) Attach(path string) error {
 	return nil
 }
 
+// Reset 结束当前会话文件，之后的事件写进一个新会话；新文件和 Recorder 刚创建时一样，等第一条记录到来才创建。
+// info 换成调用方给的值：中途切换过模型时，新会话的头记录要写当前模型，而不是启动时的。
+// 调用方必须保证此时没有 Run 在进行。
+func (r *Recorder) Reset(info Info) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.f != nil {
+		r.f.Close()
+	}
+	r.f, r.path, r.failed, r.err, r.closed, r.info = nil, "", false, nil, false, info
+}
+
 // NoteModelChange 在会话中途切换模型时写一条 resume 记录，标明切换后的模型；仅供审计，恢复重放时忽略。
 // 调用方必须保证此时没有 Run 在进行。
 func (r *Recorder) NoteModelChange(provider, model string, tools []string) {

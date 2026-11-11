@@ -41,6 +41,20 @@ func (a *app) resume(selector string) (*session.State, string, error) {
 	return st, notice, nil
 }
 
+// newSession 开始一个空白会话：清空 agent 的历史和摘要，记录器改写新文件。旧会话文件原样保留，可以 /resume 回去。
+// 调用方必须保证此时没有 Run 在进行。
+func (a *app) newSession() error {
+	if a.ag == nil || a.rec == nil {
+		return errors.New("当前没有可用的 agent，无法新建会话")
+	}
+	a.rec.Reset(session.Info{
+		Provider: a.sel.ProviderName, Model: a.sel.ModelName, Cwd: a.cwd,
+		Tools: a.reg.Names(), Version: a.env.version,
+	})
+	a.ag.Restore(nil, "")
+	return nil
+}
+
 // sessionStore 把 app 适配成 tui.Sessions。
 type sessionStore struct{ a *app }
 
@@ -63,3 +77,5 @@ func (s sessionStore) Resume(selector string) (*tui.Restored, error) {
 	}
 	return &tui.Restored{Events: st.Events, Notice: notice}, nil
 }
+
+func (s sessionStore) New() error { return s.a.newSession() }
