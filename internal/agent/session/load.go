@@ -72,6 +72,7 @@ type rawRec struct {
 	TokensAfter  int    `json:"tokens_after"`
 	Dropped      int    `json:"dropped"`
 	Summary      string `json:"summary"`
+	Manual       bool   `json:"manual"`
 
 	Message   string `json:"message"`
 	Retryable bool   `json:"retryable"`

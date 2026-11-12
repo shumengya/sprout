@@ -144,6 +144,11 @@ func scaled(n, unit int, suffix, next string) string {
 // describeCompacted 把压缩事件写成一句中文提示。压缩从不静默发生，用户总能看到历史被动过。
 func describeCompacted(e event.Compacted) string {
 	switch {
+	case e.Manual && e.Err != "":
+		return fmt.Sprintf("压缩上下文失败，对话保持原样：%s", e.Err)
+	case e.Manual:
+		return fmt.Sprintf("已把前面 %d 条消息总结成摘要（约 %s → %s token）。上面的内容仍可翻看，之后的回答基于这份摘要。",
+			e.Dropped, fmtTokens(e.TokensBefore), fmtTokens(e.TokensAfter))
 	case e.Err != "":
 		return fmt.Sprintf("上下文接近上限（约 %s token），但生成摘要失败，历史保持原样继续：%s", fmtTokens(e.TokensBefore), e.Err)
 	case e.Mode == event.CompactPrune:

@@ -61,6 +61,8 @@ type Options struct {
 	Models Models
 	// Efforts 调整思考程度（/effort）；为 nil 时 /effort 不可用。
 	Efforts Efforts
+	// Compactor 手动压缩上下文（/compact）；为 nil 时 /compact 不可用。
+	Compactor Compactor
 }
 
 // 输入框按内容增高：空时一行，最多显示这么多行，再多就在输入框内部滚动。
@@ -93,13 +95,14 @@ type Model struct {
 	browser   *sessionBrowser // /resume 会话浏览器；同上
 	sug       suggestState    // 输入 / 开头时输入框上方的命令候选
 
-	running   bool
-	resuming  bool      // 正在恢复会话：此时不能发送，否则新提问会和恢复的历史交错
-	switching bool      // 正在切换模型：同上，禁止发送
-	started   time.Time // 本轮开始时间，状态行显示已耗时
-	status    string    // 状态行的临时提示，下次按键时清除
-	statusOK  bool      // status 是成功提示（如已复制），用绿色而不是警告色显示
-	tokens    int       // 本会话累计 token
+	running    bool
+	resuming   bool      // 正在恢复会话：此时不能发送，否则新提问会和恢复的历史交错
+	switching  bool      // 正在切换模型：同上，禁止发送
+	compacting bool      // 正在手动压缩上下文（/compact）：同上，且可用 Ctrl+C 取消
+	started    time.Time // 本轮开始时间，状态行显示已耗时
+	status     string    // 状态行的临时提示，下次按键时清除
+	statusOK   bool      // status 是成功提示（如已复制），用绿色而不是警告色显示
+	tokens     int       // 本会话累计 token
 	// pending 是下一条消息待发送的图片（/image 附加），发送或 /image clear 后清空。
 	pending []agent.Image
 

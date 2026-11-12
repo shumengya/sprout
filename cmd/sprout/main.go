@@ -149,6 +149,7 @@ func runTUI(ap *app, resume string, stderr io.Writer) int {
 		opts.Sessions = sessionStore{ap}
 		opts.Models = modelStore{ap}
 		opts.Efforts = effortStore{ap}
+		opts.Compactor = compactor{ap}
 		if resume != "" {
 			if st, notice, err := ap.resume(resume); err != nil {
 				opts.Notices = append(opts.Notices, "恢复会话失败，已开启新会话："+err.Error())

@@ -168,7 +168,7 @@ func legacyContent(rec rawRec) string {
 func (r *replayer) compact(rec rawRec) {
 	r.flush()
 	if rec.Error != "" {
-		r.emit(event.Compacted{Mode: rec.Mode, TokensBefore: rec.TokensBefore, TokensAfter: rec.TokensAfter, Err: rec.Error})
+		r.emit(event.Compacted{Mode: rec.Mode, TokensBefore: rec.TokensBefore, TokensAfter: rec.TokensAfter, Err: rec.Error, Manual: rec.Manual})
 		return
 	}
 	switch rec.Mode {
@@ -185,7 +185,7 @@ func (r *replayer) compact(rec rawRec) {
 	}
 	r.emit(event.Compacted{
 		Mode: rec.Mode, TokensBefore: rec.TokensBefore, TokensAfter: rec.TokensAfter,
-		Dropped: rec.Dropped, Summary: rec.Summary,
+		Dropped: rec.Dropped, Summary: rec.Summary, Manual: rec.Manual,
 	})
 }
 

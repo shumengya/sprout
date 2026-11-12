@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -42,6 +43,49 @@ func splitSummary(s string) []string {
 }
 
 func joinSummary(layers []string) string { return strings.Join(layers, summaryLayerSep) }
+
+// maxFocusRunes 限制手动压缩时用户说明的长度：它会进系统提示词，太长既浪费上下文也没有意义。
+const maxFocusRunes = 500
+
+// ErrNothingToCompact 表示没有对话可压缩（历史是空的）。
+var ErrNothingToCompact = errors.New("还没有可压缩的对话")
+
+// Compact 由用户主动触发：把当前全部对话总结成摘要，历史清空，之后的请求只带摘要和新消息。
+// 与接近窗口时的自动压缩不同，这里不保留最近一轮原文——用户要的就是“把前面的都收起来”，
+// 摘要提示词本身会要求写明未完成的事项和下一步，接着聊不会断。
+//
+// focus 非空时作为对摘要的额外要求（如“保留所有文件路径”）。事件（Compacted，Manual 为 true）
+// 发给 sink 和 Config.Recorder，会话落盘后恢复得到同样的结果。
+//
+// 它会等当前的 Run 结束再执行（同一把锁），调用方应当在空闲时调用。历史为空返回 ErrNothingToCompact；
+// 被取消返回 ctx.Err()，历史和摘要保持原样且不发事件；摘要失败发一个带 Err 的事件并返回该错误，同样不动历史。
+func (a *Agent) Compact(ctx context.Context, focus string, sink event.Sink) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.history) == 0 {
+		return ErrNothingToCompact
+	}
+	t := &turn{a: a, ctx: ctx, out: event.Multi(sink, a.cfg.Recorder)}
+	before := a.requestTokens()
+	cut := len(a.history)
+
+	text, err := t.foldSummary(a.history, focus)
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		t.out.Emit(event.Compacted{Mode: event.CompactSummary, TokensBefore: before, TokensAfter: before, Err: err.Error(), Manual: true})
+		a.log.Warn("manual compact failed", "error", err.Error())
+		return err
+	}
+	a.summary = text
+	a.history = nil // 全部换成摘要；与会话重放得到的状态一致（重放里切掉全部同样得到 nil）
+	a.resetCalibration()
+	t.out.Emit(event.Compacted{
+		Mode: event.CompactSummary, TokensBefore: before, TokensAfter: a.requestTokens(), Dropped: cut, Summary: text, Manual: true,
+	})
+	return nil
+}
 
 // minSummaryOutput 是摘要请求的输出上限下限。思考模式模型的推理 token 也计入输出上限，
 // 用户为对话设置的 maxOutput 偏小时（真实测试里 600 就被截断了），摘要会在写完前被截断而失败。
@@ -136,7 +180,7 @@ func (a *Agent) cutPoint(target int) int {
 
 func (t *turn) summarizeAndCut(cut, before int) bool {
 	a := t.a
-	text, err := t.foldSummary(a.history[:cut])
+	text, err := t.foldSummary(a.history[:cut], "")
 	if err != nil {
 		if t.ctx.Err() != nil {
 			return false // 被取消了，主循环会处理
@@ -161,8 +205,8 @@ func (t *turn) summarizeAndCut(cut, before int) bool {
 // foldSummary 把 head 总结成新的一层，追加到现有摘要后面，返回完整的新摘要。
 // 超过 maxSummaryLayers 层时再把最旧的两层合并。合并失败不算压缩失败：新的一层已经有了，
 // 只是摘要暂时多一层，下次压缩再试；但被取消时整体放弃，保持历史和摘要原样。
-func (t *turn) foldSummary(head []Message) (string, error) {
-	layer, err := t.summarize(head)
+func (t *turn) foldSummary(head []Message, focus string) (string, error) {
+	layer, err := t.summarize(head, focus)
 	if err != nil {
 		return "", err
 	}
@@ -183,13 +227,18 @@ func (t *turn) foldSummary(head []Message) (string, error) {
 
 // summarize 调用同一个模型把 head 压缩成一层摘要。不带工具，增量不外发，失败可退避重试。
 // 只总结 head 本身，旧摘要不参与：旧的各层原样保留，不会被重写。
-func (t *turn) summarize(head []Message) (string, error) {
+// focus 非空时是用户对这份摘要的额外要求（手动 /compact 带的说明），追加在系统提示词末尾。
+func (t *turn) summarize(head []Message, focus string) (string, error) {
 	a := t.a
 	limit := max(a.cfg.ContextWindow/2, 4000)
 	if a.cfg.ContextWindow <= 0 {
 		limit = 60000
 	}
-	return t.askSummary(summarySystemPrompt, renderForSummary(head, limit))
+	system := summarySystemPrompt
+	if focus = strings.TrimSpace(focus); focus != "" {
+		system += "\n\n用户对这份摘要的额外要求（优先满足，但不要因此丢掉上面必须保留的内容）：\n" + clip(focus, maxFocusRunes)
+	}
+	return t.askSummary(system, renderForSummary(head, limit))
 }
 
 // mergeSummaries 把相邻的两层旧摘要（older 在前）合并成一层。

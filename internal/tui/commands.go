@@ -30,6 +30,7 @@ const helpText = `快捷键
   /model              打开模型选择器，切换后保留对话历史；/model 引用 直接切换
   /effort             调整思考程度（档位来自 models.jsonc）；/effort 档位 直接切换，生成中也能改，下次请求生效
   /new                开始新会话（清空对话区和上下文，旧会话可用 /resume 找回）
+  /compact            把前面的对话总结成摘要，腾出上下文；/compact 说明 可以告诉模型摘要要特别保留什么，压缩中 Ctrl+C 取消
   /image 路径          附加一张图片到下一条消息；/image 查看待发送的图片，/image clear 清空
                       消息里直接写现有图片文件的路径（png / jpeg / gif / webp）也会自动附上
   /resume             打开会话浏览器，可搜索、重命名、删除（按键提示在浏览器里）；/resume 选择器 直接恢复
@@ -56,6 +57,9 @@ func (m *Model) slash(text string) (handled bool, cmd tea.Cmd) {
 		m.effortCmd(strings.TrimSpace(arg))
 	case "/new":
 		m.newSessionCmd()
+	case "/compact":
+		m.follow = true
+		return true, m.compactCmd(strings.TrimSpace(arg))
 	case "/image":
 		m.imageCmd(strings.TrimSpace(arg))
 	case "/install-sprout", "/uninstall-sprout":

@@ -117,12 +117,12 @@ func (m *Model) activityLine() string {
 		left = styOK.Render(m.status)
 	case m.status != "":
 		left = styWarn.Render(m.status)
-	case m.running:
+	case m.running || m.compacting:
 		left = m.runningLabel()
 	default:
 		return ""
 	}
-	if !m.running {
+	if !m.running && !m.compacting {
 		return ansi.Truncate(left, m.w, "…")
 	}
 	right := styFaint.Render("Ctrl+C 取消")
@@ -147,6 +147,8 @@ func overlayHint(body, hint string, w int) string {
 func (m *Model) runningLabel() string {
 	label := "生成中"
 	switch names := m.runningTools(); {
+	case m.compacting:
+		label = "压缩上下文"
 	case len(names) == 1:
 		label = "执行 " + names[0]
 	case len(names) > 1:

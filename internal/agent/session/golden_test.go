@@ -272,6 +272,119 @@ func TestReplayReproducesLayeredSummaryExactly(t *testing.T) {
 	}
 }
 
+// 手动压缩（/compact）发生在两轮之间，把全部历史换成摘要。落盘后重放必须得到同样的历史和摘要，
+// 并且事件里的 Manual 标记不能丢，否则恢复会话后界面会把它当成自动压缩来描述。
+func TestReplayReproducesManualCompactExactly(t *testing.T) {
+	prov := funcProvider(func(req agent.Request) agent.Response {
+		if isSummaryRequest(req) {
+			return answer("手动摘要")
+		}
+		return answer("好的：" + strings.Repeat("字", 20))
+	})
+	dir := t.TempDir()
+	rec := NewRecorder(dir, Info{Provider: "p", Model: "m", Cwd: `D:\proj5`}, nil)
+	ag, err := agent.New(agent.Config{Provider: prov, Model: "m", Recorder: rec, Retry: &agent.RetryPolicy{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ev kinds
+	run := func(q string) {
+		t.Helper()
+		if err := ag.Run(context.Background(), agent.Input{Text: q}, &ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run("第一个问题")
+	run("第二个问题")
+	if err := ag.Compact(context.Background(), "", &ev); err != nil {
+		t.Fatal(err)
+	}
+	run("压缩之后的问题") // 压缩后接着聊，历史里只剩这一轮
+	rec.Close()
+
+	manual := 0
+	for _, r := range readRecords(t, rec.Path()) {
+		if r["type"] == "compact" && r["manual"] == true {
+			manual++
+		}
+	}
+	if manual != 1 {
+		t.Fatalf("前提不成立：会话里应有一条 manual 为 true 的压缩记录，实际 %d 条", manual)
+	}
+
+	st, err := Load(rec.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Summary != "手动摘要" || st.Summary != ag.Summary() {
+		t.Errorf("摘要不一致：重放 %q，运行时 %q", st.Summary, ag.Summary())
+	}
+	if !reflect.DeepEqual(st.History, ag.History()) {
+		t.Fatalf("历史不一致：\n重放:   %+v\n运行时: %+v", st.History, ag.History())
+	}
+	if len(st.History) != 2 || st.History[0].Text() != "压缩之后的问题" {
+		t.Errorf("压缩之后历史里应只有最后一轮: %+v", st.History)
+	}
+	var got *event.Compacted
+	for _, e := range st.Events {
+		if c, ok := e.(event.Compacted); ok {
+			got = &c
+		}
+	}
+	if got == nil || !got.Manual || got.Mode != event.CompactSummary || got.Summary != "手动摘要" || got.Dropped != 4 {
+		t.Errorf("重放出的压缩事件不对: %+v", got)
+	}
+	if st.Turns != 3 {
+		t.Errorf("手动压缩不是一轮，轮数应为 3，实际 %d", st.Turns)
+	}
+}
+
+// 手动压缩失败（摘要请求出错）：历史不动，但失败要记下来，恢复会话时界面还能看到当时发生过什么。
+func TestReplayKeepsFailedManualCompactAsANoticeOnly(t *testing.T) {
+	failing := false
+	prov := funcProvider(func(req agent.Request) agent.Response {
+		if isSummaryRequest(req) {
+			failing = true
+			return agent.Response{Message: agent.NewTextMessage(agent.RoleAssistant, "   "), StopReason: agent.StopStop} // 空摘要
+		}
+		return answer("好的")
+	})
+	dir := t.TempDir()
+	rec := NewRecorder(dir, Info{Provider: "p", Model: "m", Cwd: `D:\proj6`}, nil)
+	ag, err := agent.New(agent.Config{Provider: prov, Model: "m", Recorder: rec, Retry: &agent.RetryPolicy{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ev kinds
+	if err := ag.Run(context.Background(), agent.Input{Text: "问题"}, &ev); err != nil {
+		t.Fatal(err)
+	}
+	if err := ag.Compact(context.Background(), "", &ev); err == nil {
+		t.Fatal("空摘要应当失败")
+	}
+	rec.Close()
+	if !failing {
+		t.Fatal("前提不成立：应当发出过摘要请求")
+	}
+
+	st, err := Load(rec.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.History) != 2 || st.Summary != "" {
+		t.Errorf("失败的手动压缩不该动历史: %d 条，摘要 %q", len(st.History), st.Summary)
+	}
+	var got *event.Compacted
+	for _, e := range st.Events {
+		if c, ok := e.(event.Compacted); ok {
+			got = &c
+		}
+	}
+	if got == nil || !got.Manual || got.Err == "" || got.Dropped != 0 {
+		t.Errorf("应保留一条带 Err 的手动压缩事件: %+v", got)
+	}
+}
+
 // 专门覆盖“裁剪”的重放：对话在裁剪之后立刻结束，没有后续摘要把被裁剪的消息切掉，
 // 所以最终历史里一定还留着被裁剪的那条，重放漏掉裁剪就会和运行时不一致。
 func TestReplayReappliesPruneExactly(t *testing.T) {

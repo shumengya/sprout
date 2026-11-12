@@ -124,3 +124,12 @@ type runnerFunc struct{ a *app }
 func (r runnerFunc) Run(ctx context.Context, in agent.Input, sink event.Sink) error {
 	return r.a.ag.Run(ctx, in, sink)
 }
+
+// compactor 把 app 适配成 tui.Compactor，同样每次取当前的 agent：/model 切换会替换 app.ag。
+type compactor struct{ a *app }
+
+func (c compactor) Compact(ctx context.Context, focus string, sink event.Sink) error {
+	return c.a.ag.Compact(ctx, focus, sink)
+}
+
+var _ tui.Compactor = compactor{}

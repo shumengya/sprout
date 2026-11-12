@@ -93,8 +93,8 @@ func (m *Model) modelCmd(arg string) tea.Cmd {
 	switch {
 	case s == nil:
 		m.add(&entry{kind: kindNotice, text: "当前不能切换模型（没有可用的 agent）。"})
-	case m.running || m.resuming:
-		m.status = "正在生成或恢复中，暂时不能切换模型"
+	case m.running || m.resuming || m.compacting:
+		m.status = "正在生成、恢复或压缩中，暂时不能切换模型"
 	case arg == "":
 		m.picker = &picker{items: s.List()}
 		m.status = ""

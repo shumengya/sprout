@@ -161,6 +161,9 @@ type Compacted struct {
 	Dropped      int    // summary：被摘要替代的消息条数；prune：被裁剪的工具输出条数（重放时从最旧的开始裁同样多条）
 	Summary      string // summary：压缩后的完整摘要文本（会话记录保存它，恢复时用）
 	Err          string // 非空表示摘要失败，历史未改动，本轮照常继续
+	// Manual 为 true 表示由用户主动触发（/compact），而不是接近窗口时自动压缩。
+	// 手动压缩发生在两轮之间，把全部历史换成摘要；界面据此换一套措辞。
+	Manual bool
 }
 
 // 压缩的种类。

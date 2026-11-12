@@ -63,8 +63,8 @@ func (m *Model) resumeCmd(arg string) tea.Cmd {
 	switch {
 	case s == nil:
 		m.add(&entry{kind: kindNotice, text: "当前不能恢复会话（没有可用的 agent）。"})
-	case m.running || m.resuming:
-		m.status = "正在生成或恢复中，暂时不能切换会话"
+	case m.running || m.resuming || m.compacting:
+		m.status = "正在生成、恢复或压缩中，暂时不能切换会话"
 	case arg == "":
 		m.browser = &sessionBrowser{}
 		m.status = ""
@@ -93,8 +93,8 @@ func (m *Model) newSessionCmd() {
 	case s == nil:
 		m.add(&entry{kind: kindNotice, text: "当前不能新建会话（没有可用的 agent）。"})
 		return
-	case m.running || m.resuming || m.switching:
-		m.status = "正在生成、恢复或切换模型，暂时不能新建会话"
+	case m.running || m.resuming || m.switching || m.compacting:
+		m.status = "正在生成、恢复、切换模型或压缩，暂时不能新建会话"
 		return
 	}
 	if err := s.New(); err != nil {

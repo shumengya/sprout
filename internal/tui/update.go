@@ -80,6 +80,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh()
 		return m, nil
 
+	case compactDoneMsg:
+		m.onCompactDone(msg)
+		m.refresh()
+		return m, nil
+
 	case sessionsLoadedMsg:
 		m.onSessionsLoaded(msg)
 		return m, nil
@@ -109,7 +114,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case spinner.TickMsg:
-		if !m.running { // 停止转发即停止动画，不会残留空转的定时器
+		if !m.running && !m.compacting { // 停止转发即停止动画，不会残留空转的定时器
 			return m, nil
 		}
 		var cmd tea.Cmd
@@ -142,7 +147,7 @@ func (m *Model) onKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.clearSel() // 内容已经在选中时复制过了；继续操作就让高亮消失
 	switch k.String() {
 	case "ctrl+c":
-		if m.running {
+		if m.running || m.compacting {
 			m.cancel()
 			m.status = "正在取消…"
 			return m, nil
@@ -180,6 +185,9 @@ func (m *Model) submit() (tea.Model, tea.Cmd) {
 		return m, nil
 	case m.switching:
 		m.status = "正在切换模型，请稍候"
+		return m, nil
+	case m.compacting:
+		m.status = "正在压缩上下文，请稍候，或按 Ctrl+C 取消"
 		return m, nil
 	case m.opts.Disabled != "":
 		m.status = "无法发送：" + firstLine(m.opts.Disabled)
