@@ -22,7 +22,7 @@ go vet ./...
 
 测试里的 shell 用例使用本机真实的 Git Bash / pwsh / PowerShell 5.1，没有对应 shell 时自动跳过。`-race` 需要 CGO 工具链，本项目本身无 CGO，按需在有 gcc 的环境里跑。
 
-发布：`release.cmd <版本号>`（非 Windows 用 `go run ./tools/release`），版本号是日期（如 `2026.11.12`，可加 `-rc.1` 后缀）。它会跑完 build / vet / test，再交叉编译七个目标并打包到 `release/<版本号>/`（已在 `.gitignore`）。发布说明正文写在 `docs/releases/<版本号>.md`，随仓库提交；下载表与校验说明由工具生成。流程细节见 `docs/发布.md`。
+发布：`release.cmd <版本号>`（非 Windows 用 `go run ./tools/release`），版本号是日期（如 `2026.11.12`，可加 `-rc.1` 后缀）。它会跑完 build / vet / test，再交叉编译八个目标并打包到 `release/<版本号>/`（已在 `.gitignore`）。Termux 目标必须用 `GOOS=android`，不能复用 `linux_arm64` 的产物（Android 的 seccomp 禁止 `faccessat2`，linux 版会 SIGSYS 崩在启动，见 `docs/发布.md`）。发布说明正文写在 `docs/releases/<版本号>.md`，随仓库提交；下载表与校验说明由工具生成。流程细节见 `docs/发布.md`。
 
 ## 架构边界
 

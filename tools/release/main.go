@@ -77,23 +77,13 @@ func run(version, out, notesPath string, check bool) error {
 	defer os.RemoveAll(tmp)
 
 	fmt.Printf("\n版本 %s\n输出 %s\n\n", version, dir)
-	built := map[string]string{} // 平台名 → 编好的二进制路径，供 Reuse 目标复用
 	for _, t := range targets() {
 		bin := filepath.Join(tmp, t.Platform, t.binaryName())
-		if t.Reuse != "" {
-			src, ok := built[t.Reuse]
-			if !ok {
-				return fmt.Errorf("%s 要复用 %s 的二进制，但它还没编出来（targets() 里的顺序不能颠倒）", t.Platform, t.Reuse)
-			}
-			bin = src
-		} else {
-			if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
-				return err
-			}
-			if err := buildTarget(root, version, t, bin); err != nil {
-				return err
-			}
-			built[t.Platform] = bin
+		if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+			return err
+		}
+		if err := buildTarget(root, version, t, bin); err != nil {
+			return err
 		}
 		name := artifactName(version, t)
 		entries := packageEntries(version, t, bin, root)
@@ -125,10 +115,6 @@ type target struct {
 	Platform            string // 文件名与解压目录用的平台名，如 linux_armv7
 	Label               string // 发布说明里给人看的平台名
 	Archive             string // zip / targz
-	// Reuse 非空时直接复用该平台编好的二进制，不再单独编译。
-	// Termux 就是 Linux arm64：CGO_ENABLED=0 的产物不链接 libc，android 与 linux 的
-	// 差别对它没有影响。单独打包只是为了让 Termux 用户知道该下哪个，不必编译两次。
-	Reuse string
 }
 
 func targets() []target {
@@ -140,11 +126,17 @@ func targets() []target {
 		{GOOS: "linux", GOARCH: "arm", GOARM: "7", Platform: "linux_armv7", Label: "Linux ARMv7", Archive: "targz"},
 		{GOOS: "darwin", GOARCH: "amd64", Platform: "darwin_amd64", Label: "macOS Intel", Archive: "targz"},
 		{GOOS: "darwin", GOARCH: "arm64", Platform: "darwin_arm64", Label: "macOS Apple 芯片", Archive: "targz"},
-		{Platform: "termux_arm64", Label: "Android Termux（ARM64）", Archive: "targz", Reuse: "linux_arm64"},
+		// Termux 必须用 GOOS=android，不能复用 linux_arm64：
+		// Android 的 seccomp 策略禁止 faccessat2，而 GOOS=linux 的 runtime 会先试它，
+		// 被拦下时进程直接收到 SIGSYS 而不是 ENOSYS，启动即崩。GOOS=android 的
+		// runtime 完全跳过这个系统调用（syscall.Faccessat 里 runtime.GOOS != "android"），
+		// internal/syscall/unix.Eaccess 也直接返回 ENOSYS 让调用方回退。
+		// CGO_ENABLED=0 下产物是不依赖 bionic 的静态 ELF，在 Termux 里可直接运行。
+		{GOOS: "android", GOARCH: "arm64", Platform: "termux_arm64", Label: "Android Termux（ARM64）", Archive: "targz"},
 	}
 }
 
-// binaryName 只由 GOOS 决定；复用目标没有自己的 GOOS，按 linux 算。
+// binaryName 只由 GOOS 决定。
 func (t target) binaryName() string {
 	if t.GOOS == "windows" {
 		return "sprout.exe"
@@ -427,7 +419,7 @@ func autoSections(version string) string {
 	b.WriteString("\n### 安装\n\n")
 	b.WriteString("- **Windows**：解压后把 `sprout.exe` 放在任意目录，双击进入终端界面；在 TUI 里执行 `/install-sprout` 可注册成全局命令。\n")
 	b.WriteString("- **Linux / macOS**：解压后 `chmod +x sprout && ./sprout`，或把它放进 `PATH`。\n")
-	b.WriteString("- **Android Termux**：用 `termux_arm64` 包（内容与 `linux_arm64` 相同，只是名字好认）。解压后 `./sprout` 即可；请放在 Termux 的 home 目录下，不要放 `/sdcard`（共享存储不能执行程序）。复制到剪贴板需要先 `pkg install termux-api`。\n")
+	b.WriteString("- **Android Termux**：用 `termux_arm64` 包（`GOOS=android` 单独编译，不能拿 `linux_arm64` 代替，原因见发布文档）。解压后 `./sprout` 即可；请放在 Termux 的 home 目录下，不要放 `/sdcard`（共享存储不能执行程序）。复制到剪贴板需要先 `pkg install termux-api`。\n")
 
 	b.WriteString("\n## 校验\n\n" + fence + "bash\n# Linux / macOS\nsha256sum -c SHA256SUMS.txt\n" + fence + "\n\n")
 	b.WriteString(fence + "powershell\n# Windows\nGet-Content SHA256SUMS.txt\n")

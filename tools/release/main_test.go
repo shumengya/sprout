@@ -181,25 +181,27 @@ func TestWriteChecksumsSkipsNotes(t *testing.T) {
 	}
 }
 
-// 复用目标必须排在它复用的平台之后，否则构建循环拿不到已编好的二进制。
-func TestReuseTargetsComeAfterTheirSource(t *testing.T) {
-	seen := map[string]bool{}
+// Termux 包必须用 GOOS=android 单独编译。
+//
+// 用 GOOS=linux 的产物会启动即崩：Android 的 seccomp 策略禁止 faccessat2，
+// linux 版的 runtime 先试这个系统调用，被拦下时直接 SIGSYS（用户实测在
+// atotto/clipboard 的 init 调 exec.LookPath 时炸掉）；android 版的 runtime
+// 跳过它，退回到只带权限位的 faccessat。这条约束一旦回退，问题很难从日志上看出来，
+// 所以钉在测试里。
+func TestTermuxTargetUsesAndroidGOOS(t *testing.T) {
 	for _, tg := range targets() {
-		if tg.Reuse != "" && !seen[tg.Reuse] {
-			t.Errorf("%s 复用 %s，但 %s 还没出现", tg.Platform, tg.Reuse, tg.Reuse)
+		if tg.Platform != "termux_arm64" {
+			continue
 		}
-		seen[tg.Platform] = true
-	}
-	// Termux 用户的直觉是找 “termux” 这个名字，而不是 Linux ARM64。
-	var termux bool
-	for _, tg := range targets() {
-		if tg.Platform == "termux_arm64" {
-			termux = tg.Reuse == "linux_arm64"
+		if tg.GOOS != "android" {
+			t.Errorf("termux_arm64 的 GOOS = %q，必须是 android（linux 会在 Android 上 SIGSYS）", tg.GOOS)
 		}
+		if tg.GOARCH != "arm64" {
+			t.Errorf("termux_arm64 的 GOARCH = %q，期望 arm64", tg.GOARCH)
+		}
+		return
 	}
-	if !termux {
-		t.Error("缺少 termux_arm64，或它没有复用 linux_arm64")
-	}
+	t.Error("缺少 termux_arm64 目标")
 }
 
 // 自动生成的段落要覆盖到每个实际打出来的包，否则发布说明里的下载表会撒谎。
