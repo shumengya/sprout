@@ -15,14 +15,21 @@ import (
 // 工具卡片的输出预览最多显示的行数。
 const previewMax = 8
 
-// commandOf 从工具参数里取出 command 用于展示；参数不是预期结构时退回原文。
+// commandOf 从工具参数里取出用于展示的一行：
+// shell 工具取 command，文件工具取 path（read / write 没有 command 字段），都没有时退回原文。
 // TUI 不依赖具体工具的 schema，这里只是个展示用的启发式。
 func commandOf(args string) string {
 	var a struct {
 		Command string `json:"command"`
+		Path    string `json:"path"`
 	}
-	if json.Unmarshal([]byte(args), &a) == nil && strings.TrimSpace(a.Command) != "" {
-		return a.Command
+	if json.Unmarshal([]byte(args), &a) == nil {
+		if strings.TrimSpace(a.Command) != "" {
+			return a.Command
+		}
+		if strings.TrimSpace(a.Path) != "" {
+			return a.Path
+		}
 	}
 	return args
 }

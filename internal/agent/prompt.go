@@ -39,6 +39,13 @@ func BuildSystemPrompt(info PromptInfo) string {
 		if slices.Contains(info.Tools, "powershell") && slices.Contains(info.Tools, "bash") {
 			b.WriteString("- 两者都可用时：系统管理类命令优先用 powershell；运行 POSIX 脚本或用户明确要求时用 bash。\n")
 		}
+		if slices.Contains(info.Tools, "read") || slices.Contains(info.Tools, "write") {
+			b.WriteString("- 读写单个文本文件优先用 read / write：不用拼引号、不用管 shell 语法，也省掉一次进程启动。")
+			b.WriteString("目录列举、搜索、批量处理、追加或替换局部内容这类操作仍然用 shell 工具。\n")
+		}
+		if len(info.Tools) == 1 && slices.Contains(info.Tools, "read") {
+			b.WriteString("- 只有 read：可以读文件，但不能执行命令，也不能写文件，做不到时如实说明。\n")
+		}
 		b.WriteString("- 工具是无状态的：每次调用都启动全新进程，工作目录固定为上面的工作目录，")
 		b.WriteString("cd、环境变量等状态不会保留到下一次调用，需要时在同一条命令里完成。\n")
 		b.WriteString("- 不要运行需要交互输入的命令。\n")

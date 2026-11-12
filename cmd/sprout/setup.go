@@ -12,6 +12,7 @@ import (
 	"github.com/shumengya/sprout/internal/agent/session"
 	"github.com/shumengya/sprout/internal/agent/tool"
 	"github.com/shumengya/sprout/internal/agent/tool/bash"
+	"github.com/shumengya/sprout/internal/agent/tool/file"
 	"github.com/shumengya/sprout/internal/agent/tool/powershell"
 	"github.com/shumengya/sprout/internal/provider/anthropic"
 	"github.com/shumengya/sprout/internal/provider/google"
@@ -36,6 +37,7 @@ type app struct {
 	dataDir  string
 	cwd      string
 	cfg      *config.File
+	tools    *config.ToolsFile
 	env      env
 	log      *slog.Logger
 	sel      config.Selection
@@ -71,6 +73,17 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// tools.jsonc 决定哪些工具交给模型；缺失或为空时补上模板（默认全开）。
+	toolsPath := config.ToolsPath(dataDir)
+	if _, err := config.EnsureToolsTemplate(toolsPath); err != nil {
+		return nil, err
+	}
+	toolsCfg, err := config.LoadTools(toolsPath)
+	if err != nil {
+		return nil, err
+	}
+
 	sel, err := cfg.Selected()
 	if err != nil {
 		return nil, err
@@ -81,7 +94,7 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 		return nil, err
 	}
 
-	a := &app{dataDir: dataDir, cwd: e.cwd, cfg: cfg, env: e, log: log, sel: sel, effort: effort}
+	a := &app{dataDir: dataDir, cwd: e.cwd, cfg: cfg, tools: toolsCfg, env: e, log: log, sel: sel, effort: effort}
 	a.info = tui.Info{
 		Model: sel.ModelName, Provider: sel.ProviderName + "，" + sel.Provider.Protocol,
 		Cwd: e.cwd, DataDir: dataDir, Vision: sel.Model.SupportsVision(), Effort: effortLabel(sel, effort),
@@ -107,35 +120,73 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 	return a, nil
 }
 
-// registerTools 按检测结果注册 powershell / bash。模型只会看到真实可用的工具。
+// registerTools 按 tools.jsonc 的开关注册工具。
+//
+// 开关只表达“想不想用这个工具”，不表达“本机有没有”：bash / powershell 还必须探测到可执行文件。
+// 已启用但本机不可用的工具不进注册表（模型看不到），原因写进 info.Unavailable 供 /tools 展示；
+// 被关掉的工具同样记一笔，让用户知道它为什么不见了。
 func (a *app) registerTools(cfg *config.File, e env) (*tool.Registry, error) {
 	shells := e.detect(cfg.Shell.BashPath, cfg.Shell.PowerShellPath)
-	a.info.Unavailable = nil
+	shellProblems := map[string]string{}
 	for _, p := range shells.Problems {
-		a.info.Unavailable = append(a.info.Unavailable, fmt.Sprintf("%s 不可用：%s", p.Kind, p.Reason))
+		shellProblems[string(p.Kind)] = p.Reason
+	}
+	// 探测实现没有给出原因时（比如某个平台根本没做这项探测），也别在界面上留个空冒号。
+	reason := func(kind string) string {
+		if r := shellProblems[kind]; r != "" {
+			return r
+		}
+		return "本机未检测到"
 	}
 
 	reg := tool.NewRegistry()
 	a.info.Tools = nil
+	a.info.Unavailable = nil
 	if !a.sel.Model.SupportsTools() {
 		a.notices = append(a.notices, fmt.Sprintf("模型 %s 在配置中 tools=false，本次不向模型提供任何工具。", a.sel.Ref()))
 		return reg, nil
 	}
-	add := func(sh *platform.Shell, t tool.Tool) error {
+
+	add := func(t tool.Tool, detail string) error {
 		if err := reg.Register(t); err != nil {
 			return err
 		}
-		a.info.Tools = append(a.info.Tools, tui.ToolInfo{Name: t.Name(), Detail: sh.Label + "  " + sh.Path})
+		a.info.Tools = append(a.info.Tools, tui.ToolInfo{Name: t.Name(), Detail: detail})
 		return nil
 	}
-	if sh := shells.PowerShell; sh != nil {
-		if err := add(sh, powershell.New(*sh, e.cwd)); err != nil {
-			return nil, err
+
+	for _, name := range config.KnownTools {
+		if !a.tools.Enabled(name) {
+			a.info.Unavailable = append(a.info.Unavailable, fmt.Sprintf("%s 未启用（tools.jsonc 中未设为 enable: true）", name))
+			continue
 		}
-	}
-	if sh := shells.Bash; sh != nil {
-		if err := add(sh, bash.New(*sh, e.cwd)); err != nil {
-			return nil, err
+		switch name {
+		case config.ToolBash:
+			if sh := shells.Bash; sh != nil {
+				if err := add(bash.New(*sh, e.cwd), sh.Label+"  "+sh.Path); err != nil {
+					return nil, err
+				}
+			} else {
+				a.info.Unavailable = append(a.info.Unavailable,
+					fmt.Sprintf("bash 已在 tools.jsonc 启用，但本机不可用：%s", reason(config.ToolBash)))
+			}
+		case config.ToolPowerShell:
+			if sh := shells.PowerShell; sh != nil {
+				if err := add(powershell.New(*sh, e.cwd), sh.Label+"  "+sh.Path); err != nil {
+					return nil, err
+				}
+			} else {
+				a.info.Unavailable = append(a.info.Unavailable,
+					fmt.Sprintf("powershell 已在 tools.jsonc 启用，但本机不可用：%s", reason(config.ToolPowerShell)))
+			}
+		case config.ToolRead:
+			if err := add(file.NewRead(e.cwd), "内置  按行读取文本文件"); err != nil {
+				return nil, err
+			}
+		case config.ToolWrite:
+			if err := add(file.NewWrite(e.cwd), "内置  创建或覆盖文本文件"); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return reg, nil

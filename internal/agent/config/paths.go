@@ -76,6 +76,9 @@ func ensureWritableDir(dir string) error {
 // ModelsPath 是 models.jsonc 的路径。
 func ModelsPath(dataDir string) string { return filepath.Join(dataDir, "models.jsonc") }
 
+// joinDataDir 是数据目录下文件的统一拼接入口；单独抽出来方便测试替换，也避免各处手拼分隔符。
+func joinDataDir(dataDir, name string) string { return filepath.Join(dataDir, name) }
+
 // SessionsDir 是会话根目录。
 func SessionsDir(dataDir string) string { return filepath.Join(dataDir, "sessions") }
 

@@ -38,7 +38,7 @@ go vet ./...
 | 配置格式 | 用户会编辑的文件一律 JSONC（`models.jsonc` 等）；`meta.json`、会话 JSONL、缓存用普通 JSON/JSONL |
 | 会话 | JSONL 追加写，按 agent 工作目录分组：`<数据目录>/sessions/<工作目录 slug>/<session-id>.jsonl`，同目录放 `meta.json` |
 | 数据目录 | 默认 `<exeDir>/data/.sprout`（安装级/系统级，跟随二进制）；`--data-dir` / `SPROUT_DATA_DIR` 覆盖；默认不写 `~/.sprout` |
-| 工具 | M1 只有 `bash` 和 `powershell`；文件、搜索、MCP、skills 等由用户后续决定 |
+| 工具 | 内置 `bash`、`powershell`、`read`、`write`；必须在数据目录的 `tools.jsonc` 里 `"enable": true` 才注册给模型（见 `docs/tools.md`）；搜索、MCP、skills 等由用户后续决定 |
 | 权限 | 暂不实现权限模块，默认完全权限；不要提前加审批流或 allow/deny 配置 |
 | TUI | Bubble Tea v2 + lipgloss + bubbles；不用 tview |
 | 平台 | Windows 优先开发，目标 Linux / macOS / Android Termux |
@@ -51,7 +51,8 @@ go vet ./...
 - OpenAI Responses 与 Chat Completions 的请求、响应、流式事件结构都不同；不要用一个字符串拼接的“兼容层”把两者混在一起。
 - Windows 的 `bash` 工具只认真实 Git Bash / MSYS2 / Cygwin：按 `bashPath` 配置、Program Files 两个路径、PATH 顺序查找；只有 `System32\bash.exe`（WSL 启动器）时视为不可用，并提示安装 Git for Windows。
 - Windows 的 `powershell` 工具先找 `pwsh.exe`（7+），再回退 `powershell.exe`（5.1）；把 edition 写进工具描述，5.1 不要生成 `&&` / `||` / `?:`。
-- `bash` 和 `powershell` 都是一等公民，不排先后；是否注册由平台和实际检测结果决定，模型只看到当前可用工具。
+- `bash` 和 `powershell` 都是一等公民，不排先后；是否注册由 `tools.jsonc` 开关、平台和实际检测结果共同决定，模型只看到当前可用工具。
+- 新增内置工具时同步改三处：`config.KnownTools`（否则 `tools.jsonc` 校验会拒绝该名字）、`config.ToolsTemplate` 与仓库根的 `tools.example.jsonc`（测试保证一致）、`cmd/sprout/setup.go` 的 `registerTools`。
 - Termux 没有 systemd、没有 CGO 工具链；不要引入依赖这些的库。
 - 数据目录用 `os.Executable()` 定位，`go run` 时二进制在临时目录；开发时显式传 `--data-dir ./data/.sprout`，不要用 cwd 当默认。目录不可写时明确报错，不要静默回退到 `~/.sprout`。
 - 所有路径处理用 `filepath`，不要手拼 `/` 或 `\`。
@@ -66,7 +67,7 @@ go vet ./...
 
 ## 不要做
 
-- 不要越过里程碑提前实现第三个工具、权限模块、MCP、WebUI 或子代理。
+- 不要越过里程碑提前实现 `bash` / `powershell` / `read` / `write` 之外的工具、权限模块、MCP、WebUI 或子代理。
 - 不要为 TUI 或演示引入假模型、假工具、回显模式；测试替身只允许放在 `_test.go`。
 - 不要复制 Crush / Codex / Claude Code 的代码；参考设计可以，注意 Crush 是 FSL-1.1-MIT。
 - 不要提交 `.env`、API key、`auth.json`、构建产物。

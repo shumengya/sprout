@@ -34,9 +34,22 @@ var hujsonPos = regexp.MustCompile(`line (\d+), column (\d+): (.*)$`)
 // Load 读取并解析 models.jsonc（JSONC：允许 // 和 /* */ 注释、尾逗号），解析后做校验。
 // 语法错误返回 *ParseError，内容问题返回 *ValidationError。
 func Load(path string) (*File, error) {
+	var f File
+	if err := decodeJSONC(path, &f); err != nil {
+		return nil, err
+	}
+	if probs := f.problems(); len(probs) > 0 {
+		return nil, &ValidationError{Path: path, Problems: probs}
+	}
+	return &f, nil
+}
+
+// decodeJSONC 读取 JSONC 文件并解到 v，错误统一转成带行列的 *ParseError。
+// models.jsonc 与 tools.jsonc 都走这里，注释处理与报错位置保持一致。
+func decodeJSONC(path string, v any) error {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("读取配置文件失败: %w", err)
+		return fmt.Errorf("读取配置文件失败: %w", err)
 	}
 	// 记事本等编辑器可能写入 BOM；去掉后列号才与编辑器里看到的一致。
 	raw = bytes.TrimPrefix(raw, []byte("\xEF\xBB\xBF"))
@@ -45,17 +58,12 @@ func Load(path string) (*File, error) {
 	// 它会就地改写传入的缓冲区，必须传副本：raw 要保持原样，之后才能按字符数列号。
 	std, err := hujson.Standardize(bytes.Clone(raw))
 	if err != nil {
-		return nil, newParseError(path, raw, err)
+		return newParseError(path, raw, err)
 	}
-
-	var f File
-	if err := json.Unmarshal(std, &f); err != nil {
-		return nil, typeError(path, raw, err)
+	if err := json.Unmarshal(std, v); err != nil {
+		return typeError(path, raw, err)
 	}
-	if probs := f.problems(); len(probs) > 0 {
-		return nil, &ValidationError{Path: path, Problems: probs}
-	}
-	return &f, nil
+	return nil
 }
 
 // newParseError 把 hujson 的语法错误转成带位置的 ParseError。

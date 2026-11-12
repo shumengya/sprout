@@ -31,7 +31,10 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 
 ### 工具（`internal/agent/tool`）
 - [x] `bash`（Git Bash / MSYS2 / Cygwin / 系统 bash）与 `powershell`（pwsh 7+ 优先，回退 5.1）。
-- [x] 平台探测：按文档顺序查找；`System32\bash.exe`（WSL 启动器）判为不可用并提示安装 Git for Windows。
+- [x] 工具注册表 `tools.jsonc`：数据目录下按工具名列出 `{"enable": true}`，只有显式启用的工具才注册给模型；缺失或为空时自动生成模板（默认四个工具全开），未知工具名启动即报错。设计见 `docs/tools.md`。
+- [x] `read`：按行号读文本文件，可指定 `offset` / `limit`，拒绝二进制与超大文件，输出超 50KB 自动截断并提示续读位置。
+- [x] `write`：创建或覆盖文本文件，自动建父目录，先写同目录临时文件再原子替换；覆盖时沿用原权限。
+- [x] 平台探测：按文档顺序查找；`System32\bash.exe`（WSL 启动器）判为不可用并提示安装 Git for Windows。开关已开但本机没有 shell 时，该工具不注册并在 `/tools` 里说明原因。
 - [x] 执行契约：每次新进程、工作目录固定、默认超时 120s（上限 600s，模型可传 `timeout_seconds`）、输出上限 50KB（头尾保留）、stdin 置空。
 - [x] 超时/取消终止整个进程树（Unix 进程组，Windows `taskkill /T`），`WaitDelay` 防止孙进程占管道。
 - [x] PowerShell 注入 UTF-8 输出编码前导；工具描述按 edition 区分语法。
@@ -109,7 +112,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
   - [ ] MCP 客户端与工具接入（`internal/agent/mcp`，占位）；
   - [ ] skills 发现与加载（`internal/agent/skills`，占位）；
   - [ ] 子代理 / 多 agent 编排；
-  - [ ] 文件读写、搜索、web 等更多工具（现在只有 `bash` 和 `powershell`，其余由用户后续决定）；
+  - [ ] 搜索、web 等更多工具（现有 `bash`、`powershell`、`read`、`write`，由 `tools.jsonc` 开关控制）；
   - [ ] 权限模块（审批流、allow/deny、沙箱）——目前默认完全权限，不要提前加。
 
 ### M1 范围内有意没做

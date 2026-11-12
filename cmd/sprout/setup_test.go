@@ -24,6 +24,8 @@ func shellSet(bashOK, psOK bool) func(string, string) platform.Shells {
 		}
 		if psOK {
 			s.PowerShell = &platform.Shell{Kind: platform.KindPowerShell, Path: "/fake/pwsh", Label: "PowerShell 7+", Edition: "7+"}
+		} else {
+			s.Problems = append(s.Problems, platform.Problem{Kind: platform.KindPowerShell, Reason: "未找到 PowerShell"})
 		}
 		return s
 	}
@@ -65,8 +67,8 @@ func TestFirstRunCreatesTemplateAndDisablesWithGuidance(t *testing.T) {
 			t.Errorf("提示缺少 %q: %s", want, a.disabled)
 		}
 	}
-	// 即使不能对话，工具检测结果仍要展示给用户。
-	if toolNames(a) != "powershell,bash" {
+	// 即使不能对话，工具检测结果仍要展示给用户。顺序由 tools.jsonc 的已知工具列表决定。
+	if toolNames(a) != "bash,powershell,read,write" {
 		t.Errorf("工具 = %q", toolNames(a))
 	}
 }
@@ -125,7 +127,7 @@ func TestEnvKeyEnablesAgentWithToolsAndPrompt(t *testing.T) {
 	if a.ag == nil || a.rec == nil || a.disabled != "" {
 		t.Fatalf("环境变量里有 Key 应可对话: disabled=%q", a.disabled)
 	}
-	if a.sel.Ref() != "deepseek/deepseek-flash" || toolNames(a) != "powershell,bash" {
+	if a.sel.Ref() != "deepseek/deepseek-flash" || toolNames(a) != "bash,powershell,read,write" {
 		t.Errorf("sel=%s tools=%s", a.sel.Ref(), toolNames(a))
 	}
 	// 首次运行但 Key 已就绪：不禁用，只在启动提示里说明配置文件位置。
@@ -145,10 +147,10 @@ func TestOnlyAvailableToolsAreRegistered(t *testing.T) {
 		wantTools   string
 		wantUnavail string
 	}{
-		{"两者都有", true, true, "powershell,bash", ""},
-		{"只有 powershell", false, true, "powershell", "bash 不可用：未找到 Git Bash"},
-		{"只有 bash", true, false, "bash", ""},
-		{"都没有", false, false, "", "bash 不可用：未找到 Git Bash"},
+		{"两者都有", true, true, "bash,powershell,read,write", ""},
+		{"只有 powershell", false, true, "powershell,read,write", "bash 已在 tools.jsonc 启用，但本机不可用：未找到 Git Bash"},
+		{"只有 bash", true, false, "bash,read,write", "powershell 已在 tools.jsonc 启用，但本机不可用：未找到 PowerShell"},
+		{"都没有", false, false, "read,write", "bash 已在 tools.jsonc 启用，但本机不可用：未找到 Git Bash|powershell 已在 tools.jsonc 启用，但本机不可用：未找到 PowerShell"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

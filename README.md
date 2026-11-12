@@ -38,7 +38,7 @@
 | 内部状态 | JSON / JSONL | 用户很少直接编辑，保持严格、好解析 |
 | 会话 | JSONL 追加写，按工作目录分组 | 无 CGO、可恢复、可重放；目录形如 `<exeDir>/data/.sprout/sessions/<工作目录>/<session-id>.jsonl` |
 | 数据目录 | `<exeDir>/data/.sprout`（安装级/系统级） | 跟随二进制，不写用户 home 或项目目录；`--data-dir` / `SPROUT_DATA_DIR` 可覆盖 |
-| 工具 | `bash`、`powershell` | M1 只做两个；其他工具待单独评估后扩充 |
+| 工具 | `bash`、`powershell`、`read`、`write` | 由数据目录的 `tools.jsonc` 显式启用（`"enable": true`）才会交给模型，见 `docs/tools.md` |
 | 权限 | 暂不实现 | 默认完全权限；后续做成独立模块，不混进内核 |
 
 ## 项目结构
