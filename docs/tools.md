@@ -20,7 +20,8 @@
 - 工具名：字母开头，后接字母、数字、`_`、`-`，最长 64 字符。模型把它当函数名用。
 - 没写出的工具视为**未注册**；`enable: false` 或省略 `enable` 同样不启用。
 - 内置工具（`bash`、`powershell`、`read`、`write`）由程序实现，`description` / `parameters`
-  只覆盖默认值，省略即用内置值。`bash` / `powershell` 覆盖描述时，程序仍会在末尾追加
+  只覆盖默认值，省略即用内置值。`parameters` 同样要满足 `type: "object"`，写错启动即报错。
+  `bash` / `powershell` 覆盖描述时，程序仍会在末尾追加
   当前环境的版本说明（如 PowerShell 5.1 不支持 `&&`），避免写死的描述误导模型。
 - 其他名字是外部工具：必须给 `description` 与 `exec`，否则启动报错。
 - 写错名字或字段在启动时直接报错并列出可用工具，不会悄悄失效。

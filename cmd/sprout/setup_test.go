@@ -244,3 +244,65 @@ func TestAnthropicAndGoogleProtocolSelectable(t *testing.T) {
 		}
 	}
 }
+
+// tools.jsonc 里给内置工具写 description / parameters，会覆盖程序自带的版本；
+// 覆盖只影响模型看到的元数据，工具的执行行为不变。
+func TestBuiltinToolDescriptionAndParametersCanBeOverridden(t *testing.T) {
+	dir := t.TempDir()
+	tools := `{
+  "tools": {
+    "read": {
+      "enable": true,
+      "description": "只读 Markdown",
+      "parameters": {
+        "type": "object",
+        "properties": { "path": { "type": "string" } },
+        "required": ["path"]
+      }
+    },
+    "write": { "enable": true }
+  }
+}`
+	if err := os.WriteFile(config.ToolsPath(dir), []byte(tools), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a, err := buildApp(dir, testEnv(map[string]string{"DEEPSEEK_API_KEY": "k"}, shellSet(false, false)), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read, ok := a.reg.Get("read")
+	if !ok {
+		t.Fatal("read 应已注册")
+	}
+	if got := read.Description(); got != "只读 Markdown" {
+		t.Errorf("read 的描述 = %q，应使用配置里的覆盖值", got)
+	}
+	if !strings.Contains(string(read.Parameters()), "path") {
+		t.Errorf("read 的参数 = %s，应使用配置里的 schema", read.Parameters())
+	}
+	if strings.Contains(string(read.Parameters()), "offset") {
+		t.Error("覆盖后的参数 schema 不应再含内置的 offset")
+	}
+
+	// 没写覆盖的工具沿用内置描述。
+	write, ok := a.reg.Get("write")
+	if !ok {
+		t.Fatal("write 应已注册")
+	}
+	if strings.Contains(write.Description(), "只读 Markdown") || write.Description() == "" {
+		t.Errorf("write 应沿用内置描述，得到 %q", write.Description())
+	}
+}
+
+// 内置工具写了不合法的 parameters 时，启动就报错，而不是把坏 schema 发给模型。
+func TestBuiltinToolInvalidParametersRejected(t *testing.T) {
+	dir := t.TempDir()
+	tools := `{"tools": {"read": {"enable": true, "parameters": {"type": "string"}}}}`
+	if err := os.WriteFile(config.ToolsPath(dir), []byte(tools), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := buildApp(dir, testEnv(map[string]string{"DEEPSEEK_API_KEY": "k"}, shellSet(false, false)), nil)
+	if err == nil || !strings.Contains(err.Error(), "parameters.type") {
+		t.Errorf("应拒绝不合法的 parameters，得到 %v", err)
+	}
+}

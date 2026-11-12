@@ -75,3 +75,45 @@ func TestResultForModelTruncatesLongCommand(t *testing.T) {
 		t.Fatalf("长命令回显未被截断，长度 %d", len(out))
 	}
 }
+
+// 桩工具可以附带平台说明，用来验证覆盖描述时说明仍会追加。
+type notedTool struct{ stubTool }
+
+func (notedTool) Description() string     { return "内置描述" }
+func (n notedTool) PlatformNotes() string { return "当前环境：Git Bash。" }
+
+func TestDecoratorOverridesDescriptionAndParameters(t *testing.T) {
+	base := stubTool{"read"}
+	schema := json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}}}`)
+	d := Decorator{Tool: base, DescriptionText: "只允许读工作目录下的文件。", ParamSchema: schema}
+
+	if got := d.Description(); got != "只允许读工作目录下的文件。" {
+		t.Errorf("Description = %q", got)
+	}
+	if string(d.Parameters()) != string(schema) {
+		t.Errorf("Parameters = %s", d.Parameters())
+	}
+	// 执行行为不变：Run 直接透传到底层工具。
+	if _, err := d.Run(context.Background(), json.RawMessage(`{}`)); err != nil {
+		t.Errorf("Run 应透传: %v", err)
+	}
+}
+
+func TestDecoratorFallsBackWhenEmpty(t *testing.T) {
+	base := notedTool{stubTool{"bash"}}
+	d := Decorator{Tool: base}
+	if d.Description() != "内置描述" {
+		t.Errorf("没写 description 时应沿用内置值，得到 %q", d.Description())
+	}
+	if string(d.Parameters()) != `{}` {
+		t.Errorf("没写 parameters 时应沿用内置值，得到 %s", d.Parameters())
+	}
+}
+
+// 覆盖描述时，平台说明仍然追加：否则用户写死的描述会让模型在 PowerShell 5.1 上用 &&。
+func TestDecoratorKeepsPlatformNotes(t *testing.T) {
+	d := Decorator{Tool: notedTool{stubTool{"powershell"}}, DescriptionText: "执行 PowerShell 命令。"}
+	if got := d.Description(); got != "执行 PowerShell 命令。\n当前环境：Git Bash。" {
+		t.Errorf("Description = %q", got)
+	}
+}

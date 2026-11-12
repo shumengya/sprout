@@ -101,7 +101,10 @@ func (f *ToolsFile) problems() []string {
 		if e.Exec == nil {
 			if !IsBuiltin(name) {
 				add("%s 不是内置工具（%s），必须提供 exec 说明如何执行", prefix, strings.Join(KnownTools, "、"))
+				continue
 			}
+			// 内置工具覆盖参数时同样要校验：写错的 schema 会原样发给模型，被服务端拒掉整个请求。
+			out = append(out, schemaProblems(prefix, e.Parameters)...)
 			continue
 		}
 		if IsBuiltin(name) {
@@ -113,16 +116,24 @@ func (f *ToolsFile) problems() []string {
 			continue
 		}
 		out = append(out, e.Exec.problems(prefix+".exec")...)
-		if len(e.Parameters) > 0 {
-			var schema map[string]any
-			if err := json.Unmarshal(e.Parameters, &schema); err != nil {
-				add("%s.parameters 不是有效的 JSON Schema 对象: %v", prefix, err)
-			} else if schema["type"] != "object" {
-				add(`%s.parameters.type 必须是 "object"，当前是 %v`, prefix, schema["type"])
-			}
-		}
+		out = append(out, schemaProblems(prefix, e.Parameters)...)
 	}
 	return out
+}
+
+// schemaProblems 校验 parameters：没写时通过；写了就必须是 type 为 object 的 JSON 对象。
+func schemaProblems(prefix string, raw json.RawMessage) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		return []string{fmt.Sprintf("%s.parameters 不是有效的 JSON Schema 对象: %v", prefix, err)}
+	}
+	if schema["type"] != "object" {
+		return []string{fmt.Sprintf(`%s.parameters.type 必须是 "object"，当前是 %v`, prefix, schema["type"])}
+	}
+	return nil
 }
 
 // problems 校验 exec 本身。

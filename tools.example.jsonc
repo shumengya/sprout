@@ -25,7 +25,20 @@
     "powershell": { "enable": true },
 
     // read：读取文本文件，按行号返回，可用 offset / limit 只读一部分。
-    "read": { "enable": true },
+    // 内置工具的描述和参数可以在这里覆盖：写上 description / parameters 即替换程序自带的那份，
+    // 不写则沿用。下例把 read 限制成“只看 Markdown”，模型只会看到这两个参数。
+    "read": {
+      "enable": true,
+      // "description": "读取一个 Markdown 文件，按行号返回。",
+      // "parameters": {
+      //   "type": "object",
+      //   "properties": {
+      //     "path": { "type": "string", "description": "文件路径。" },
+      //     "limit": { "type": "integer", "description": "最多读多少行，默认 2000。" }
+      //   },
+      //   "required": ["path"]
+      // }
+    },
 
     // write：写入（覆盖）文本文件，自动创建缺失的父目录。
     "write": { "enable": true },
