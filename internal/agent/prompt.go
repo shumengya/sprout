@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"text/template"
 	"time"
 )
 
@@ -19,52 +20,69 @@ type PromptInfo struct {
 	Vision bool
 }
 
-// BuildSystemPrompt 生成系统提示词。只提到真实可用的工具，模型不会看到不存在的能力。
-func BuildSystemPrompt(info PromptInfo) string {
+// promptData 是模板里 {{.xxx}} 能访问的全部内容。字段名即用户可写的变量名，改名会破坏用户的模板。
+type promptData struct {
+	OS     string
+	Cwd    string
+	Date   string
+	Now    time.Time
+	Tools  []string
+	Vision bool
+}
+
+// Has 供模板写 {{if .Has "bash"}}：按实际注册的工具决定是否输出某段说明。
+func (d promptData) Has(name string) bool { return slices.Contains(d.Tools, name) }
+
+// PromptTemplate 是解析好的系统提示词模板。
+type PromptTemplate struct{ t *template.Template }
+
+var promptFuncs = template.FuncMap{"join": strings.Join}
+
+// ParsePromptTemplate 解析模板，并用几组典型环境试渲染一次：
+// text/template 只在执行时才发现 {{.Foo}} 这类写错的字段，提前跑一遍才能在启动时报错。
+func ParsePromptTemplate(text string) (*PromptTemplate, error) {
+	t, err := template.New("SYSTEMPROMPT.md").Funcs(promptFuncs).Option("missingkey=error").Parse(text)
+	if err != nil {
+		return nil, fmt.Errorf("系统提示词模板语法错误: %w", err)
+	}
+	p := &PromptTemplate{t: t}
+	for _, tools := range [][]string{nil, {"bash", "powershell", "read", "write"}} {
+		for _, vision := range []bool{false, true} {
+			if _, err := p.Render(PromptInfo{OS: "Windows", Cwd: ".", Tools: tools, Vision: vision}); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return p, nil
+}
+
+// Render 用当前环境填充模板。
+func (p *PromptTemplate) Render(info PromptInfo) (string, error) {
 	var b strings.Builder
-	b.WriteString("你是 Sprout，一个运行在用户本机终端里的通用 AI 助手。")
-	b.WriteString("你可以通过工具在用户的电脑上执行真实命令，再根据真实输出回答问题。\n\n")
-
-	b.WriteString("## 环境\n")
-	fmt.Fprintf(&b, "- 操作系统: %s\n", info.OS)
-	fmt.Fprintf(&b, "- 工作目录: %s\n", info.Cwd)
-	fmt.Fprintf(&b, "- 当前日期: %s\n\n", info.Now.Format("2006-01-02"))
-
-	b.WriteString("## 工具\n")
-	if len(info.Tools) == 0 {
-		b.WriteString("当前没有可用的终端工具，只能依据已有知识回答。")
-		b.WriteString("需要读取或操作用户电脑时，如实说明做不到，不要假装执行过命令。\n\n")
-	} else {
-		fmt.Fprintf(&b, "可用工具: %s。\n", strings.Join(info.Tools, "、"))
-		if slices.Contains(info.Tools, "powershell") && slices.Contains(info.Tools, "bash") {
-			b.WriteString("- 两者都可用时：系统管理类命令优先用 powershell；运行 POSIX 脚本或用户明确要求时用 bash。\n")
-		}
-		if slices.Contains(info.Tools, "read") || slices.Contains(info.Tools, "write") {
-			b.WriteString("- 读写单个文本文件优先用 read / write：不用拼引号、不用管 shell 语法，也省掉一次进程启动。")
-			b.WriteString("目录列举、搜索、批量处理、追加或替换局部内容这类操作仍然用 shell 工具。\n")
-		}
-		if len(info.Tools) == 1 && slices.Contains(info.Tools, "read") {
-			b.WriteString("- 只有 read：可以读文件，但不能执行命令，也不能写文件，做不到时如实说明。\n")
-		}
-		b.WriteString("- 工具是无状态的：每次调用都启动全新进程，工作目录固定为上面的工作目录，")
-		b.WriteString("cd、环境变量等状态不会保留到下一次调用，需要时在同一条命令里完成。\n")
-		b.WriteString("- 不要运行需要交互输入的命令。\n")
-		b.WriteString("- 同一次回复里发出的多个工具调用会并行执行，彼此没有先后顺序，也看不到对方的结果。")
-		b.WriteString("互相独立的命令可以一起发；后一条依赖前一条的结果或副作用时（比如先建目录再写文件），")
-		b.WriteString("要么合并成一条命令，要么分到不同的回合里。\n\n")
+	err := p.t.Execute(&b, promptData{
+		OS: info.OS, Cwd: info.Cwd, Date: info.Now.Format("2006-01-02"), Now: info.Now,
+		Tools: info.Tools, Vision: info.Vision,
+	})
+	if err != nil {
+		return "", fmt.Errorf("渲染系统提示词失败: %w", err)
 	}
+	return b.String(), nil
+}
 
-	b.WriteString("## 工作方式\n")
-	// 支持识图时必须明说：否则模型会把带路径的提问当成文件任务，去 Test-Path 或找 OCR，
-	// 而不是直接看消息里已经附带的图片。
-	if info.Vision {
-		b.WriteString("- 用户可能直接在消息里附带图片（截图、照片、设计稿）：这些图片你**已经能看到**，")
-		b.WriteString("直接根据图片内容回答，不要用工具去读取、提取或猜测图片内容。")
-		b.WriteString("消息文本里出现的图片路径只是它的来源说明，不代表你需要再去打开一次。\n")
+var defaultPrompt = must(ParsePromptTemplate(DefaultPromptTemplate))
+
+func must(p *PromptTemplate, err error) *PromptTemplate {
+	if err != nil {
+		panic(err)
 	}
-	b.WriteString("- 涉及本机文件、目录、系统状态或命令结果等事实时，先用工具查看，再回答，不要凭空猜测。\n")
-	b.WriteString("- 只发起必要的工具调用，观察输出后再决定下一步。\n")
-	b.WriteString("- 命令失败时阅读 stderr 和退出码，分析原因后重试，或如实告诉用户，不要隐瞒失败。\n")
-	b.WriteString("- 用户用什么语言提问，就用什么语言回答，保持简洁。\n")
-	return b.String()
+	return p
+}
+
+// BuildSystemPrompt 用内置模板生成系统提示词。只提到真实可用的工具，模型不会看到不存在的能力。
+func BuildSystemPrompt(info PromptInfo) string {
+	s, err := defaultPrompt.Render(info)
+	if err != nil { // 内置模板在 init 时已试渲染过，走到这里说明模板本身有 bug
+		panic(err)
+	}
+	return s
 }

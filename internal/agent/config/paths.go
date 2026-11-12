@@ -84,3 +84,6 @@ func SessionsDir(dataDir string) string { return filepath.Join(dataDir, "session
 
 // LogsDir 是日志目录。
 func LogsDir(dataDir string) string { return filepath.Join(dataDir, "logs") }
+
+// SystemPromptPath 是系统提示词模板 SYSTEMPROMPT.md 的路径。
+func SystemPromptPath(dataDir string) string { return joinDataDir(dataDir, "SYSTEMPROMPT.md") }

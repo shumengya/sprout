@@ -52,6 +52,7 @@ go vet ./...
 - Windows 的 `bash` 工具只认真实 Git Bash / MSYS2 / Cygwin：按 `bashPath` 配置、Program Files 两个路径、PATH 顺序查找；只有 `System32\bash.exe`（WSL 启动器）时视为不可用，并提示安装 Git for Windows。
 - Windows 的 `powershell` 工具先找 `pwsh.exe`（7+），再回退 `powershell.exe`（5.1）；把 edition 写进工具描述，5.1 不要生成 `&&` / `||` / `?:`。
 - `bash` 和 `powershell` 都是一等公民，不排先后；是否注册由 `tools.jsonc` 开关、平台和实际检测结果共同决定，模型只看到当前可用工具。
+- 系统提示词改动只改 `agent.DefaultPromptTemplate`，并同步仓库根的 `SYSTEMPROMPT.example.md`（测试保证一致）；模板里用到的字段名（`promptData`）是用户可见接口，不要改名。
 - 新增内置工具时同步改三处：`config.KnownTools`（否则 `tools.jsonc` 校验会拒绝该名字）、`config.ToolsTemplate` 与仓库根的 `tools.example.jsonc`（测试保证一致）、`cmd/sprout/setup.go` 的 `registerTools`。
 - 外部工具（`internal/agent/tool/external`）只做「把参数替换进命令再执行」，不校验参数取值；覆盖 `parameters` 只影响模型看到的 schema，不是执行期约束。别把它当成沙箱。
 - Termux 没有 systemd、没有 CGO 工具链；不要引入依赖这些的库。

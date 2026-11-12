@@ -39,6 +39,7 @@
 | 会话 | JSONL 追加写，按工作目录分组 | 无 CGO、可恢复、可重放；目录形如 `<exeDir>/data/.sprout/sessions/<工作目录>/<session-id>.jsonl` |
 | 数据目录 | `<exeDir>/data/.sprout`（安装级/系统级） | 跟随二进制，不写用户 home 或项目目录；`--data-dir` / `SPROUT_DATA_DIR` 可覆盖 |
 | 工具 | `bash`、`powershell`、`read`、`write` | 由数据目录的 `tools.jsonc` 显式启用（`"enable": true`）才会交给模型，见 `docs/tools.md` |
+| 系统提示词 | 数据目录的 `SYSTEMPROMPT.md`（Go `text/template` 模板） | 缺失或为空时写入内置模板；环境、工具、识图等动态内容用 `{{.Cwd}}`、`{{if .Has "bash"}}` 等占位，见 `docs/system-prompt.md` |
 | 权限 | 暂不实现 | 默认完全权限；后续做成独立模块，不混进内核 |
 
 ## 项目结构

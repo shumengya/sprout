@@ -39,6 +39,7 @@ type app struct {
 	cwd      string
 	cfg      *config.File
 	tools    *config.ToolsFile
+	prompt   *agent.PromptTemplate // SYSTEMPROMPT.md；切模型、/new 时按同一份模板重新渲染
 	env      env
 	log      *slog.Logger
 	sel      config.Selection
@@ -85,6 +86,12 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 		return nil, err
 	}
 
+	// SYSTEMPROMPT.md 是系统提示词模板；缺失或为空时补上内置模板。
+	prompt, err := loadSystemPrompt(config.SystemPromptPath(dataDir))
+	if err != nil {
+		return nil, err
+	}
+
 	sel, err := cfg.Selected()
 	if err != nil {
 		return nil, err
@@ -95,7 +102,7 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 		return nil, err
 	}
 
-	a := &app{dataDir: dataDir, cwd: e.cwd, cfg: cfg, tools: toolsCfg, env: e, log: log, sel: sel, effort: effort}
+	a := &app{dataDir: dataDir, cwd: e.cwd, cfg: cfg, tools: toolsCfg, prompt: prompt, env: e, log: log, sel: sel, effort: effort}
 	a.info = tui.Info{
 		Model: sel.ModelName, Provider: sel.ProviderName + "，" + sel.Provider.Protocol,
 		Cwd: e.cwd, DataDir: dataDir, Vision: sel.Model.SupportsVision(), Effort: effortLabel(sel, effort),
@@ -236,15 +243,18 @@ func (a *app) buildAgent(sel config.Selection, key string, reg *tool.Registry, r
 	if err != nil {
 		return nil, err
 	}
+	system, err := a.prompt.Render(agent.PromptInfo{
+		OS: platform.OSName(), Cwd: e.cwd, Now: e.now(), Tools: reg.Names(),
+		Vision: sel.Model.SupportsVision(),
+	})
+	if err != nil {
+		return nil, err
+	}
 	return agent.New(agent.Config{
-		Provider: prov, Model: sel.ModelName, Tools: reg,
-		System: agent.BuildSystemPrompt(agent.PromptInfo{
-			OS: platform.OSName(), Cwd: e.cwd, Now: e.now(), Tools: reg.Names(),
-			Vision: sel.Model.SupportsVision(),
-		}),
+		Provider: prov, Model: sel.ModelName, Tools: reg, System: system,
 		MaxOutputTokens: sel.Model.MaxOutput, ContextWindow: sel.Model.ContextWindow,
 		Thinking: thinkingFor(sel, a.effort),
-		Vision: sel.Model.SupportsVision(),
+		Vision:   sel.Model.SupportsVision(),
 		Recorder: rec, Retry: e.retry, Logger: log,
 	})
 }

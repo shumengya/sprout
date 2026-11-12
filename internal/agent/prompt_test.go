@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -68,5 +70,59 @@ func TestPromptMentionsAttachedImagesWhenVision(t *testing.T) {
 	}
 	if strings.Contains(promptFor("powershell"), "已经能看到") {
 		t.Error("不支持识图时不应出现图片说明")
+	}
+}
+
+func TestPromptTemplateVariablesAndConditions(t *testing.T) {
+	p, err := ParsePromptTemplate(`{{.OS}}|{{.Cwd}}|{{.Date}}|{{.Now.Format "15:04"}}|{{join .Tools ","}}|` +
+		`{{if .Has "bash"}}B{{end}}{{if .Vision}}V{{end}}{{if not .Tools}}none{{end}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := p.Render(PromptInfo{OS: "Linux", Cwd: "/w", Now: time.Date(2026, 1, 2, 9, 30, 0, 0, time.UTC),
+		Tools: []string{"bash", "read"}, Vision: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "Linux|/w|2026-01-02|09:30|bash,read|BV"; got != want {
+		t.Errorf("渲染结果 = %q，期望 %q", got, want)
+	}
+	got, _ = p.Render(PromptInfo{})
+	if !strings.HasSuffix(got, "none") {
+		t.Errorf("没有工具时应走 not .Tools 分支: %q", got)
+	}
+}
+
+func TestPromptTemplateErrorsAreReportedAtParse(t *testing.T) {
+	for name, text := range map[string]string{
+		"语法错误":  `{{if .Vision}}没有 end`,
+		"变量名写错": `{{.Workdir}}`,
+		"函数不存在": `{{upper .OS}}`,
+		"方法参数错": `{{if .Has}}x{{end}}`,
+	} {
+		if _, err := ParsePromptTemplate(text); err == nil {
+			t.Errorf("%s 应在解析时报错", name)
+		}
+	}
+}
+
+func TestPromptTemplateCommentsAreNotSent(t *testing.T) {
+	p, err := ParsePromptTemplate("{{- /* 给人看的说明 */ -}}\n正文")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := p.Render(PromptInfo{}); got != "正文" {
+		t.Errorf("注释不应出现在提示词里: %q", got)
+	}
+}
+
+// 仓库根的示例文件与内置模板逐字一致，避免两处各改各的。
+func TestDefaultPromptMatchesExampleFile(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "SYSTEMPROMPT.example.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.ReplaceAll(string(b), "\r\n", "\n") != DefaultPromptTemplate {
+		t.Fatal("SYSTEMPROMPT.example.md 与 agent.DefaultPromptTemplate 不一致，请同步修改")
 	}
 }
