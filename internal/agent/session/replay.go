@@ -107,7 +107,7 @@ func (r *replayer) handle(rec rawRec) {
 		r.emit(event.Interrupted{Reason: rec.Reason, Content: rec.Content, Reasoning: rec.Reasoning})
 	case "usage":
 		r.emit(event.Usage{InputTokens: rec.InputTokens, OutputTokens: rec.OutputTokens, TotalTokens: rec.TotalTokens,
-			ReasoningTokens: rec.ReasoningTokens})
+			ReasoningTokens: rec.ReasoningTokens, CacheReadTokens: rec.CacheReadTokens, CacheWriteTokens: rec.CacheWriteTokens})
 	case "compact":
 		r.compact(rec)
 	case "error":

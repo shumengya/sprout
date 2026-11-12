@@ -53,3 +53,45 @@ func TestMissingReasoningTokensIsZero(t *testing.T) {
 		t.Errorf("ReasoningTokens = %d", resp.Usage.ReasoningTokens)
 	}
 }
+
+func TestChatParsesCacheHitTokens(t *testing.T) {
+	// OpenAI 放在 prompt_tokens_details.cached_tokens，DeepSeek 放在 prompt_cache_hit_tokens；
+	// 都已经含在 prompt_tokens 里，InputTokens 保持全部输入的口径，命中缓存只是其中的一部分。
+	cases := map[string]string{
+		"OpenAI":   `"prompt_tokens_details":{"cached_tokens":80}`,
+		"DeepSeek": `"prompt_cache_hit_tokens":80,"prompt_cache_miss_tokens":20`,
+	}
+	for name, extra := range cases {
+		t.Run(name, func(t *testing.T) {
+			srv := newServer(t, okBody(sse(
+				chatDelta("答"),
+				`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
+				`{"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":5,"total_tokens":105,`+extra+`}}`,
+				"[DONE]",
+			)))
+			resp, _, err := collect(newProvider(t, config.ProtocolChat, srv), userReq("hi"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := agent.Usage{InputTokens: 100, OutputTokens: 5, TotalTokens: 105, CacheReadTokens: 80}
+			if resp.Usage != want {
+				t.Errorf("Usage = %+v, want %+v", resp.Usage, want)
+			}
+		})
+	}
+}
+
+func TestResponsesParsesCachedTokens(t *testing.T) {
+	srv := newServer(t, okBody(sse(
+		respDelta(0, "答"),
+		`{"type":"response.completed","response":{"status":"completed","output":[],`+
+			`"usage":{"input_tokens":100,"output_tokens":5,"total_tokens":105,"input_tokens_details":{"cached_tokens":64}}}}`,
+	)))
+	resp, _, err := collect(newProvider(t, config.ProtocolResponses, srv), userReq("hi"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Usage.InputTokens != 100 || resp.Usage.CacheReadTokens != 64 || resp.Usage.CacheWriteTokens != 0 {
+		t.Errorf("Usage = %+v", resp.Usage)
+	}
+}

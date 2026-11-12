@@ -206,3 +206,18 @@ func TestEmptyAPIKey(t *testing.T) {
 		t.Fatal("空 API Key 应报错")
 	}
 }
+
+func TestUsageParsesCachedContentTokens(t *testing.T) {
+	// cachedContentTokenCount 已含在 promptTokenCount 里。
+	srv := newServer(t, 200, sse(
+		`{"candidates":[{"content":{"parts":[{"text":"好"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":100,"cachedContentTokenCount":70,"candidatesTokenCount":4,"totalTokenCount":104}}`,
+	))
+	resp, _, _, err := collect(t, newProvider(t, srv), userReq("hi"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := agent.Usage{InputTokens: 100, OutputTokens: 4, TotalTokens: 104, CacheReadTokens: 70}
+	if resp.Usage != want {
+		t.Errorf("Usage = %+v, want %+v", resp.Usage, want)
+	}
+}

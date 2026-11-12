@@ -275,6 +275,9 @@ type startMessage struct {
 type usage struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
+	// Anthropic 的 input_tokens 不含缓存：命中和写入缓存的 token 各有独立字段，适配器负责加回去。
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 }
 
 type contentBlock struct {

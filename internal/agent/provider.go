@@ -34,11 +34,16 @@ type Chunk struct {
 
 // Usage 是 token 用量，provider 没有返回时全为 0。
 type Usage struct {
+	// InputTokens 是本次请求的全部输入 token，含命中缓存和写入缓存的部分（各协议在适配器里归一到这个口径）。
 	InputTokens  int
 	OutputTokens int
 	TotalTokens  int
 	// ReasoningTokens 是 OutputTokens 里用于思维链的部分；provider 不报告时为 0。
 	ReasoningTokens int
+	// CacheReadTokens 是 InputTokens 里命中缓存的部分，CacheWriteTokens 是写入缓存的部分；
+	// provider 不报告时为 0。
+	CacheReadTokens  int
+	CacheWriteTokens int
 }
 
 // 模型停止生成的原因，已由 provider 适配器归一化。

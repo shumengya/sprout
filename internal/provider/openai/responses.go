@@ -68,6 +68,9 @@ func (p *responsesProvider) Stream(ctx context.Context, req agent.Request, emit 
 		if d := u.OutputTokensDetails; d != nil {
 			usage.ReasoningTokens = d.ReasoningTokens
 		}
+		if d := u.InputTokensDetails; d != nil {
+			usage.CacheReadTokens = d.CachedTokens
+		}
 	}
 	return agent.Response{
 		// Reasoning 只用于展示：Responses 的思考条目需要加密内容才能回传，store:false 下不回传。

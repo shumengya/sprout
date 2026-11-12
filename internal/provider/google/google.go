@@ -98,6 +98,7 @@ func (p *provider) Stream(ctx context.Context, req agent.Request, emit func(agen
 			usage = agent.Usage{
 				InputTokens: u.PromptTokenCount, OutputTokens: u.CandidatesTokenCount,
 				TotalTokens: u.TotalTokenCount, ReasoningTokens: u.ThoughtsTokenCount,
+				CacheReadTokens: u.CachedContentTokenCount,
 			}
 		}
 		for _, cand := range chunk.Candidates {

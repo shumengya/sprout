@@ -192,6 +192,10 @@ type responsesDone struct {
 		InputTokens  int `json:"input_tokens"`
 		OutputTokens int `json:"output_tokens"`
 		TotalTokens  int `json:"total_tokens"`
+		// 命中缓存的 token（已含在 input_tokens 里）；不报告的服务没有这个字段。
+		InputTokensDetails *struct {
+			CachedTokens int `json:"cached_tokens"`
+		} `json:"input_tokens_details"`
 		// 思维链 token；不报告的服务没有这个字段。
 		OutputTokensDetails *struct {
 			ReasoningTokens int `json:"reasoning_tokens"`

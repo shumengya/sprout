@@ -78,6 +78,7 @@ func (p *provider) Stream(ctx context.Context, req agent.Request, emit func(agen
 		reasoning strings.Builder
 		stop      string
 		usage     agent.Usage
+		rawIn     int // Anthropic 报告的 input_tokens，不含缓存；结尾与缓存读写合并成 usage.InputTokens
 		finished  bool
 	)
 	for !finished {
@@ -99,7 +100,8 @@ func (p *provider) Stream(ctx context.Context, req agent.Request, emit func(agen
 		switch e.Type {
 		case "message_start":
 			if e.Message != nil && e.Message.Usage != nil {
-				usage.InputTokens = e.Message.Usage.InputTokens
+				u := e.Message.Usage
+				rawIn, usage.CacheReadTokens, usage.CacheWriteTokens = u.InputTokens, u.CacheReadInputTokens, u.CacheCreationInputTokens
 			}
 		case "content_block_start":
 			cb := e.ContentBlock
@@ -144,8 +146,11 @@ func (p *provider) Stream(ctx context.Context, req agent.Request, emit func(agen
 				stop = e.Delta.StopReason
 			}
 			if e.Usage != nil {
+				// message_delta 里的输入与缓存字段是累计值，只增不减；取大的那个。
 				usage.OutputTokens = e.Usage.OutputTokens
-				usage.InputTokens = max(usage.InputTokens, e.Usage.InputTokens)
+				rawIn = max(rawIn, e.Usage.InputTokens)
+				usage.CacheReadTokens = max(usage.CacheReadTokens, e.Usage.CacheReadInputTokens)
+				usage.CacheWriteTokens = max(usage.CacheWriteTokens, e.Usage.CacheCreationInputTokens)
 			}
 		case "message_stop":
 			finished = true
@@ -168,6 +173,8 @@ func (p *provider) Stream(ctx context.Context, req agent.Request, emit func(agen
 	if !finished {
 		return agent.Response{}, transport.Interrupted(nil, "响应流在结束前中断")
 	}
+	// Anthropic 的 input_tokens 不含缓存；归一成“全部输入”的口径，缓存读写是其中的一部分。
+	usage.InputTokens = rawIn + usage.CacheReadTokens + usage.CacheWriteTokens
 	if usage.InputTokens > 0 || usage.OutputTokens > 0 {
 		usage.TotalTokens = usage.InputTokens + usage.OutputTokens
 	}

@@ -177,6 +177,12 @@ type chatChunk struct {
 		PromptTokens     int `json:"prompt_tokens"`
 		CompletionTokens int `json:"completion_tokens"`
 		TotalTokens      int `json:"total_tokens"`
+		// OpenAI 把命中缓存的 token 放在 prompt_tokens_details.cached_tokens（已含在 prompt_tokens 里）；
+		// DeepSeek 用 prompt_cache_hit_tokens。不报告的服务没有这些字段。
+		PromptTokensDetails *struct {
+			CachedTokens int `json:"cached_tokens"`
+		} `json:"prompt_tokens_details"`
+		PromptCacheHitTokens int `json:"prompt_cache_hit_tokens"`
 		// OpenAI 与 DeepSeek 都把思维链 token 放在这里；不报告的服务没有这个字段。
 		CompletionTokensDetails *struct {
 			ReasoningTokens int `json:"reasoning_tokens"`

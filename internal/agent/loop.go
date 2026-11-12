@@ -101,6 +101,7 @@ func (t *turn) loop() error {
 			t.out.Emit(event.Usage{
 				InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens, TotalTokens: resp.Usage.TotalTokens,
 				ReasoningTokens: resp.Usage.ReasoningTokens,
+				CacheReadTokens: resp.Usage.CacheReadTokens, CacheWriteTokens: resp.Usage.CacheWriteTokens,
 			})
 		}
 

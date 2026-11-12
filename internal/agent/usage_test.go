@@ -49,3 +49,25 @@ func TestMessageCompletedCarriesReasoningEstimate(t *testing.T) {
 	}
 	t.Fatal("没有 MessageCompleted 事件")
 }
+
+func TestUsageEventCarriesCacheTokens(t *testing.T) {
+	p := &scripted{steps: []scriptStep{{
+		chunks: []string{"答"},
+		resp: Response{Message: Message{Content: []Block{TextBlock("答")}}, StopReason: StopStop,
+			Usage: Usage{InputTokens: 350, OutputTokens: 5, TotalTokens: 355, CacheReadTokens: 300, CacheWriteTokens: 40}},
+	}}}
+	a := newAgent(t, p, nil, nil)
+	var c collector
+	if err := a.Run(context.Background(), Input{Text: "hi"}, &c); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range c.events {
+		if u, ok := e.(event.Usage); ok {
+			if u.InputTokens != 350 || u.CacheReadTokens != 300 || u.CacheWriteTokens != 40 {
+				t.Fatalf("Usage = %+v", u)
+			}
+			return
+		}
+	}
+	t.Fatal("没有 Usage 事件")
+}

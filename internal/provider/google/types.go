@@ -226,6 +226,8 @@ type streamChunk struct {
 		CandidatesTokenCount int `json:"candidatesTokenCount"`
 		TotalTokenCount      int `json:"totalTokenCount"`
 		ThoughtsTokenCount   int `json:"thoughtsTokenCount"`
+		// 命中缓存的 token，已含在 promptTokenCount 里；不报告时没有这个字段。
+		CachedContentTokenCount int `json:"cachedContentTokenCount"`
 	} `json:"usageMetadata"`
 	PromptFeedback *struct {
 		BlockReason        string `json:"blockReason"`

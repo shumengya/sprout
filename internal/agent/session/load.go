@@ -60,10 +60,12 @@ type rawRec struct {
 	DurationMS int64  `json:"duration_ms"`
 	Error      string `json:"error"`
 
-	InputTokens     int `json:"input_tokens"`
-	OutputTokens    int `json:"output_tokens"`
-	TotalTokens     int `json:"total_tokens"`
-	ReasoningTokens int `json:"reasoning_tokens"` // 旧会话没有这个字段，读出来是 0
+	InputTokens      int `json:"input_tokens"`
+	OutputTokens     int `json:"output_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+	ReasoningTokens  int `json:"reasoning_tokens"` // 旧会话没有这个字段，读出来是 0
+	CacheReadTokens  int `json:"cache_read_tokens"`
+	CacheWriteTokens int `json:"cache_write_tokens"`
 
 	Reason string `json:"reason"`
 

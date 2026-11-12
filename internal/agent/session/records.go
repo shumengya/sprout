@@ -91,10 +91,12 @@ type compactRec struct {
 
 type usageRec struct {
 	header
-	InputTokens     int `json:"input_tokens"`
-	OutputTokens    int `json:"output_tokens"`
-	TotalTokens     int `json:"total_tokens"`
-	ReasoningTokens int `json:"reasoning_tokens,omitempty"` // 服务端不报告时省略
+	InputTokens      int `json:"input_tokens"`
+	OutputTokens     int `json:"output_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+	ReasoningTokens  int `json:"reasoning_tokens,omitempty"`  // 服务端不报告时省略
+	CacheReadTokens  int `json:"cache_read_tokens,omitempty"` // 同上；旧会话没有这两个字段，读出来是 0
+	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
 }
 
 // interruptedRec 记录一次被取消或中途失败、但保留了部分输出的轮次。
@@ -157,7 +159,7 @@ func toRecord(e event.Event, now time.Time) (any, bool) {
 	case event.Compacted:
 		return compactRec{h("compact"), e.Mode, e.TokensBefore, e.TokensAfter, e.Dropped, e.Summary, e.Err, e.Manual}, true
 	case event.Usage:
-		return usageRec{h("usage"), e.InputTokens, e.OutputTokens, e.TotalTokens, e.ReasoningTokens}, true
+		return usageRec{h("usage"), e.InputTokens, e.OutputTokens, e.TotalTokens, e.ReasoningTokens, e.CacheReadTokens, e.CacheWriteTokens}, true
 	case event.Interrupted:
 		return interruptedRec{h("interrupted"), e.Reason, e.Content, e.Reasoning}, true
 	case event.TurnFinished:

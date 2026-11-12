@@ -251,3 +251,42 @@ func TestEmptyAPIKey(t *testing.T) {
 		t.Fatal("空 API Key 应报错")
 	}
 }
+
+func TestUsageFoldsCacheTokensIntoInput(t *testing.T) {
+	// Anthropic 的 input_tokens 不含缓存，命中和写入缓存各有独立字段。
+	// 适配器把它们加回去：InputTokens 是全部输入，缓存读写是其中的一部分。
+	srv := newServer(t, 200, sse(t,
+		"message_start\x00"+`{"type":"message_start","message":{"usage":{"input_tokens":10,"cache_read_input_tokens":300,"cache_creation_input_tokens":40,"output_tokens":1}}}`,
+		"content_block_start\x00"+`{"type":"content_block_start","index":0,"content_block":{"type":"text"}}`,
+		"content_block_delta\x00"+`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"好"}}`,
+		"message_delta\x00"+`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}`,
+		"message_stop\x00"+`{"type":"message_stop"}`,
+	))
+	resp, _, _, err := collect(t, newProvider(t, srv), userReq("hi"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := agent.Usage{InputTokens: 350, OutputTokens: 5, TotalTokens: 355, CacheReadTokens: 300, CacheWriteTokens: 40}
+	if resp.Usage != want {
+		t.Errorf("Usage = %+v, want %+v", resp.Usage, want)
+	}
+}
+
+func TestUsageCacheTokensFromMessageDeltaAreCumulative(t *testing.T) {
+	// message_start 里没有缓存字段、message_delta 里才给出累计值时，也要算进去；两处都有时取大的，不能重复相加。
+	srv := newServer(t, 200, sse(t,
+		"message_start\x00"+`{"type":"message_start","message":{"usage":{"input_tokens":10,"cache_read_input_tokens":300}}}`,
+		"content_block_start\x00"+`{"type":"content_block_start","index":0,"content_block":{"type":"text"}}`,
+		"content_block_delta\x00"+`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"好"}}`,
+		"message_delta\x00"+`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":10,"cache_read_input_tokens":300,"cache_creation_input_tokens":25,"output_tokens":5}}`,
+		"message_stop\x00"+`{"type":"message_stop"}`,
+	))
+	resp, _, _, err := collect(t, newProvider(t, srv), userReq("hi"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := agent.Usage{InputTokens: 335, OutputTokens: 5, TotalTokens: 340, CacheReadTokens: 300, CacheWriteTokens: 25}
+	if resp.Usage != want {
+		t.Errorf("Usage = %+v, want %+v", resp.Usage, want)
+	}
+}
