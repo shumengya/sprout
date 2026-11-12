@@ -19,7 +19,7 @@ func TestThinkingStreamsAsLivePreview(t *testing.T) {
 		t.Fatal("增量应追加到同一个 live 思维链条目")
 	}
 	s := plain(m)
-	mustContain(t, s, "思考中… 6 字", "先看一下目录", "思考中")
+	mustContain(t, s, "思考中… 约5 token", "先看一下目录", "思考中")
 }
 
 func TestLiveThinkingOnlyPreviewsLastLines(t *testing.T) {

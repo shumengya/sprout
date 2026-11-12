@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/shumengya/sprout/internal/agent"
 )
 
 // 思维链流式输出时预览的行数。
@@ -23,7 +24,8 @@ func (e *entry) drawThink(w int) string {
 		if len(lines) > thinkPreviewLines {
 			lines = lines[len(lines)-thinkPreviewLines:]
 		}
-		return thinkBlock(fmt.Sprintf("思考中… %d 字", utf8.RuneCountInString(text)), lines)
+		// 流式时服务端还没报告用量，用内核的估算，并和结束后的“约N token”保持一致的口径。
+		return thinkBlock(fmt.Sprintf("思考中… 约%s token", fmtTokens(agent.EstimateTokens(text))), lines)
 	}
 
 	head := e.thinkHead()

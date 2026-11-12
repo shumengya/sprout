@@ -83,8 +83,8 @@ type Model struct {
 	thinkShown bool
 	// interrupted：本轮已经由 interrupted 事件说明过中断原因，结束时不再重复一条“已取消”。
 	interrupted bool
-	follow     bool // transcript 是否自动跟随底部
-	unseen     bool // 暂停跟随期间是否有新内容到达
+	follow      bool // transcript 是否自动跟随底部
+	unseen      bool // 暂停跟随期间是否有新内容到达
 
 	showThink bool            // 是否展开思维链全文（/think 切换）
 	mouse     bool            // 是否开启鼠标上报（/mouse 切换）；开启后滚轮可滚动，但终端自带的拖选需要按住 Shift
@@ -105,7 +105,9 @@ type Model struct {
 
 	// 对话区的拖选。选区用内容坐标记录；content 是当前送进 viewport 的完整文本，
 	// plain 是它去掉样式后的逐行文本（按需计算，plainSrc 记录算的是哪一版）。
-	sel      selection
+	sel selection
+	// inSel 表示正在输入框里拖选：鼠标事件转给 textarea 自己的选区，松开时复制。
+	inSel    bool
 	content  string
 	plain    []string
 	plainSrc string

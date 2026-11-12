@@ -11,8 +11,9 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// 开启鼠标上报后终端自带的拖选就失效了（鼠标事件都交给了程序），所以对话区的拖选和复制由程序自己做：
-// 在对话区按住左键拖动选中文字，松开自动复制；拖到上下边缘会自动滚动。
+// 开启鼠标上报后终端自带的拖选就失效了（鼠标事件都交给了程序），所以对话区和输入框的拖选、复制
+// 都由程序自己做：按住左键拖动选中文字，松开自动复制；在对话区拖到上下边缘还会自动滚动。
+// 输入框那段直接转发给 bubbles textarea 自带的选区 API，屏幕行换算成输入框内的行即可。
 
 var (
 	styReverse = lipgloss.NewStyle().Reverse(true)
@@ -65,16 +66,57 @@ func (m *Model) posAt(x, y int) pos {
 	}
 }
 
+// inputTop 是输入框第一行在屏幕上的行号，供鼠标坐标换算。
+// 布局见 View：对话区、活动行（可选）、候选列表（可选）、分隔线，然后才是输入框。
+func (m *Model) inputTop() int {
+	n := m.vp.Height() + 1 // 对话区 + 输入框上方的分隔线
+	if m.activityLine() != "" {
+		n++
+	}
+	if _, overlaid := m.overlay(); !overlaid {
+		n += m.suggestRows()
+	}
+	return n
+}
+
+// inInput 报告屏幕第 y 行是否落在输入框里（不含被选择器替换的情况）。
+func (m *Model) inInput(y int) bool {
+	if _, overlaid := m.overlay(); overlaid {
+		return false
+	}
+	top := m.inputTop()
+	return y >= top && y < top+m.in.Height()
+}
+
 func (m *Model) onMouseClick(msg tea.MouseClickMsg) {
-	if msg.Button != tea.MouseLeft || msg.Y < 0 || msg.Y >= m.vp.Height() {
-		m.clearSel() // 点在输入框、状态行等别处：取消选区
+	dismiss := m.sel.active() // 先记下：按下前屏幕上有选区时，这次点击只用来取消它
+	m.clearSel()
+	m.inSel = false
+	m.in.ClearSelection()
+	if msg.Button != tea.MouseLeft {
+		return // 右键等不开始拖选
+	}
+	if m.inInput(msg.Y) {
+		if m.in.Value() == "" {
+			return // 空输入框里显示的是占位提示，不是可复制的文字
+		}
+		m.inSel = true
+		m.in.BeginSelection(msg.X, msg.Y-m.inputTop())
 		return
 	}
+	if msg.Y < 0 || msg.Y >= m.vp.Height() {
+		return // 状态行、信息栏等别处：不选任何东西
+	}
 	p := m.posAt(msg.X, msg.Y)
-	m.sel = selection{dragging: true, anchor: p, head: p, row: m.vp.YOffset() + msg.Y, dismiss: m.sel.active()}
+	m.sel = selection{dragging: true, anchor: p, head: p, row: m.vp.YOffset() + msg.Y, dismiss: dismiss}
 }
 
 func (m *Model) onMouseMotion(msg tea.MouseMotionMsg) {
+	if m.inSel {
+		// 拖出输入框上下边界时 PositionAt 会收敛到首/尾，不必单独限制。
+		m.in.ExtendSelection(msg.X, msg.Y-m.inputTop())
+		return
+	}
 	if !m.sel.dragging {
 		return
 	}
@@ -94,6 +136,14 @@ func (m *Model) onMouseMotion(msg tea.MouseMotionMsg) {
 
 // onMouseRelease 结束拖动。真的拖选过就复制；单纯点击用来展开或收起思考过程（或只是取消选区）。
 func (m *Model) onMouseRelease() tea.Cmd {
+	if m.inSel {
+		m.inSel = false
+		m.in.EndSelection() // 宽度为 0 的选区（只是点击）会被丢弃
+		if text := m.in.SelectedText(); text != "" {
+			return m.copyCmd(text)
+		}
+		return nil
+	}
 	if !m.sel.dragging {
 		return nil
 	}
