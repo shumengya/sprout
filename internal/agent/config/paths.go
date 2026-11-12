@@ -87,3 +87,9 @@ func LogsDir(dataDir string) string { return filepath.Join(dataDir, "logs") }
 
 // SystemPromptPath 是系统提示词模板 SYSTEMPROMPT.md 的路径。
 func SystemPromptPath(dataDir string) string { return joinDataDir(dataDir, "SYSTEMPROMPT.md") }
+
+// AgentsFileName 是用户写给 agent 的说明文件名：数据目录里的一份是全局说明，工作目录及其上级里的是项目说明。
+const AgentsFileName = "AGENTS.md"
+
+// AgentsPath 是数据目录里全局 AGENTS.md 的路径。
+func AgentsPath(dataDir string) string { return joinDataDir(dataDir, AgentsFileName) }

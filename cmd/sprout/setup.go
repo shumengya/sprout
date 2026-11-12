@@ -40,6 +40,7 @@ type app struct {
 	cfg      *config.File
 	tools    *config.ToolsFile
 	prompt   *agent.PromptTemplate // SYSTEMPROMPT.md；切模型、/new 时按同一份模板重新渲染
+	instr    []agent.Instruction   // AGENTS.md：启动时读一次，切模型时按同一份重新拼接
 	env      env
 	log      *slog.Logger
 	sel      config.Selection
@@ -91,6 +92,12 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 	if err != nil {
 		return nil, err
 	}
+	// AGENTS.md 是用户写给 agent 的说明：数据目录一份全局，工作目录各级一份项目说明。
+	// 读不了只提示，不影响启动——上级目录里的文件可能根本不归当前用户管。
+	instr, instrProblems := loadInstructions(dataDir, e.cwd)
+	for _, d := range instr {
+		log.Info("已加载 AGENTS.md", "scope", d.Scope, "path", d.Path, "bytes", len(d.Text))
+	}
 
 	sel, err := cfg.Selected()
 	if err != nil {
@@ -102,7 +109,8 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 		return nil, err
 	}
 
-	a := &app{dataDir: dataDir, cwd: e.cwd, cfg: cfg, tools: toolsCfg, prompt: prompt, env: e, log: log, sel: sel, effort: effort}
+	a := &app{dataDir: dataDir, cwd: e.cwd, cfg: cfg, tools: toolsCfg, prompt: prompt, instr: instr, env: e, log: log, sel: sel, effort: effort}
+	a.notices = append(a.notices, instrProblems...)
 	a.info = tui.Info{
 		Model: sel.ModelName, Provider: sel.ProviderName + "，" + sel.Provider.Protocol,
 		Cwd: e.cwd, DataDir: dataDir, Vision: sel.Model.SupportsVision(), Effort: effortLabel(sel, effort),
@@ -250,6 +258,7 @@ func (a *app) buildAgent(sel config.Selection, key string, reg *tool.Registry, r
 	if err != nil {
 		return nil, err
 	}
+	system = agent.AppendInstructions(system, a.instr)
 	return agent.New(agent.Config{
 		Provider: prov, Model: sel.ModelName, Tools: reg, System: system,
 		MaxOutputTokens: sel.Model.MaxOutput, ContextWindow: sel.Model.ContextWindow,
