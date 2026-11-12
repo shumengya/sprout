@@ -81,6 +81,8 @@ type Model struct {
 	think   *entry            // 正在流式追加的思维链条目
 	// thinkShown：本次模型调用是否已经流式展示过思维链，用来避免 MessageCompleted 时重复补一个。
 	thinkShown bool
+	// interrupted：本轮已经由 interrupted 事件说明过中断原因，结束时不再重复一条“已取消”。
+	interrupted bool
 	follow     bool // transcript 是否自动跟随底部
 	unseen     bool // 暂停跟随期间是否有新内容到达
 

@@ -16,20 +16,28 @@ type turn struct {
 	out    event.Sink
 	base   int // 本轮开始前的历史长度，不含本轮的用户消息
 	reason string
+	// partial 是最近一次模型调用里已经流式收到的文本与思维链。
+	// 调用被取消或中途失败时，它连同中断原因一起补进历史：中断的那段话仍是用户看到过的内容，
+	// 下一次请求要让模型知道“我说过这些，然后被打断了”，否则用户说“继续”时模型会从零开始。
+	partial string
+	think   string
 	// compactFailed：本轮已经尝试过摘要且失败，不再每一步都重试（否则每次模型调用前都多一次失败的摘要请求）。
 	compactFailed bool
 }
 
 // stream 向模型发一次请求并把增量转成事件。
 func (t *turn) stream() (Response, error) {
+	t.partial, t.think = "", ""
 	return t.retrying(func(started func()) (Response, error) {
 		return t.a.cfg.Provider.Stream(t.ctx, t.a.request(), func(c Chunk) error {
 			if c.ReasoningDelta != "" {
 				started()
+				t.think += c.ReasoningDelta
 				t.out.Emit(event.ReasoningDelta{Text: c.ReasoningDelta})
 			}
 			if c.TextDelta != "" {
 				started()
+				t.partial += c.TextDelta
 				t.out.Emit(event.MessageDelta{Text: c.TextDelta})
 			}
 			return t.ctx.Err()
@@ -77,6 +85,8 @@ func (t *turn) loop() error {
 		msg.Content = assistantMessage(msg.Text()).Content
 		msg.ToolCalls = normalizeCalls(msg.ToolCalls)
 		a.history = append(a.history, msg)
+		// 这一段的正文已经完整进历史（含 tool call），之后的取消不该再补一次半截内容。
+		t.partial, t.think = "", ""
 
 		t.out.Emit(event.MessageCompleted{
 			Content: msg.Text(), Reasoning: msg.Reasoning,
@@ -132,27 +142,55 @@ func eventCalls(calls []ToolCall) []event.ToolCall {
 
 // cancelled 收尾一次被取消的轮次。
 func (t *turn) cancelled() error {
-	t.rollbackUnanswered()
 	t.reason = event.ReasonCancelled
+	t.saveInterrupted(interruptNoteCancelled)
 	return t.ctx.Err()
 }
 
 // fail 收尾一次失败的轮次：发 Error 事件并返回原错误。
 func (t *turn) fail(err error) error {
-	t.rollbackUnanswered()
 	t.reason = event.ReasonError
+	t.saveInterrupted(interruptNoteError + clip(err.Error(), maxInterruptReason) + "]")
 	var pe *ProviderError
 	t.out.Emit(event.Error{Message: err.Error(), Retryable: errors.As(err, &pe) && pe.Retryable})
 	t.a.log.Warn("turn failed", "error", err.Error())
 	return err
 }
 
-// rollbackUnanswered 在第一次模型调用就失败（或被取消）时撤销本轮的用户消息，
-// 避免用户重试时历史里出现两条连续的相同提问。后续步骤失败时历史以 tool 结果结尾，
-// 仍然是合法序列，不需要动。
-func (t *turn) rollbackUnanswered() {
-	if len(t.a.history) == t.base+1 {
-		t.a.history = t.a.history[:t.base]
-		t.a.resetCalibration()
+// 中断说明：写成方括号形式，在任何协议里都只是普通文本，模型能认出这是系统补的说明。
+const (
+	interruptNoteCancelled = "[对话中断：用户取消]"
+	interruptNoteError     = "[对话中断："
+	// maxInterruptReason 限制写进历史的错误原文长度：有的服务端错误会带上整段请求体。
+	maxInterruptReason = 300
+)
+
+// saveInterrupted 把这一轮保留在历史里，并说明它为什么停下。
+//
+// 用户已经看到这轮提问和答案，历史里就该有；否则用户说“继续”时模型既不知道上一条问的是什么，
+// 也不知道自己说到一半被打断了。即使一个字都没收到也写，中断本身也是这轮的一部分。
+//
+// 只保存文本与思维链：被取消时 tool call 的参数可能只收到一半，不是合法 JSON，
+// 带进历史会让后续请求被服务端拒绝，所以半截调用整个丢弃。
+// 半截内容和说明合成同一条 assistant 消息，历史里不会出现两条连续的 user 消息。
+func (t *turn) saveInterrupted(note string) {
+	if len(t.a.history) <= t.base { // 本轮没有用户消息可保留（不该发生）
+		return
 	}
+	text := strings.TrimRight(t.partial, "\n")
+	if text != "" {
+		text += "\n\n"
+	}
+	text += note
+
+	msg := assistantMessage(text)
+	msg.Reasoning = t.think
+	t.a.history = append(t.a.history, msg)
+	t.a.resetCalibration()
+	// 单独发 Interrupted，不让界面把它当成一次正常回复重复显示；
+	// 会话记录按 interrupted 落盘，恢复时还原成同样的 assistant 消息。
+	t.out.Emit(event.Interrupted{
+		Reason: t.reason, Content: text, Reasoning: t.think, Partial: t.partial != "",
+	})
+	t.partial, t.think = "", ""
 }

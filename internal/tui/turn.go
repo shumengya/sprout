@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -145,6 +146,18 @@ func (m *Model) onEvent(e event.Event) {
 	case event.Retrying:
 		m.add(&entry{kind: kindNotice, text: fmt.Sprintf("请求失败，%s后重试（%d/%d）：%s",
 			fmtWait(e.Delay), e.Attempt, e.Max, e.Reason)})
+	case event.Interrupted:
+		m.endThink()
+		// 正文已经流式显示过（Partial），这里只补一行说明，别把同一段话再打一遍。
+		// 一个字都没收到时，把写进历史的那条消息显示出来，用户能看到模型答应了什么。
+		if !e.Partial && e.Content != "" {
+			m.interrupted = true
+			m.add(&entry{kind: kindAssistant, text: e.Content})
+		} else if note := interruptNote(e.Content); note != "" {
+			m.interrupted = true
+			m.add(&entry{kind: kindNotice, text: note})
+		}
+		m.cur = nil
 	case event.Error:
 		m.add(&entry{kind: kindError, text: e.Message})
 	case event.TurnFinished:
@@ -184,8 +197,24 @@ func (m *Model) finishTurn(reason string) {
 	}
 	switch reason {
 	case event.ReasonCancelled:
-		m.add(&entry{kind: kindNotice, text: "已取消本轮对话。"})
+		// interrupted 事件已经说明了原因，不再重复一条“已取消本轮对话”。
+		if !m.interrupted {
+			m.add(&entry{kind: kindNotice, text: "已取消本轮对话。"})
+		}
 	case event.ReasonLength:
 		m.add(&entry{kind: kindNotice, text: "模型输出被长度上限截断，回答可能不完整。"})
 	}
+	m.interrupted = false
+}
+
+// interruptNote 从写进历史的中断消息里取出方括号那句说明，用于单独显示。
+// 消息形如「半截正文\n\n[对话中断：用户取消]」；没有说明时返回空串。
+func interruptNote(content string) string {
+	if i := strings.LastIndex(content, "\n\n[对话中断："); i >= 0 {
+		return content[i+2:]
+	}
+	if strings.HasPrefix(content, "[对话中断：") {
+		return content
+	}
+	return ""
 }

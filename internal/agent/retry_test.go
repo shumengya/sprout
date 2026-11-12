@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -62,8 +63,9 @@ func TestRetryGivesUpAfterMaxRetries(t *testing.T) {
 	if c.finishedReason(t) != event.ReasonError || !c.has(event.KindError) {
 		t.Errorf("事件 = %v", c.kinds())
 	}
-	if len(a.History()) != 0 {
-		t.Errorf("失败后应撤销用户消息: %+v", a.History())
+	// 失败的那轮保留在历史里，并补一条带原因的 assistant 消息。
+	if h := a.History(); len(h) != 2 || !strings.Contains(h[1].Text(), "中断") {
+		t.Errorf("失败后应保留本轮并写明原因: %+v", h)
 	}
 }
 
@@ -167,8 +169,11 @@ func TestCancelDuringBackoffReturnsImmediately(t *testing.T) {
 	if time.Since(start) > 3*time.Second {
 		t.Fatal("退避等待期间取消应立即生效")
 	}
-	if c.finishedReason(t) != event.ReasonCancelled || c.has(event.KindError) || len(a.History()) != 0 {
-		t.Errorf("取消后事件 %v，历史 %+v", c.kinds(), a.History())
+	if c.finishedReason(t) != event.ReasonCancelled || c.has(event.KindError) {
+		t.Errorf("取消后事件 %v", c.kinds())
+	}
+	if h := a.History(); len(h) != 2 || !strings.Contains(h[1].Text(), "用户取消") {
+		t.Errorf("取消后应保留本轮并写明原因: %+v", h)
 	}
 }
 

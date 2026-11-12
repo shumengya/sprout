@@ -453,7 +453,7 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
 
 **事件协议**（`internal/agent/event`）
 
-- 新增 `message.completed`：一次模型调用结束后携带完整 assistant 消息（正文、tool calls、stop reason）。会话记录器只订阅事件流，不让 agent 依赖 session 包，所以完整消息必须出现在事件里。
+- 事件新增 `interrupted`（`Reason` 为 `cancelled` / `error`，带写进历史的完整文本、思维链和 `Partial` 标志）：中断的那一轮保留在历史里，界面按 `Partial` 决定是补一行说明还是显示整条消息。`content` 不写入 `assistant` 记录，而是单独的 `interrupted` 记录，恢复时还原成同样的 assistant 消息。
 - `tool.finished` 带完整 stdout/stderr（已受 50KB 上限约束）和 `Cancelled`、`Err` 字段。被取消而没来得及执行的调用只有 `tool.finished`，没有 `tool.requested`。
 - 每轮必以一个 `turn.finished` 结束，`reason` 为 `stop` / `cancelled` / `error` / `max_steps` / `length`。`error` 事件之后一定跟着 `turn.finished`。
 - 事件协议里没有单独的 `Command` 类型：取消通过 `context` 完成，提交通过 `Agent.Run(ctx, Input{Text, Images}, sink)`。
@@ -462,7 +462,8 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
 
 - 最大轮数按“模型调用次数”计，默认 10；超过后发 `error` 并以 `max_steps` 结束。
 - 取消或失败时为尚未执行的 tool call 补上“未执行”结果，保证历史里每个 assistant tool call 都有对应的 tool 消息，否则下一次请求会被服务端拒绝。
-- 第一次模型调用就失败或被取消时撤销本轮用户消息，避免重试出现重复提问。
+- 被取消或中途失败的轮次保留在历史里：已经流式收到的正文与思维链，连同一条中断说明（`[对话中断：用户取消]` / `[对话中断：<错误原文>]`）合成一条 assistant 消息追加进去，同时发出 `interrupted` 事件（会话记录按 `interrupted` 落盘，恢复时还原成同样的消息）。用户已经看到的内容，模型下一轮也该看到，否则说“继续”时它既不知道上一条问的是什么，也不知道自己说到一半被打断了。半截的 tool call 参数可能不完整，整个丢弃；半截内容与说明在同一条消息里，不会出现两条连续的 user 消息。
+- 恢复旧会话时仍按当年的规则重放：旧记录里首次调用失败/被取消的轮次只留下了 user 消息，重放时撤销它（那时运行时确实撤销了）。新记录有 `interrupted` 记录，历史长度是 base+2，不会触发这条规则。
 - 空的工具参数规范化为 `{}`。
 - panic 被 recover，历史还原到本轮开始前，仍然以 `turn.finished(error)` 收尾。
 

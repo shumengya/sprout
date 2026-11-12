@@ -96,6 +96,15 @@ func (r *replayer) handle(rec rawRec) {
 			ReasoningTokensEst: agent.EstimateTokens(rec.Reasoning)})
 	case "tool":
 		r.tool(rec)
+	case "interrupted":
+		r.flush()
+		msg := agent.Message{Role: agent.RoleAssistant, Reasoning: rec.Reasoning}
+		if rec.Content != "" {
+			msg.Content = []agent.Block{agent.TextBlock(rec.Content)}
+		}
+		r.history = append(r.history, msg)
+		r.pending, r.results = nil, nil
+		r.emit(event.Interrupted{Reason: rec.Reason, Content: rec.Content, Reasoning: rec.Reasoning})
 	case "usage":
 		r.emit(event.Usage{InputTokens: rec.InputTokens, OutputTokens: rec.OutputTokens, TotalTokens: rec.TotalTokens,
 			ReasoningTokens: rec.ReasoningTokens})
@@ -184,7 +193,8 @@ func (r *replayer) endTurn(reason string) {
 	case r.panicked:
 		r.history = r.history[:min(r.base, len(r.history))]
 	case len(r.history) == r.base+1 && (reason == event.ReasonCancelled || reason == event.ReasonError):
-		// 第一次模型调用就失败/被取消：用户消息被撤销，和 agent 运行时一致，避免重试出现重复提问。
+		// 旧版本会话：运行时会撤销首次调用的用户消息，重放保持一致。
+		// 新版本在结束时补一条 interrupted 记录，历史长度是 base+2，不会走到这里。
 		r.history = r.history[:r.base]
 	}
 	r.inTurn, r.panicked = false, false
@@ -193,6 +203,7 @@ func (r *replayer) endTurn(reason string) {
 }
 
 // finish 处理文件结束时的收尾：最后一轮没有 turn 记录说明进程是被杀掉的。
+// 这种情况下没有 interrupted 记录可还原，历史只留用户消息即可——下一轮请求前它仍然合法。
 func (r *replayer) finish() {
 	if !r.inTurn {
 		r.flush()

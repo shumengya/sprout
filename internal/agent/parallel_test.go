@@ -223,8 +223,9 @@ func TestCancelAbortsAllRunningTools(t *testing.T) {
 		t.Fatalf("取消后不应再请求模型: reason=%q 请求 %d 次", c.finishedReason(t), len(p.reqs))
 	}
 	h := a.History()
-	if len(h) != 4 || h[2].ToolID != "1" || h[3].ToolID != "2" {
-		t.Fatalf("两个调用都应有对应的 tool 消息: %+v", h)
+	// 最后一条是中断说明：这一轮保留在历史里，模型知道发生了什么。
+	if len(h) != 5 || h[2].ToolID != "1" || h[3].ToolID != "2" || !strings.Contains(h[4].Text(), "中断") {
+		t.Fatalf("两个调用都应有对应的 tool 消息，并附中断说明: %+v", h)
 	}
 }
 
@@ -251,8 +252,8 @@ func TestQueuedCallsAreSkippedWhenCancelled(t *testing.T) {
 		t.Fatalf("排队的调用不应开始执行，实际执行了 %d 个", executed.Load())
 	}
 	h := a.History()
-	if len(h) != 6 || h[4].Text() != cancelledToolReply || h[5].Text() != cancelledToolReply {
-		t.Fatalf("排队的两个应补“未执行”: %+v", h)
+	if len(h) != 7 || h[4].Text() != cancelledToolReply || h[5].Text() != cancelledToolReply || !strings.Contains(h[6].Text(), "中断") {
+		t.Fatalf("排队的两个应补“未执行”，末尾附中断说明: %+v", h)
 	}
 }
 

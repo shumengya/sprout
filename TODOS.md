@@ -7,9 +7,10 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 
 ### 内核（`internal/agent`）
 - [x] ReAct 循环：模型调用 → 工具执行 → 结果回传，最多 10 次模型调用（`max_steps`）。
-- [x] 事件协议（`event`）：`turn.started` / `message.delta` / `reasoning.delta` / `message.completed` / `tool.requested` / `tool.finished` / `usage` / `retrying` / `compacted` / `turn.finished` / `error`；每轮必以 `turn.finished` 收尾。
+- [x] 事件协议（`event`）：`turn.started` / `message.delta` / `reasoning.delta` / `message.completed` / `tool.requested` / `tool.finished` / `usage` / `retrying` / `compacted` / `interrupted` / `turn.finished` / `error`；每轮必以 `turn.finished` 收尾。
 - [x] 取消：`context` 贯穿 HTTP 请求与工具进程；取消时为未执行的 tool call 补“未执行”结果，保证历史合法。
-- [x] 失败回滚：首次模型调用失败/取消时撤销本轮用户消息；panic 被 recover 并还原历史。
+- [x] 中断保留：被取消或中途失败的轮次不丢弃——已收到的正文与思维链连同中断说明（`[对话中断：用户取消]` 或错误原文）作为一条 assistant 消息留在历史里，并发出 `interrupted` 事件；会话按 `interrupted` 记录落盘，恢复后模型看到的和当初一致。半截 tool call 丢弃（参数可能不是合法 JSON）。
+- [x] 失败回滚：panic 被 recover 并还原历史；旧会话重放沿用当年的撤销规则。
 - [x] 空工具参数规范化为 `{}`；工具的任何失败都转成 tool 消息回给模型，不终止 agent。
 - [x] 系统提示词只描述实际可用的工具；两个 shell 都可用时说明选择规则。
 - [x] 思维链：保存 `reasoning_content` 并在后续请求中回传。

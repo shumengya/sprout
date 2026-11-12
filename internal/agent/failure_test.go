@@ -24,22 +24,32 @@ func TestProviderErrorRollsBackAndAgentStaysUsable(t *testing.T) {
 	if !errors.As(err, &got) || got.Status != 401 {
 		t.Fatalf("应返回 ProviderError，得到 %v", err)
 	}
-	want := []event.Kind{event.KindTurnStarted, event.KindError, event.KindTurnFinished}
+	want := []event.Kind{event.KindTurnStarted, event.KindInterrupted, event.KindError, event.KindTurnFinished}
 	if !slices.Equal(c.kinds(), want) || c.finishedReason(t) != event.ReasonError {
 		t.Fatalf("事件 %v，reason %q", c.kinds(), c.finishedReason(t))
 	}
-	if e := c.events[1].(event.Error); !strings.Contains(e.Message, "401") || e.Retryable {
+	if e := c.events[2].(event.Error); !strings.Contains(e.Message, "401") || e.Retryable {
 		t.Errorf("Error 事件 = %+v", e)
 	}
-	if len(a.History()) != 0 {
-		t.Fatalf("失败的首轮应撤销用户消息，历史 = %+v", a.History())
+	if e := c.events[1].(event.Interrupted); !strings.Contains(e.Content, "中断") {
+		t.Errorf("Interrupted 事件应带中断说明: %+v", e)
+	}
+	// 失败的那轮保留在历史里：用户消息之后补一条带原因的 assistant 消息。
+	h := a.History()
+	if len(h) != 2 || h[0].Role != RoleUser || h[1].Role != RoleAssistant {
+		t.Fatalf("历史 = %+v", h)
+	}
+	if !strings.Contains(h[1].Text(), "中断") {
+		t.Errorf("中断说明 = %q", h[1].Text())
 	}
 
 	if err := a.Run(context.Background(), Input{Text: "重试"}, &collector{}); err != nil {
 		t.Fatal(err)
 	}
-	if n := len(p.reqs[1].Messages); n != 1 {
-		t.Fatalf("重试时历史里不应有重复提问，消息数 %d", n)
+	// 两条 user 消息之间有 assistant 说明，不会出现连续重复提问。
+	msgs := p.reqs[1].Messages
+	if len(msgs) != 3 || msgs[0].Role != RoleUser || msgs[1].Role != RoleAssistant || msgs[2].Role != RoleUser {
+		t.Fatalf("重试时的历史 = %+v", msgs)
 	}
 }
 
@@ -47,8 +57,17 @@ func TestRetryableFlagPropagates(t *testing.T) {
 	p := &scripted{steps: []scriptStep{{err: &ProviderError{Status: 503, Retryable: true}}}}
 	var c collector
 	_ = newAgent(t, p, nil, nil).Run(context.Background(), Input{Text: "q"}, &c)
-	if e := c.events[1].(event.Error); !e.Retryable {
-		t.Fatalf("Retryable 应透传: %+v", e)
+	var found bool
+	for _, e := range c.events {
+		if err, ok := e.(event.Error); ok {
+			found = true
+			if !err.Retryable {
+				t.Fatalf("Retryable 应透传: %+v", err)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("应有 Error 事件")
 	}
 }
 
@@ -79,7 +98,7 @@ func TestMaxStepsStopsRunawayToolLoop(t *testing.T) {
 	}
 }
 
-func TestCancelDuringStreamRollsBack(t *testing.T) {
+func TestCancelDuringStreamKeepsPartialOutput(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &scripted{steps: []scriptStep{{chunks: []string{"半截"}, hook: func(context.Context) { cancel() }}, say("ok")}}
 	a := newAgent(t, p, nil, nil)
@@ -92,8 +111,24 @@ func TestCancelDuringStreamRollsBack(t *testing.T) {
 	if c.has(event.KindError) || c.finishedReason(t) != event.ReasonCancelled {
 		t.Fatalf("取消不是错误：%v / %q", c.kinds(), c.finishedReason(t))
 	}
-	if len(a.History()) != 0 {
-		t.Fatalf("历史应回滚，得到 %+v", a.History())
+	// 已经输出的半截内容连同中断原因留在历史里，用户说“继续”时模型知道自己说到哪了。
+	h := a.History()
+	if len(h) != 2 || h[1].Role != RoleAssistant {
+		t.Fatalf("历史 = %+v", h)
+	}
+	if text := h[1].Text(); !strings.HasPrefix(text, "半截") || !strings.Contains(text, "用户取消") {
+		t.Fatalf("中断消息 = %q", text)
+	}
+	// 中断事件带同一条文本，界面按它展示；Partial 表示正文已经流式输出过。
+	var ev event.Interrupted
+	found := false
+	for _, e := range c.events {
+		if i, ok := e.(event.Interrupted); ok {
+			ev, found = i, true
+		}
+	}
+	if !found || !ev.Partial || ev.Content != h[1].Text() || ev.Reason != event.ReasonCancelled {
+		t.Fatalf("事件 = %+v", c.events)
 	}
 	if err := a.Run(context.Background(), Input{Text: "再来"}, &collector{}); err != nil {
 		t.Fatal(err)
@@ -135,13 +170,14 @@ func TestCancelDuringToolPadsRemainingCalls(t *testing.T) {
 		t.Fatalf("两个调用都应标记为已取消，第一个保留部分输出: %+v", fins)
 	}
 
-	// 历史里每个 tool call 都必须有对应的 tool 消息，否则下一次请求会被服务端拒绝。
+	// 历史里每个 tool call 都必须有对应的 tool 消息，否则下一次请求会被服务端拒绝；
+	// 末尾再补一条中断说明，模型知道这轮为什么停。
 	h := a.History()
-	if len(h) != 4 || h[2].ToolID != "a" || h[3].ToolID != "b" {
+	if len(h) != 5 || h[2].ToolID != "a" || h[3].ToolID != "b" || h[4].Role != RoleAssistant {
 		t.Fatalf("历史 = %+v", h)
 	}
-	if !strings.Contains(h[2].Text(), "部分输出") || !strings.Contains(h[3].Text(), "未执行") {
-		t.Fatalf("tool 消息内容不对: %q / %q", h[2].Text(), h[3].Text())
+	if !strings.Contains(h[2].Text(), "部分输出") || !strings.Contains(h[3].Text(), "未执行") || !strings.Contains(h[4].Text(), "用户取消") {
+		t.Fatalf("消息内容不对: %q / %q / %q", h[2].Text(), h[3].Text(), h[4].Text())
 	}
 	if err := a.Run(context.Background(), Input{Text: "继续"}, &collector{}); err != nil {
 		t.Fatal(err)

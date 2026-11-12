@@ -23,6 +23,7 @@ const (
 	KindRetrying         Kind = "retrying"
 	KindCompacted        Kind = "compacted"
 	KindTurnFinished     Kind = "turn.finished"
+	KindInterrupted      Kind = "interrupted"
 	KindError            Kind = "error"
 )
 
@@ -172,6 +173,23 @@ const (
 type TurnFinished struct {
 	Reason string
 }
+
+// Interrupted 在一轮被取消或中途失败、但已经收到部分输出时发出。
+//
+// 这轮不会作废：已经收到的正文连同中断原因会作为一条 assistant 消息留在历史里，
+// 下一次请求模型就知道自己说到一半被打断了。会话记录保存它，恢复时还原成同样的消息。
+// 它之后一定跟着 TurnFinished，Reason 为 cancelled 或 error。
+type Interrupted struct {
+	// Reason 是 event.ReasonCancelled 或 event.ReasonError。
+	Reason string
+	// Content 是写进历史的完整文本：已经收到的正文 + 一句中断说明。
+	Content   string
+	Reasoning string // 已经收到的思维链
+	// Partial 为 true 表示中断前已经向界面输出过正文，界面不必再显示 Content。
+	Partial bool
+}
+
+func (Interrupted) Kind() Kind { return KindInterrupted }
 
 // Error 描述一次失败。它之后一定跟着 TurnFinished，Reason 为 ReasonError 或 ReasonMaxSteps。
 type Error struct {

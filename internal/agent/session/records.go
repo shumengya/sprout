@@ -96,6 +96,15 @@ type usageRec struct {
 	ReasoningTokens int `json:"reasoning_tokens,omitempty"` // 服务端不报告时省略
 }
 
+// interruptedRec 记录一次被取消或中途失败、但保留了部分输出的轮次。
+// 恢复时还原成一条 assistant 消息，内容与当初写进历史的一致。
+type interruptedRec struct {
+	header
+	Reason    string `json:"reason"`
+	Content   string `json:"content"`
+	Reasoning string `json:"reasoning,omitempty"`
+}
+
 type turnRec struct {
 	header
 	Reason string `json:"reason"`
@@ -148,6 +157,8 @@ func toRecord(e event.Event, now time.Time) (any, bool) {
 		return compactRec{h("compact"), e.Mode, e.TokensBefore, e.TokensAfter, e.Dropped, e.Summary, e.Err}, true
 	case event.Usage:
 		return usageRec{h("usage"), e.InputTokens, e.OutputTokens, e.TotalTokens, e.ReasoningTokens}, true
+	case event.Interrupted:
+		return interruptedRec{h("interrupted"), e.Reason, e.Content, e.Reasoning}, true
 	case event.TurnFinished:
 		return turnRec{h("turn"), e.Reason}, true
 	case event.Error:
