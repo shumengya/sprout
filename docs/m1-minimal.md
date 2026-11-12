@@ -43,7 +43,7 @@
 | Bubble Tea v2 TUI（主入口） | WebUI、JSON-RPC、daemon |
 | `sprout run "..."` 单次 CLI（调试/脚本用） | 交互式 CLI REPL |
 | OpenAI Chat Completions + Responses 流式 | Anthropic Messages |
-| ReAct 循环，最多 10 次工具调用 | 上下文压缩、token 预算 |
+| ReAct 循环，轮数不设上限 | 上下文压缩、token 预算 |
 | `bash`、`powershell` 两个工具 | 文件读写、搜索、web、MCP、skills |
 | `models.jsonc` 用户配置 | 配置热加载、模型选择器 |
 | JSONL 会话，按工作目录分组 | 会话恢复、分支、搜索 |
@@ -263,7 +263,7 @@ models.example.jsonc                  示例配置
 
 ### B. 最小闭环
 
-- Tool 接口/Registry、bash/powershell 检测与执行、系统提示、工具 schema 下发、tool call 解析、结果回传、最多 10 轮。
+- Tool 接口/Registry、bash/powershell 检测与执行、系统提示、工具 schema 下发、tool call 解析、结果回传。
 - 验收：完整走通“提问 → 模型思考 → 调用工具 → 观察输出 → 最终回答”；这是 M1 的最小可用点。
 
 ### C. M1 完成

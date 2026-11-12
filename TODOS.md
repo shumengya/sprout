@@ -6,7 +6,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 ## 一、已实现
 
 ### 内核（`internal/agent`）
-- [x] ReAct 循环：模型调用 → 工具执行 → 结果回传，最多 10 次模型调用（`max_steps`）。
+- [x] ReAct 循环：模型调用 → 工具执行 → 结果回传，轮数默认不设上限（`Config.MaxSteps > 0` 时限制，超过以 `max_steps` 结束）；停止靠用户取消或模型自己收尾。
 - [x] 事件协议（`event`）：`turn.started` / `message.delta` / `reasoning.delta` / `message.completed` / `tool.requested` / `tool.finished` / `usage` / `retrying` / `compacted` / `interrupted` / `turn.finished` / `error`；每轮必以 `turn.finished` 收尾。
 - [x] 取消：`context` 贯穿 HTTP 请求与工具进程；取消时为未执行的 tool call 补“未执行”结果，保证历史合法。
 - [x] 中断保留：被取消或中途失败的轮次不丢弃——已收到的正文与思维链连同中断说明（`[对话中断：用户取消]` 或错误原文）作为一条 assistant 消息留在历史里，并发出 `interrupted` 事件；会话按 `interrupted` 记录落盘，恢复后模型看到的和当初一致。半截 tool call 丢弃（参数可能不是合法 JSON）。

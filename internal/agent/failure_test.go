@@ -72,21 +72,23 @@ func TestRetryableFlagPropagates(t *testing.T) {
 }
 
 func TestMaxStepsStopsRunawayToolLoop(t *testing.T) {
+	// 默认不限轮数，这里显式设一个上限，确认配置生效且停得下来。
+	const limit = 3
 	loop := callTools(call("c", "bash", `{}`))
 	steps := make([]scriptStep, 20)
 	for i := range steps {
 		steps[i] = loop
 	}
 	p := &scripted{steps: steps}
-	a := newAgent(t, p, registry(t, okTool("bash", tool.Result{})), nil)
+	a := newAgentCfg(t, Config{Provider: p, Tools: registry(t, okTool("bash", tool.Result{})), Retry: &RetryPolicy{}, MaxSteps: limit})
 	var c collector
 
 	err := a.Run(context.Background(), Input{Text: "q"}, &c)
 	if !errors.Is(err, ErrMaxSteps) {
 		t.Fatalf("应返回 ErrMaxSteps，得到 %v", err)
 	}
-	if len(p.reqs) != DefaultMaxSteps {
-		t.Fatalf("应恰好调用模型 %d 次，实际 %d", DefaultMaxSteps, len(p.reqs))
+	if len(p.reqs) != limit {
+		t.Fatalf("应恰好调用模型 %d 次，实际 %d", limit, len(p.reqs))
 	}
 	if c.finishedReason(t) != event.ReasonMaxSteps || !c.has(event.KindError) {
 		t.Fatalf("应有 Error 事件且 reason=max_steps，得到 %v / %q", c.kinds(), c.finishedReason(t))

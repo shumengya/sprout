@@ -13,10 +13,7 @@ import (
 	"github.com/shumengya/sprout/internal/agent/tool"
 )
 
-// DefaultMaxSteps 是一轮里最多允许的“模型调用 + 工具执行”次数。
-const DefaultMaxSteps = 10
-
-// ErrMaxSteps 表示一轮里模型一直在调用工具，超过了 MaxSteps。
+// ErrMaxSteps 表示一轮里模型一直在调用工具，超过了 MaxSteps（仅在显式设置上限时发生）。
 var ErrMaxSteps = errors.New("超过最大工具调用轮数")
 
 // Config 是装配 Agent 所需的依赖，全部通过接口注入。
@@ -28,7 +25,9 @@ type Config struct {
 	MaxOutputTokens int
 	// Thinking 是初始的思考参数，之后可以用 SetThinking 随时调整。
 	Thinking Thinking
-	MaxSteps int // <= 0 时取 DefaultMaxSteps
+	// MaxSteps > 0 时限制一轮里最多“模型调用 + 工具执行”的次数，超过后以 max_steps 结束本轮；
+	// <= 0（默认）不限制。内核不设默认上限：正常任务动辄几十次工具调用，硬上限会掐断做了一半的工作。
+	MaxSteps int
 	// MaxParallelTools 是同一批 tool call 同时执行的上限：<= 0 取 DefaultMaxParallelTools，1 表示串行。
 	// 工具的 Run 因此必须能被并发调用。
 	MaxParallelTools int
@@ -70,9 +69,6 @@ func New(cfg Config) (*Agent, error) {
 	}
 	if cfg.Model == "" {
 		return nil, errors.New("agent: 必须指定 Model")
-	}
-	if cfg.MaxSteps <= 0 {
-		cfg.MaxSteps = DefaultMaxSteps
 	}
 	a := &Agent{cfg: cfg, log: cfg.Logger, retry: DefaultRetry, thinking: cfg.Thinking}
 	if cfg.Retry != nil {

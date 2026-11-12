@@ -18,8 +18,9 @@ func TestNewValidates(t *testing.T) {
 		t.Error("缺少 Model 应报错")
 	}
 	a, err := New(Config{Provider: &scripted{}, Model: "m"})
-	if err != nil || a.cfg.MaxSteps != DefaultMaxSteps {
-		t.Errorf("MaxSteps 缺省应为 %d，得到 %v, %v", DefaultMaxSteps, a.cfg.MaxSteps, err)
+	// 默认不限轮数：0 表示没有上限。
+	if err != nil || a.cfg.MaxSteps != 0 {
+		t.Errorf("MaxSteps 缺省应为 0（不限），得到 %v, %v", a.cfg.MaxSteps, err)
 	}
 }
 

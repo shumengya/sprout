@@ -46,10 +46,13 @@ func (t *turn) stream() (Response, error) {
 }
 
 // loop 是 ReAct 主循环：调用模型 → 有 tool call 就执行并把结果回给模型 → 直到没有 tool call。
+// 默认不限轮数：真实任务里的"改代码 → 跑测试 → 修错"本来就可能有几十次工具调用，
+// 硬上限会在任务做到一半时把一轮掐断。需要停止时由用户取消（Ctrl+C），
+// 实现层面的失控由重试次数、失败两次换思路这些约束兜住。Config.MaxSteps > 0 时才限制。
 func (t *turn) loop() error {
 	a := t.a
 	reactive := false // 本步是否已经因“服务端报告超长”压缩过一次
-	for step := 0; step < a.cfg.MaxSteps; step++ {
+	for step := 0; a.cfg.MaxSteps <= 0 || step < a.cfg.MaxSteps; step++ {
 		if t.ctx.Err() != nil {
 			return t.cancelled()
 		}
