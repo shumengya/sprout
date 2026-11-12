@@ -114,6 +114,7 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 	a.info = tui.Info{
 		Model: sel.ModelName, Provider: sel.ProviderName + "，" + sel.Provider.Protocol,
 		Cwd: e.cwd, DataDir: dataDir, Vision: sel.Model.SupportsVision(), Effort: effortLabel(sel, effort),
+		ContextWindow: sel.Model.ContextWindow,
 	}
 	reg, err := a.registerTools(cfg, e)
 	if err != nil {

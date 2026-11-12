@@ -40,7 +40,8 @@ func (m *Model) View() tea.View {
 		parts = append(parts, sv)
 		above += strings.Count(sv, "\n") + 1
 	}
-	parts = append(parts, sep, input, sep, m.infoLine())
+	parts = append(parts, sep, input, sep)
+	parts = append(parts, m.infoLines()...) // 状态栏在输入框下方，不影响光标坐标
 	above++
 	v.Content = strings.Join(parts, "\n")
 
@@ -58,46 +59,9 @@ var (
 	styInfoLabel = lipgloss.NewStyle().Faint(true)
 	styInfoModel = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))  // 绿
 	styInfoDir   = lipgloss.NewStyle().Foreground(lipgloss.Color("12")) // 亮蓝：普通蓝在深色背景上太暗
-	styInfoTool  = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))  // 洋红，和工具卡片同色系
 	styInfoThink = lipgloss.NewStyle().Foreground(lipgloss.Color("14")) // 亮青：与模型名区分
 	styEffortSel = lipgloss.NewStyle().Bold(true).Reverse(true)
 )
-
-// infoLine 是最底下的信息栏：左边模型、当前目录、可用工具，用不同颜色区分；右边是本会话累计 token。
-// 宽度不够时 token 数最先让步，其次是目录（从左边截断，保留末尾几级最有辨识度的部分），最后才整行截断。
-func (m *Model) infoLine() string {
-	info := m.opts.Info
-	tools := styFaint.Render("无")
-	if len(info.Tools) > 0 {
-		names := make([]string, len(info.Tools))
-		for i, t := range info.Tools {
-			names[i] = t.Name
-		}
-		tools = styInfoTool.Render(strings.Join(names, "、"))
-	}
-	const gap = "  "
-	model := styInfoLabel.Render("模型 ") + styInfoModel.Render(info.Model)
-	if info.Effort != "" {
-		model += styInfoLabel.Render(" · 思考 ") + styInfoThink.Render(info.Effort)
-	}
-	toolPart := styInfoLabel.Render("工具 ") + tools
-
-	// 先算出模型和工具占掉多少，剩下的给目录。
-	fixed := ansi.StringWidth(model) + ansi.StringWidth(toolPart) + 2*len(gap) + ansi.StringWidth("目录 ")
-	dir := truncateLeft(info.Cwd, max(m.w-fixed, 8))
-	dirPart := styInfoLabel.Render("目录 ") + styInfoDir.Render(dir)
-	left := ansi.Truncate(model+gap+dirPart+gap+toolPart, m.w, "…")
-
-	if m.tokens <= 0 {
-		return left
-	}
-	right := styFaint.Render(fmtTokens(m.tokens) + " token")
-	pad := m.w - ansi.StringWidth(left) - ansi.StringWidth(right)
-	if pad < len(gap) { // 放不下就不显示，左边的信息更重要
-		return left
-	}
-	return left + strings.Repeat(" ", pad) + right
-}
 
 // truncateLeft 把 s 截到不超过 w 列，超出时从左边去掉并以 … 开头。
 func truncateLeft(s string, w int) string {
@@ -143,18 +107,11 @@ func overlayHint(body, hint string, w int) string {
 	return body[:i] + row + hint
 }
 
-// runningLabel 描述正在做的事：生成、思考、执行哪个工具，以及已耗时。
+// runningLabel 描述正在做的事：生成、思考、执行哪个工具，以及已耗时。文字与状态栏的“状态”一项共用 busyLabel。
 func (m *Model) runningLabel() string {
-	label := "生成中"
-	switch names := m.runningTools(); {
-	case m.compacting:
-		label = "压缩上下文"
-	case len(names) == 1:
-		label = "执行 " + names[0]
-	case len(names) > 1:
-		label = fmt.Sprintf("并行执行 %d 个工具", len(names))
-	case m.think != nil:
-		label = "思考中"
+	label := m.busyLabel()
+	if label == "" {
+		label = "生成中"
 	}
 	// 超过几秒才显示耗时，短回答不闪烁。
 	if !m.started.IsZero() {

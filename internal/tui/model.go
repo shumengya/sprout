@@ -40,6 +40,8 @@ type Info struct {
 	Vision bool
 	// Effort 是当前思考档位；为空表示当前模型没有声明 effort，信息栏不显示。
 	Effort string
+	// ContextWindow 是当前模型的上下文窗口（token）；0 表示未知，状态栏只显示当前占用的 token 数。
+	ContextWindow int
 }
 
 // Options 是构造 Model 所需的全部输入。
@@ -63,6 +65,9 @@ type Options struct {
 	Efforts Efforts
 	// Compactor 手动压缩上下文（/compact）；为 nil 时 /compact 不可用。
 	Compactor Compactor
+	// Resources 采样整机内存和 CPU 占用，状态栏每秒调用一次（在 tea.Cmd 里，不占 Update）；
+	// 为 nil 时状态栏不显示这两项。
+	Resources func() Resources
 }
 
 // 输入框按内容增高：空时一行，最多显示这么多行，再多就在输入框内部滚动。
@@ -102,7 +107,11 @@ type Model struct {
 	started    time.Time // 本轮开始时间，状态行显示已耗时
 	status     string    // 状态行的临时提示，下次按键时清除
 	statusOK   bool      // status 是成功提示（如已复制），用绿色而不是警告色显示
-	tokens     int       // 本会话累计 token
+	// 状态栏的数据：本会话累计用量、最近一次请求的输入 token（上下文占用）、会话开始时间、整机资源。
+	usage        usageTotals
+	ctxTokens    int
+	sessionStart time.Time
+	res          Resources
 	// pending 是下一条消息待发送的图片（/image 附加），发送或 /image clear 后清空。
 	pending []agent.Image
 
@@ -136,7 +145,8 @@ func New(o Options) *Model {
 	if o.Runner == nil && o.Disabled == "" {
 		o.Disabled = "没有可用的 agent，无法发起对话。"
 	}
-	m := &Model{opts: o, follow: true, mouse: true, tools: map[string]*entry{}, quit: make(chan struct{}), clip: defaultClip, now: time.Now}
+	m := &Model{opts: o, follow: true, mouse: true, tools: map[string]*entry{}, quit: make(chan struct{}), clip: defaultClip, now: time.Now,
+		res: Resources{Mem: -1, CPU: -1}}
 
 	m.vp = viewport.New()
 	m.vp.FillHeight = true
@@ -184,7 +194,12 @@ func New(o Options) *Model {
 	return m
 }
 
-func (m *Model) Init() tea.Cmd { return m.in.Focus() }
+func (m *Model) Init() tea.Cmd {
+	if m.sessionStart.IsZero() {
+		m.sessionStart = m.now() // 在 Init 里取，测试先换上冻结的时钟再 Init，耗时就不会是负的
+	}
+	return tea.Batch(m.in.Focus(), m.resourceCmd(0))
+}
 
 func (m *Model) add(e *entry) *entry {
 	e.dirty = true
@@ -210,10 +225,10 @@ func (m *Model) layout() {
 	m.refresh()
 }
 
-// footerRows 是对话区下面占的行数：可选的活动行、分隔线、输入框（或选择器）、分隔线、信息栏。
-// 空闲时只有 4 行（输入框一行）。
+// footerRows 是对话区下面占的行数：可选的活动行、分隔线、输入框（或选择器）、分隔线、三行状态栏。
+// 空闲时只有 6 行（输入框一行）。
 func (m *Model) footerRows() int {
-	n := 1 + m.inputRows() + 1 + 1 + m.suggestRows()
+	n := 1 + m.inputRows() + 1 + infoRows + m.suggestRows()
 	if m.activityLine() != "" {
 		n++
 	}

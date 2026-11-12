@@ -101,7 +101,8 @@ func (m *Model) newSessionCmd() {
 		m.add(&entry{kind: kindError, text: "新建会话失败：" + err.Error()})
 		return
 	}
-	m.entries, m.tools, m.tokens = nil, map[string]*entry{}, 0
+	m.entries, m.tools = nil, map[string]*entry{}
+	m.usage, m.ctxTokens, m.sessionStart = usageTotals{}, 0, m.now() // 新会话从零开始计数和计时
 	m.callThink, m.usageThink = nil, nil
 	m.clearSel()
 	m.add(&entry{kind: kindNotice, text: welcomeText})
@@ -116,7 +117,9 @@ func (m *Model) onResumed(msg resumeDoneMsg) {
 		m.add(&entry{kind: kindError, text: "恢复会话失败：" + msg.err.Error()})
 		return
 	}
-	m.entries, m.tools, m.tokens = nil, map[string]*entry{}, 0
+	m.entries, m.tools = nil, map[string]*entry{}
+	// 用量和上下文占用由重放的 usage / compacted 事件重新累计出来；耗时从恢复这一刻算起。
+	m.usage, m.ctxTokens, m.sessionStart = usageTotals{}, 0, m.now()
 	m.callThink, m.usageThink = nil, nil
 	m.replay(msg.res.Events)
 	m.add(&entry{kind: kindNotice, text: msg.res.Notice})

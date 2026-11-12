@@ -68,6 +68,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] `/image 路径` 附加图片，粘贴或消息里直接写图片路径时自动附加（`internal/media`、`internal/tui/image.go`）。
 - [x] 对话区拖选复制：按住左键拖动选中（反色显示），松开自动复制；选区跟着内容走，拖到上下边缘自动滚动；中文按整个字选中；内容重排（窗口缩放、`/think` 展开）导致选区对不上时自动取消。复制同时走 OSC 52 和系统剪贴板，任何一条失败只提示、不当作致命。
 - [x] 真实终端光标（输入法候选窗跟随）；退出时 `Shutdown` 等 agent 收尾，保证 `turn.finished` 被记录。
+- [x] 底部三行状态栏（路径、对话轮次、耗时、内存、CPU / 输入、输出、缓存读写、上下文占用、模型ID、思考强度 / 状态、工具数）；MCP、插件、技能、花费四项功能未实现，显示 `—` 占位。设计见 `docs/m1-implementation.md` §15。
 
 ### 识图（`internal/media`，设计见 `docs/m2-vision.md`）
 - [x] `Message.Content` 改为 text / image 块数组；工具结果也能带图片。
@@ -100,6 +101,8 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [ ] **OpenAI 官方服务**（Chat 与 Responses）：只验证过 DeepSeek。Responses 的 `function_call` 不带 `id` 是依据文档推断，带 reasoning 的 gpt-5 / o 系列可能不同。
 - [ ] **思维链 token 数**：Chat 协议下真实 DeepSeek 已确认返回 `completion_tokens_details.reasoning_tokens`（本机 11 次调用，与分词器数出的一致）；Responses 协议的 `output_tokens_details.reasoning_tokens` 和 OpenAI 官方服务只有 `httptest` 测试。不返回时 TUI 显示内核估算的“约 N token”。
 - [ ] **Linux / macOS / Termux 实际运行**：CI 在 Linux / macOS 上跑单元测试（`bash` 探测、进程组终止等 Unix 路径仍以 fake probe 为主），但没有在这些系统上交互式地跑过 TUI 与真实模型；Termux 只验证过能用 `GOOS=android` 编译，CI 不覆盖。
+- [ ] **状态栏的缓存读写**：四个协议的缓存字段（OpenAI `prompt_tokens_details.cached_tokens`、DeepSeek `prompt_cache_hit_tokens`、Responses `input_tokens_details.cached_tokens`、Anthropic `cache_read_input_tokens` / `cache_creation_input_tokens`、Gemini `cachedContentTokenCount`）是按各家文档实现的，只有 `httptest` 验证，没有对真实服务确认过。Anthropic 的输入口径是适配器加回缓存得到的，也没有对真实响应核对。
+- [ ] **状态栏的内存与 CPU**：只在 Windows 上运行验证过；Linux / Termux 只有解析器的单元测试（Android 8+ 读不了 `/proc/stat`，预期没有 CPU 一项），macOS 不显示这两项。是整机占用，不是 sprout 进程自己的。
 - [ ] **识图（M2）的真实服务商往返**：四种协议的图片请求形状只有 `httptest` 验证，没有对真实服务商手工发过图；Gemini 协议整体也只用测试替身验证过。
 - [ ] **`/model` 切换与恢复后的历史重放**：换模型时丢弃旧思维链、保留正文的逻辑有单元测试，但没有在真实多模型服务上跑过。
 - [ ] **双击 `sprout.exe` 启动**（含出错后等待回车）。
@@ -115,8 +118,8 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [ ] **扩展（M5）**：
   - [x] Anthropic Messages 协议（`internal/provider/anthropic`，已实现并测试）；
   - [x] Google Gemini 协议（`internal/provider/google`，已实现并测试）；
-  - [ ] MCP 客户端与工具接入（`internal/agent/mcp`，占位）；
-  - [ ] skills 发现与加载（`internal/agent/skills`，占位）；
+  - [ ] MCP 客户端与工具接入（`internal/agent/mcp`，占位；状态栏的 `MCP` 一项暂时显示 `—`）；
+  - [ ] skills 发现与加载（`internal/agent/skills`，占位；状态栏的 `技能` 一项暂时显示 `—`）；
   - [ ] 子代理 / 多 agent 编排；
   - [ ] 搜索、web 等更多工具（现有 `bash`、`powershell`、`read`、`write`，外加 `tools.jsonc` 里定义的外部命令工具）；
   - [ ] 权限模块（审批流、allow/deny、沙箱）——目前默认完全权限，不要提前加。
@@ -126,6 +129,8 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] 会话压缩的细化：按 token 精确裁剪、分层摘要、手动 `/compact` 均已完成。仍未做的细化：按工具类型区分裁剪策略（目前统一保留开头 200 字符）、手动压缩时保留最近一轮原文的选项。
 - [ ] 按工具声明“是否可并行”：现在同批调用一律并行（上限 4），靠系统提示词要求模型不要把有依赖的命令放同一批。
 - [x] 模型选择器、运行中切换模型：`/model`。
+- [ ] 状态栏里还是占位的：`插件`（没有插件机制）、`花费`（`models.jsonc` 没有单价字段，要按模型的输入 / 缓存 / 输出单价和累计用量折算；缓存命中与写入的价格不同，需要先确定配置格式）。
+- [ ] 每轮回答结束后的统计行（TPS、输出 / 输入 / 缓存 / 合计 token、耗时、首字耗时）：需要在内核记录首个增量到达的时间，尚未做。
 - [ ] 配置热加载：改 `models.jsonc` 仍需重启才生效，`/model` 只列启动时读到的模型。
 - [ ] 剪贴板取图（`Ctrl+V` 粘贴图片）、图片缩放与降采样：超过 3 MB 直接拒绝（见 `docs/m2-vision.md` §7）。
 - [ ] 交互式 CLI REPL；`sprout run` 不支持从 stdin 读提问。

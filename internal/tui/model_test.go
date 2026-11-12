@@ -37,17 +37,23 @@ func TestLayoutFillsTerminalExactly(t *testing.T) {
 	}
 }
 
-func TestInfoLineIsAtTheBottomInChinese(t *testing.T) {
-	m := newSized(t, Options{Runner: scriptRunner()}, 100, 24)
+func TestInfoLinesAreAtTheBottomInChinese(t *testing.T) {
+	m := newSized(t, Options{Runner: scriptRunner()}, 120, 24)
 	lines := strings.Split(plain(m), "\n")
-	last := strings.TrimRight(lines[len(lines)-1], " ")
-	for _, want := range []string{"模型 deepseek-chat", `目录 D:\SmyProjects\sprout`, "工具 powershell、bash"} {
-		if !strings.Contains(last, want) {
-			t.Errorf("最后一行应是中文信息栏，缺少 %q: %q", want, last)
+	info := lines[len(lines)-infoRows:]
+	for i, wants := range [][]string{
+		{"路径 " + `D:\SmyProjects\sprout`, "对话轮次 0", "耗时 0s"},
+		{"输入 0", "输出 0", "缓存 0/0", "花费 —", "上下文 —", "模型ID deepseek-chat"},
+		{"状态 空闲", "MCP —", "插件 —", "技能 —", "工具 2"},
+	} {
+		for _, want := range wants {
+			if !strings.Contains(info[i], want) {
+				t.Errorf("第 %d 行状态栏缺少 %q: %q", i+1, want, info[i])
+			}
 		}
 	}
-	// 英文标签和数据目录都不再占信息栏；数据目录在 /tools 里看。
-	mustNotContain(t, last, "model:", "cwd:", "tools:", "data:", `D:\data`)
+	// 英文标签和数据目录都不占状态栏；数据目录在 /tools 里看。
+	mustNotContain(t, strings.Join(info, "\n"), "model:", "cwd:", "tools:", "data:", `D:\data`)
 }
 
 func TestTopOfScreenIsNowTheTranscript(t *testing.T) {
@@ -56,21 +62,22 @@ func TestTopOfScreenIsNowTheTranscript(t *testing.T) {
 	if !strings.Contains(first, "输入问题后按 Enter 发送") {
 		t.Fatalf("顶部第一行应直接是对话区内容，不再有信息栏: %q", first)
 	}
-	// 空闲时底部只有 4 行：分隔线、一行输入框、分隔线、信息栏。
-	if want := 24 - 4; m.vp.Height() != want {
+	// 空闲时底部有 6 行：分隔线、一行输入框、分隔线、三行状态栏。
+	if want := 24 - (3 + infoRows); m.vp.Height() != want {
 		t.Errorf("对话区高度 = %d，期望 %d", m.vp.Height(), want)
 	}
 }
 
 func TestFooterIsCompactWhenIdle(t *testing.T) {
-	m := newSized(t, Options{Runner: scriptRunner()}, 80, 24)
+	m := newSized(t, Options{Runner: scriptRunner()}, 100, 24)
 	lines := strings.Split(plain(m), "\n")
-	foot := lines[len(lines)-4:]
+	foot := lines[len(lines)-(3+infoRows):]
 	if !strings.HasPrefix(foot[0], "────") || !strings.HasPrefix(foot[1], "❯ 输入消息") ||
-		!strings.HasPrefix(foot[2], "────") || !strings.Contains(foot[3], "模型 deepseek-chat") {
-		t.Fatalf("空闲时底部应是 分隔线 / 输入框 / 分隔线 / 信息栏:\n%s", strings.Join(foot, "\n"))
+		!strings.HasPrefix(foot[2], "────") || !strings.Contains(foot[3], "路径") ||
+		!strings.Contains(foot[4], "模型ID deepseek-chat") || !strings.Contains(foot[5], "状态 空闲") {
+		t.Fatalf("空闲时底部应是 分隔线 / 输入框 / 分隔线 / 三行状态栏:\n%s", strings.Join(foot, "\n"))
 	}
-	mustNotContain(t, plain(m), "空闲", "Ctrl+C 退出")
+	mustNotContain(t, plain(m), "Ctrl+C 退出")
 }
 
 func TestActivityLineAppearsOnlyWhileRunning(t *testing.T) {
@@ -81,7 +88,8 @@ func TestActivityLineAppearsOnlyWhileRunning(t *testing.T) {
 		t.Fatalf("运行时多一行活动行，对话区应矮一行: %d → %d", idle, m.vp.Height())
 	}
 	lines := strings.Split(plain(m), "\n")
-	if act := lines[len(lines)-5]; !strings.Contains(act, "生成中") || !strings.Contains(act, "Ctrl+C 取消") {
+	// 活动行在 分隔线 / 输入框 / 分隔线 / 三行状态栏 的上面。
+	if act := lines[len(lines)-(4+infoRows)]; !strings.Contains(act, "生成中") || !strings.Contains(act, "Ctrl+C 取消") {
 		t.Fatalf("输入框上方应是活动行: %q", act)
 	}
 	apply(m, event.TurnFinished{Reason: event.ReasonStop})
@@ -118,72 +126,80 @@ func TestInputGrowsWithContentAndShrinksAfterSend(t *testing.T) {
 	}
 }
 
-func TestTokensShownOnInfoLine(t *testing.T) {
-	m := newSized(t, Options{Runner: scriptRunner()}, 100, 24)
-	apply(m, event.Usage{TotalTokens: 2863})
+func TestUsageShownOnTheSecondInfoLine(t *testing.T) {
+	m := newSized(t, Options{Runner: scriptRunner()}, 120, 24)
+	apply(m, event.Usage{InputTokens: 2000, OutputTokens: 863, TotalTokens: 2863})
 	lines := strings.Split(plain(m), "\n")
-	last := strings.TrimRight(lines[len(lines)-1], " ")
-	if !strings.Contains(last, "模型 deepseek-chat") || !strings.HasSuffix(last, "2.9k token") {
-		t.Fatalf("token 数应在信息栏右端: %q", last)
+	line := lines[len(lines)-infoRows+1]
+	if !strings.Contains(line, "输入 2k") || !strings.Contains(line, "输出 863") {
+		t.Fatalf("累计用量应在第二行状态栏: %q", line)
 	}
-	// 太窄时 token 数让位，不能把左边的信息挤掉或超宽。
-	narrow := newSized(t, Options{Runner: scriptRunner()}, 50, 24)
-	apply(narrow, event.Usage{TotalTokens: 2863})
-	if got := narrow.infoLine(); ansi.StringWidth(got) > 50 || !strings.Contains(ansi.Strip(got), "模型 deepseek-chat") {
-		t.Fatalf("窄宽度下信息栏: %q", ansi.Strip(got))
+	// 太窄时整行从右边截断，不能超宽，左边的先保留。
+	narrow := newSized(t, Options{Runner: scriptRunner()}, 30, 24)
+	apply(narrow, event.Usage{InputTokens: 2000, OutputTokens: 863})
+	got := narrow.infoUsageLine()
+	if ansi.StringWidth(got) > 30 || !strings.HasPrefix(ansi.Strip(got), "输入 2k") {
+		t.Fatalf("窄宽度下第二行: %q", ansi.Strip(got))
 	}
 }
 
-func TestInfoLineWithNoTools(t *testing.T) {
+func TestInfoLineWithNoToolsShowsZero(t *testing.T) {
 	info := testInfo
 	info.Tools = nil
 	m := newSized(t, Options{Runner: scriptRunner(), Info: info}, 100, 24)
 	lines := strings.Split(plain(m), "\n")
-	if last := lines[len(lines)-1]; !strings.Contains(last, "工具 无") {
-		t.Errorf("没有可用工具时显示“无”: %q", last)
+	if last := lines[len(lines)-1]; !strings.Contains(last, "工具 0") {
+		t.Errorf("没有可用工具时显示 0: %q", last)
 	}
 }
 
-func TestInfoLineFieldsHaveDistinctColors(t *testing.T) {
-	m := newSized(t, Options{Runner: scriptRunner()}, 100, 24)
-	line := m.infoLine()
-	// 三个值各用一种前景色，标签是淡色：模型绿、目录亮蓝、工具洋红。
-	for name, sgr := range map[string]string{"模型": "\x1b[32m", "目录": "\x1b[94m", "工具": "\x1b[35m"} {
-		if !strings.Contains(line, sgr) {
-			t.Errorf("%s 的值缺少颜色 %q: %q", name, sgr, line)
+func TestInfoLabelsHaveDistinctColors(t *testing.T) {
+	m := newSized(t, Options{Runner: scriptRunner()}, 200, 24)
+	all := strings.Join(m.infoLines(), "\n")
+	// 每个标签各用一种前景色（淡色的两个除外），值默认色；这里只确认带了颜色，且不是一整片同色。
+	colors := map[string]bool{}
+	for _, sgr := range []string{"\x1b[94m", "\x1b[38;5;208m", "\x1b[93m", "\x1b[32m", "\x1b[35m", "\x1b[36m", "\x1b[95m", "\x1b[38;5;214m", "\x1b[92m"} {
+		if strings.Contains(all, sgr) {
+			colors[sgr] = true
 		}
 	}
-	if !strings.Contains(line, "\x1b[2m") {
-		t.Errorf("标签应是淡色: %q", line)
+	if len(colors) < 6 {
+		t.Errorf("标签应使用多种颜色，实际只有 %d 种: %q", len(colors), all)
+	}
+	if !strings.Contains(all, "\x1b[2m") {
+		t.Errorf("分隔线和部分标签应是淡色: %q", all)
 	}
 }
 
-func TestInfoLineTruncatesLongDirectoryFromTheLeft(t *testing.T) {
+func TestInfoPathTruncatesLongDirectoryFromTheLeft(t *testing.T) {
 	long := `D:\Projects\very\deep\nested\folder\structure\that\goes\on\and\on\myproject`
 	info := testInfo
 	info.Cwd = long
 	m := newSized(t, Options{Runner: scriptRunner(), Info: info}, 70, 24)
-	lines := strings.Split(plain(m), "\n")
-	last := strings.TrimRight(lines[len(lines)-1], " ")
-	if !strings.Contains(last, "…") || !strings.HasSuffix(strings.Split(last, "  工具")[0], `\myproject`) {
-		t.Errorf("过长的目录应从左边截断，保留末尾: %q", last)
+	line := ansi.Strip(m.infoPathLine())
+	if !strings.Contains(line, "…") || !strings.Contains(strings.SplitN(line, " | ", 2)[0], `\myproject`) {
+		t.Errorf("过长的目录应从左边截断，保留末尾: %q", line)
 	}
-	if strings.Contains(last, `D:\Projects`) {
-		t.Errorf("开头部分应被截掉: %q", last)
+	if strings.Contains(line, `D:\Projects`) {
+		t.Errorf("开头部分应被截掉: %q", line)
 	}
-	// 模型和工具不能为了让路给目录而被截掉。
-	if !strings.Contains(last, "模型 deepseek-chat") || !strings.Contains(last, "工具 powershell、bash") {
-		t.Errorf("模型和工具应完整保留: %q", last)
+	// 轮次和耗时不能为了给路径让位而被截掉。
+	if !strings.Contains(line, "对话轮次 0") || !strings.Contains(line, "耗时 0s") {
+		t.Errorf("轮次和耗时应完整保留: %q", line)
 	}
 }
 
-func TestInfoLineNeverExceedsWidth(t *testing.T) {
+func TestInfoLinesNeverExceedWidth(t *testing.T) {
 	info := testInfo
 	info.Cwd = strings.Repeat(`很长的目录\`, 20)
+	info.Model = strings.Repeat("长模型名", 10)
 	for _, w := range []int{10, 20, 30, 40, 60, 80, 120} {
-		m := newSized(t, Options{Runner: scriptRunner(), Info: info}, w, 24)
-		if got := ansi.StringWidth(m.infoLine()); got > w {
-			t.Errorf("宽度 %d 下信息栏宽 %d 超出终端宽度", w, got)
+		m := newSized(t, Options{Runner: scriptRunner(), Info: info, Resources: func() Resources { return Resources{Mem: 43, CPU: 1} }}, w, 24)
+		m.res = Resources{Mem: 43, CPU: 1}
+		for i, l := range m.infoLines() {
+			if got := ansi.StringWidth(l); got > w {
+				t.Errorf("宽度 %d 下第 %d 行状态栏宽 %d 超出终端宽度", w, i+1, got)
+			}
 		}
 	}
 }
@@ -236,7 +252,7 @@ func TestOnlyFirstInputLineHasPrompt(t *testing.T) {
 	m.in.SetValue("第一行\n第二行\n第三行")
 	m.fit()
 	lines := strings.Split(plain(m), "\n")
-	input := lines[len(lines)-2-3 : len(lines)-2] // 下面是分隔线和信息栏
+	input := lines[len(lines)-(1+infoRows)-3 : len(lines)-(1+infoRows)] // 下面是分隔线和三行状态栏
 	prompts := 0
 	for _, l := range input {
 		if strings.HasPrefix(l, "❯") {
@@ -256,8 +272,8 @@ func TestCursorLandsInsideInputBox(t *testing.T) {
 		if c == nil {
 			t.Fatalf("h=%d: 输入框有焦点时应设置真实光标", h)
 		}
-		// 输入框下面是分隔线和信息栏：光标 Y = 总高 - 2 - 输入框 1 行。
-		wantY := h - 3
+		// 输入框下面是分隔线和三行状态栏：光标 Y = 总高 - (1 + infoRows) - 输入框 1 行。
+		wantY := h - (1 + infoRows) - 1
 		if c.Y != wantY || c.X != 2 {
 			t.Errorf("h=%d: 空输入时光标 = (%d,%d)，期望 (2,%d)：提示符之后、输入框首行", h, c.X, c.Y, wantY)
 		}
@@ -272,15 +288,15 @@ func TestCursorLandsInsideInputBox(t *testing.T) {
 func TestCursorFollowsActivityLineAndInputGrowth(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 80, 24)
 	begin(m, "q") // 活动行出现：它占的是对话区的一行，输入框位置不变
-	if c := m.View().Cursor; c.Y != 24-3 {
-		t.Errorf("运行时光标 Y = %d，期望 %d", c.Y, 24-3)
+	if c := m.View().Cursor; c.Y != 24-(1+infoRows)-1 {
+		t.Errorf("运行时光标 Y = %d，期望 %d", c.Y, 24-(1+infoRows)-1)
 	}
 	m.Update(typed("a"))
 	m.Update(press('j', tea.ModCtrl))
 	m.Update(typed("b"))
-	// 两行输入：输入框往上长一行，光标在它的第二行，也就是紧贴分隔线和信息栏的那一行。
-	if c := m.View().Cursor; c.Y != 24-3 {
-		t.Errorf("第二行输入时光标 Y = %d，期望 %d", c.Y, 24-3)
+	// 两行输入：输入框往上长一行，光标在它的第二行，也就是紧贴下面分隔线的那一行。
+	if c := m.View().Cursor; c.Y != 24-(1+infoRows)-1 {
+		t.Errorf("第二行输入时光标 Y = %d，期望 %d", c.Y, 24-(1+infoRows)-1)
 	}
 	lines := strings.Split(m.View().Content, "\n")
 	if len(lines) != 24 {

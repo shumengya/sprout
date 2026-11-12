@@ -2,6 +2,7 @@ package tui
 
 import (
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
@@ -79,6 +80,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.onResumed(msg)
 		m.refresh()
 		return m, nil
+
+	case resourceMsg:
+		m.res = msg.res
+		return m, m.resourceCmd(time.Second) // 约定下一次采样；View 会随这次 Update 重绘，耗时因此每秒刷新
 
 	case compactDoneMsg:
 		m.onCompactDone(msg)

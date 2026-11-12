@@ -15,7 +15,7 @@ func submit(m *Model, text string) {
 }
 
 func TestSlashHelp(t *testing.T) {
-	m := newSized(t, Options{Runner: scriptRunner()}, 100, 40)
+	m := newSized(t, Options{Runner: scriptRunner()}, 100, 70)
 	submit(m, "/help")
 	mustContain(t, plain(m), "快捷键", "Ctrl+J", "/tools", "PgUp")
 	if m.running || m.in.Value() != "" {
@@ -50,7 +50,7 @@ func TestSlashQuitAndExit(t *testing.T) {
 }
 
 func TestSlashWorksWhileRunningAndWhenDisabled(t *testing.T) {
-	m := newSized(t, Options{Disabled: "没有 Key"}, 100, 40)
+	m := newSized(t, Options{Disabled: "没有 Key"}, 100, 70)
 	m.running = true
 	submit(m, "/help")
 	mustContain(t, plain(m), "快捷键")
@@ -163,13 +163,13 @@ func TestTurnClosedWithoutFinishedDoesNotHang(t *testing.T) {
 	mustContain(t, plain(m), "意外结束")
 }
 
-func TestUsageAccumulatesInStatusLine(t *testing.T) {
-	m := newSized(t, Options{Runner: scriptRunner()}, 100, 24)
+func TestUsageAccumulatesInStatusBar(t *testing.T) {
+	m := newSized(t, Options{Runner: scriptRunner()}, 120, 24)
 	begin(m, "q")
-	apply(m, event.Usage{TotalTokens: 120}, event.Usage{TotalTokens: 30})
-	mustContain(t, plain(m), "150 token")
-	apply(m, event.Usage{TotalTokens: 2713})
-	mustContain(t, plain(m), "2.9k token")
+	apply(m, event.Usage{InputTokens: 100, OutputTokens: 20}, event.Usage{InputTokens: 20, OutputTokens: 10})
+	mustContain(t, plain(m), "输入 120", "输出 30")
+	apply(m, event.Usage{InputTokens: 2800, OutputTokens: 4000})
+	mustContain(t, plain(m), "输入 2.9k", "输出 4k")
 }
 
 func TestRetryingShowsNoticeWithCountdown(t *testing.T) {

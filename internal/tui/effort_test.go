@@ -71,7 +71,7 @@ func TestEffortPickerSelectsWithArrows(t *testing.T) {
 	if len(e.sets) != 1 || e.sets[0] != "max" || m.opts.Info.Effort != "max" {
 		t.Fatalf("sets=%v info=%q", e.sets, m.opts.Info.Effort)
 	}
-	mustContain(t, plain(m), "思考程度：high → max", "思考 max")
+	mustContain(t, plain(m), "思考程度：high → max", "思考强度 max")
 }
 
 func TestEffortPickerDigitsEscapeAndUnchanged(t *testing.T) {
@@ -144,10 +144,10 @@ func TestEffortUnsupportedAndUnavailable(t *testing.T) {
 
 func TestInfoLineShowsEffortOnlyWhenDeclared(t *testing.T) {
 	m := effortModel(t, testEfforts())
-	mustContain(t, plain(m), "思考 high")
+	mustContain(t, plain(m), "思考强度 high")
 
 	m = newSized(t, Options{Runner: scriptRunner()}, 100, 30)
-	if strings.Contains(plain(m), "思考 ") {
+	if strings.Contains(plain(m), "思考强度") {
 		t.Error("没声明 effort 时信息栏不应显示档位")
 	}
 	submit(m, "/help")
@@ -165,5 +165,5 @@ func TestModelSwitchUpdatesEffort(t *testing.T) {
 	if m.opts.Info.Effort != "medium" {
 		t.Errorf("Info.Effort = %q", m.opts.Info.Effort)
 	}
-	mustContain(t, plain(m), "思考 medium")
+	mustContain(t, plain(m), "思考强度 medium")
 }

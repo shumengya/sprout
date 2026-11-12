@@ -143,7 +143,7 @@ func runOnce(ap *app, prompt string, images []string, resume string, stdout, std
 
 // runTUI 启动终端界面。resume 非空时先恢复会话；失败不致命，只提示并开新会话。
 func runTUI(ap *app, resume string, stderr io.Writer) int {
-	opts := tui.Options{Info: ap.info, Disabled: ap.disabled, Notices: ap.notices, Installer: commandInstaller{}}
+	opts := tui.Options{Info: ap.info, Disabled: ap.disabled, Notices: ap.notices, Installer: commandInstaller{}, Resources: systemResources()}
 	if ap.ag != nil { // 不能直接赋值：nil 指针放进接口后接口本身不为 nil
 		opts.Runner = runnerFunc{ap}
 		opts.Sessions = sessionStore{ap}

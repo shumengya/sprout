@@ -8,6 +8,7 @@ import (
 	"github.com/shumengya/sprout/internal/agent"
 	"github.com/shumengya/sprout/internal/agent/config"
 	"github.com/shumengya/sprout/internal/agent/event"
+	"github.com/shumengya/sprout/internal/agent/platform"
 	"github.com/shumengya/sprout/internal/tui"
 )
 
@@ -82,6 +83,7 @@ func (s modelStore) Switch(ref string) (*tui.SwitchResult, error) {
 	a.effort = carryEffort(sel, a.effort)
 	a.info.Model, a.info.Provider = sel.ModelName, sel.ProviderName+"，"+sel.Provider.Protocol
 	a.info.Vision = sel.Model.SupportsVision()
+	a.info.ContextWindow = sel.Model.ContextWindow
 	a.info.Effort = effortLabel(sel, a.effort)
 	reg, err := a.registerTools(a.cfg, a.env)
 	if err != nil {
@@ -133,3 +135,12 @@ func (c compactor) Compact(ctx context.Context, focus string, sink event.Sink) e
 }
 
 var _ tui.Compactor = compactor{}
+
+// systemResources 把平台层的整机资源采样适配成 tui.Resources。
+func systemResources() func() tui.Resources {
+	s := platform.NewSystemSampler()
+	return func() tui.Resources {
+		u := s.Sample()
+		return tui.Resources{Mem: u.MemPercent, CPU: u.CPUPercent}
+	}
+}

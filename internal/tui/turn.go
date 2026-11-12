@@ -136,13 +136,16 @@ func (m *Model) onEvent(e event.Event) {
 		}
 		t.touch()
 	case event.Usage:
-		m.tokens += e.TotalTokens
+		m.addUsage(e)
 		if pending != nil && e.ReasoningTokens > 0 {
 			pending.thinkTokens = e.ReasoningTokens
 			pending.touch()
 		}
 	case event.Compacted:
 		m.add(&entry{kind: kindNotice, text: describeCompacted(e)})
+		if e.Err == "" { // 失败时历史没动，上下文占用还是原来的
+			m.ctxTokens = e.TokensAfter
+		}
 	case event.Retrying:
 		m.add(&entry{kind: kindNotice, text: fmt.Sprintf("请求失败，%s后重试（%d/%d）：%s",
 			fmtWait(e.Delay), e.Attempt, e.Max, e.Reason)})
@@ -162,6 +165,19 @@ func (m *Model) onEvent(e event.Event) {
 		m.add(&entry{kind: kindError, text: e.Message})
 	case event.TurnFinished:
 		m.finishTurn(e.Reason)
+	}
+}
+
+// addUsage 把一次模型调用的用量记进状态栏。
+// 服务端报告的输入 token 含缓存读写，“输入”一项只算没命中缓存的部分，和“缓存”加起来才是全部输入。
+// 上下文占用取最近一次请求的输入：它就是下一次请求大致要带的历史长度；服务端没报告时保持原值。
+func (m *Model) addUsage(e event.Usage) {
+	m.usage.Input += max(e.InputTokens-e.CacheReadTokens-e.CacheWriteTokens, 0)
+	m.usage.Output += e.OutputTokens
+	m.usage.CacheRead += e.CacheReadTokens
+	m.usage.CacheWrite += e.CacheWriteTokens
+	if e.InputTokens > 0 {
+		m.ctxTokens = e.InputTokens
 	}
 }
 

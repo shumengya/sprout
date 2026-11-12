@@ -73,7 +73,7 @@ func oldConversation() []event.Event {
 		event.TurnStarted{Prompt: "上次的提问"},
 		event.ReasoningDelta{}, // 重放的是落盘事件，不会有增量；这里留一个空的确认不会出问题
 		event.MessageCompleted{Content: "上次的回答", Reasoning: "上次的推理"},
-		event.Usage{TotalTokens: 321},
+		event.Usage{InputTokens: 300, OutputTokens: 21, TotalTokens: 321},
 		event.TurnFinished{Reason: event.ReasonStop},
 	}
 }
@@ -109,7 +109,7 @@ func TestResumeRebuildsTranscriptFromSavedEvents(t *testing.T) {
 		t.Fatalf("选择器 = %q resuming=%v", f.gotSel, m.resuming)
 	}
 	s := plain(m)
-	mustContain(t, s, "上次的提问", "上次的回答", "已恢复会话 abcd1234（1 轮）", "321 token")
+	mustContain(t, s, "上次的提问", "上次的回答", "已恢复会话 abcd1234（1 轮）", "输入 300", "输出 21")
 	mustNotContain(t, s, "当前屏幕上原有的内容", "正在恢复")
 	if m.running {
 		t.Error("重放不应让界面停在生成中")
@@ -213,7 +213,8 @@ func TestNewSessionClearsTranscriptAndHistory(t *testing.T) {
 	m := sessionsModel(t, f)
 	begin(m, "之前的内容")
 	m.running = false
-	m.tokens = 500
+	m.usage = usageTotals{Input: 500, Output: 7}
+	m.ctxTokens = 500
 
 	submit(m, "/new")
 	if !f.newCalled {
@@ -222,8 +223,8 @@ func TestNewSessionClearsTranscriptAndHistory(t *testing.T) {
 	s := plain(m)
 	mustContain(t, s, "已开始新会话", "可以用 /resume 找回")
 	mustNotContain(t, s, "之前的内容")
-	if m.tokens != 0 {
-		t.Errorf("token 计数应归零: %d", m.tokens)
+	if m.usage != (usageTotals{}) || m.ctxTokens != 0 {
+		t.Errorf("用量和上下文占用应归零: %+v ctx=%d", m.usage, m.ctxTokens)
 	}
 	if countKind(m, kindUser) > 0 || countKind(m, kindAssistant) > 0 {
 		t.Error("对话区应已清空")
