@@ -52,19 +52,22 @@ func TestWriteArchive(t *testing.T) {
 	if err := os.WriteFile(bin, []byte("binary"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	readme := filepath.Join(dir, "src-README.md")
-	if err := os.WriteFile(readme, []byte("# sprout"), 0o644); err != nil {
+	// packageEntries 从仓库根取 README.md 与 LICENSE，这里用临时目录充当仓库根。
+	root := filepath.Join(dir, "repo")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# sprout"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "LICENSE"), []byte("Apache License"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	const version = "2026.11.12"
 
 	entriesFor := func(tg target) []archiveEntry {
-		return []archiveEntry{
-			{Name: archiveDir(version, tg) + "/" + tg.binaryName(), Path: bin, Mode: tg.binaryMode()},
-			{Name: archiveDir(version, tg) + "/README.md", Path: readme, Mode: 0o644},
-		}
+		return packageEntries(version, tg, bin, root)
 	}
-
 	t.Run("zip", func(t *testing.T) {
 		tg := target{GOOS: "windows", GOARCH: "amd64", Platform: "windows_amd64", Archive: "zip"}
 		dest := filepath.Join(dir, artifactName(version, tg))
@@ -95,6 +98,10 @@ func TestWriteArchive(t *testing.T) {
 		}
 		if got[prefix+"/README.md"] != "# sprout" {
 			t.Errorf("README 内容不对: %q", got[prefix+"/README.md"])
+		}
+		// Apache-2.0 第 4 条要求分发二进制时附带许可证。
+		if got[prefix+"/LICENSE"] != "Apache License" {
+			t.Errorf("LICENSE 没有打进包: %q", got[prefix+"/LICENSE"])
 		}
 	})
 
@@ -141,6 +148,9 @@ func TestWriteArchive(t *testing.T) {
 		}
 		if modes[prefix+"/README.md"]&0o111 != 0 {
 			t.Errorf("README 不该可执行，mode = %o", modes[prefix+"/README.md"])
+		}
+		if contents[prefix+"/LICENSE"] != "Apache License" {
+			t.Errorf("LICENSE 没有打进包: %q", contents[prefix+"/LICENSE"])
 		}
 	})
 }

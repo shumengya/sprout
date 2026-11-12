@@ -166,4 +166,6 @@ TUI 选型依据：[Charm v2 公告](https://charm.land/blog/v2/)、[GitLab CLI 
 
 ## License
 
-TBD
+[Apache License 2.0](LICENSE)。使用时请保留 `LICENSE` 与版权声明；本项目不对适用性作任何担保。
+
+Copyright 2026 shumengya

@@ -96,10 +96,7 @@ func run(version, out, notesPath string, check bool) error {
 			built[t.Platform] = bin
 		}
 		name := artifactName(version, t)
-		entries := []archiveEntry{
-			{Name: archiveDir(version, t) + "/" + t.binaryName(), Path: bin, Mode: t.binaryMode()},
-			{Name: archiveDir(version, t) + "/README.md", Path: filepath.Join(root, "README.md"), Mode: 0o644},
-		}
+		entries := packageEntries(version, t, bin, root)
 		if err := writeArchive(filepath.Join(dir, name), t.Archive, entries); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
@@ -239,6 +236,17 @@ func releaseEnv(t target) []string {
 		env = append(env, "GOARM="+t.GOARM)
 	}
 	return env
+}
+
+// packageEntries 是每个压缩包的内容：可执行文件、README，以及 LICENSE。
+// 分发二进制必须一并给出许可证与版权声明（Apache-2.0 第 4 条）。
+func packageEntries(version string, t target, bin, root string) []archiveEntry {
+	dir := archiveDir(version, t)
+	return []archiveEntry{
+		{Name: dir + "/" + t.binaryName(), Path: bin, Mode: t.binaryMode()},
+		{Name: dir + "/README.md", Path: filepath.Join(root, "README.md"), Mode: 0o644},
+		{Name: dir + "/LICENSE", Path: filepath.Join(root, "LICENSE"), Mode: 0o644},
+	}
 }
 
 // archiveEntry 是压缩包里的一个文件。
