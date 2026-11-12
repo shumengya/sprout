@@ -24,6 +24,11 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] OpenAI Responses 流式：`store:false` + 完整 input，扁平工具声明且 `strict:false`，多来源拼装 `function_call`，文本不重复。
 - [x] 错误归一化为 `ProviderError`（带 `Retryable`），中文提示；流被截断视为可重试错误；API Key 不进入任何错误信息。
 
+### Provider（`internal/provider/anthropic`、`internal/provider/google`）
+- [x] Anthropic Messages 流式：text / image block，思考块按声明发 `thinking`，思考块带 `signature` 原样回传（`docs/effort.md`）。
+- [x] Google Gemini 流式：`streamGenerateContent`，part 数组，`inlineData` 传图，`thinkingConfig` 调思考程度。
+- [x] 四协议共用的 HTTP / SSE 传输层抽到 `internal/provider/transport`。
+
 ### 工具（`internal/agent/tool`）
 - [x] `bash`（Git Bash / MSYS2 / Cygwin / 系统 bash）与 `powershell`（pwsh 7+ 优先，回退 5.1）。
 - [x] 平台探测：按文档顺序查找；`System32\bash.exe`（WSL 启动器）判为不可用并提示安装 Git for Windows。
@@ -47,12 +52,24 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] 历史滚动：鼠标滚轮、PgUp/PgDn、Ctrl+↑↓、Ctrl+Home/End；输入框为空时 ↑↓ Home End 同样滚动；状态行显示位置与“有新内容”。
 - [x] Markdown（CommonMark + GFM）：标题、嵌套列表与任务列表、多级引用、分隔线、围栏代码块（chroma 语法高亮）、粗体/斜体/删除线/行内代码、链接与图片、表格（按显示宽度对齐、列对齐标记、过宽时缩列折行、极窄时逐行展开）。流式输出中途未闭合的语法原样显示。
 - [x] 思维链淡色显示：流式预览最后 3 行；结束后折叠成一行“已思考 N秒 N token：内容…”，点击单条展开或收起，`/think` 一次切换全部。思维链 token 取服务端报告值（未报告时显示内核估算并标“约”）。token 数缩写为 2.9k、12k 这样。
-- [x] `/help` `/tools` `/think` `/mouse` `/install-sprout` `/uninstall-sprout` `/quit`；缺 API Key 时禁止发送并显示配置提示。
+- [x] `/help` `/tools` `/think` `/mouse` `/model` `/effort` `/new` `/image` `/resume` `/install-sprout` `/uninstall-sprout` `/quit`；缺 API Key 时禁止发送并显示配置提示。
+- [x] 斜杠命令补全：输入 `/` 列出候选，Tab 填入、↑↓/Ctrl+P/N 选择、Esc 关闭；`/effort` 与 `/model` 的参数也参与补全。命令与快捷键说明见 `docs/斜杠命令.md`、`docs/快捷键.md`。
+- [x] `/model` 模型选择器：↑↓ 或直接输入过滤，Enter 切换；保留对话历史、清空旧模型思维链；生成中或恢复/切换中拒绝。
+- [x] `/new` 清空对话区与上下文开始新会话，旧会话仍可用 `/resume` 找回。
+- [x] `/image 路径` 附加图片，粘贴或消息里直接写图片路径时自动附加（`internal/media`、`internal/tui/image.go`）。
 - [x] 对话区拖选复制：按住左键拖动选中（反色显示），松开自动复制；选区跟着内容走，拖到上下边缘自动滚动；中文按整个字选中；内容重排（窗口缩放、`/think` 展开）导致选区对不上时自动取消。复制同时走 OSC 52 和系统剪贴板，任何一条失败只提示、不当作致命。
 - [x] 真实终端光标（输入法候选窗跟随）；退出时 `Shutdown` 等 agent 收尾，保证 `turn.finished` 被记录。
 
+### 识图（`internal/media`，设计见 `docs/m2-vision.md`）
+- [x] `Message.Content` 改为 text / image 块数组；工具结果也能带图片。
+- [x] 四种协议都能发图；协议不支持在工具结果里放图时，在其后补一条 user 消息。
+- [x] 会话把图片存成 `<会话名>.images/` 下按内容哈希命名的文件，JSONL 里只存相对路径；恢复时读回，文件丢失换成占位文本。
+- [x] `models.jsonc` 的 `vision` 标记；未标注的模型发送时图片换成占位文本，历史不改。
+- [x] 图片 token 估算（按尺寸折算，夹在 300–8000）；单张上限 3 MB，按内容嗅探类型。
+
 ### CLI 与入口（`internal/cli`、`cmd/sprout`）
-- [x] `sprout`（TUI）、`sprout run "..."`（答案写 stdout，进度/错误写 stderr；退出码 0 / 1 / 130）。
+- [x] `sprout`（TUI）、`sprout run "..."`（答案写 stdout，进度/错误写 stderr；退出码 0 / 1 / 2 / 130）。
+- [x] `--effort`、`--image`（可重复）、`-c` / `--resume`；完整说明见 `docs/CLI命令.md`。
 - [x] 模型输出与命令内容写终端前去除控制字符（含 ESC）。
 - [x] Windows：控制台 UTF-8 并在退出时恢复；双击启动出错时等待回车；日志写 `logs/sprout-YYYYMMDD.log`（不记录 Key、请求体、用户输入）。
 
@@ -74,6 +91,8 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [ ] **OpenAI 官方服务**（Chat 与 Responses）：只验证过 DeepSeek。Responses 的 `function_call` 不带 `id` 是依据文档推断，带 reasoning 的 gpt-5 / o 系列可能不同。
 - [ ] **思维链 token 数**：Chat 协议下真实 DeepSeek 已确认返回 `completion_tokens_details.reasoning_tokens`（本机 11 次调用，与分词器数出的一致）；Responses 协议的 `output_tokens_details.reasoning_tokens` 和 OpenAI 官方服务只有 `httptest` 测试。不返回时 TUI 显示内核估算的“约 N token”。
 - [ ] **Linux / macOS / Termux 实际运行**：只验证过能编译；`bash` 探测、进程组终止等 Unix 路径只有单元测试（fake probe）。
+- [ ] **识图（M2）的真实服务商往返**：四种协议的图片请求形状只有 `httptest` 验证，没有对真实服务商手工发过图；Gemini 协议整体也只用测试替身验证过。
+- [ ] **`/model` 切换与恢复后的历史重放**：换模型时丢弃旧思维链、保留正文的逻辑有单元测试，但没有在真实多模型服务上跑过。
 - [ ] **双击 `sprout.exe` 启动**（含出错后等待回车）。
 - [ ] **`/install-sprout` / `/uninstall-sprout` 的真实效果**：Windows 的流程用注册表替身和临时目录测试过，读取真实用户 / 系统 PATH 只做过只读演练，没有真正写过注册表、没有确认新开的终端能直接敲 `sprout`；Linux / macOS / Termux 的符号链接逻辑只用文件系统替身测试过，真实系统上没跑过。
 - [ ] `go test -race`：本机没有 gcc，未跑过。
@@ -81,21 +100,25 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 ## 三、未实现
 
 ### 后续里程碑（见 README 路线图，需用户确认后再做）
-- [ ] **M2 JSON-RPC**（`internal/rpc`，目前只有占位目录）：会话管理、流式事件、取消；`sprout serve`。
-- [ ] **M3 WebUI**（`internal/webui`，占位）：独立前端模块，复用 JSON-RPC 事件；`sprout web`。
-- [ ] **M4 扩展**：
-  - [ ] Anthropic Messages 协议（`internal/provider/anthropic`，占位）；
+- [ ] **里程碑编号与 `docs/m2-vision.md` 冲突**：README 路线图把 M2 定为 JSON-RPC、M3 为 WebUI；`docs/m2-vision.md` 把“M2”用于视觉（识图，已实现）。需要统一编号后再继续写路线图。
+- [ ] **JSON-RPC**（`internal/rpc`，目前只有占位目录）：会话管理、流式事件、取消；`sprout serve`。
+- [ ] **WebUI**（`internal/webui`，占位）：独立前端模块，复用 JSON-RPC 事件；`sprout web`。
+- [ ] **扩展**：
+  - [x] Anthropic Messages 协议（`internal/provider/anthropic`，已实现并测试）；
+  - [x] Google Gemini 协议（`internal/provider/google`，已实现并测试）；
   - [ ] MCP 客户端与工具接入（`internal/agent/mcp`，占位）；
   - [ ] skills 发现与加载（`internal/agent/skills`，占位）；
   - [ ] 子代理 / 多 agent 编排；
-  - [ ] 文件读写、搜索、web 等更多工具（M1 只有 `bash` 和 `powershell`，其余由用户后续决定）；
+  - [ ] 文件读写、搜索、web 等更多工具（现在只有 `bash` 和 `powershell`，其余由用户后续决定）；
   - [ ] 权限模块（审批流、allow/deny、沙箱）——目前默认完全权限，不要提前加。
 
 ### M1 范围内有意没做
-- [ ] 会话分支、搜索（恢复已实现，见上）。
+- [ ] 会话分支（恢复和会话搜索已实现，见 `/resume` 会话浏览器）。
 - [ ] 会话压缩的细化：按 token 精确裁剪、分层摘要、让用户手动触发 `/compact`；目前只有自动触发。
 - [ ] 按工具声明“是否可并行”：现在同批调用一律并行（上限 4），靠系统提示词要求模型不要把有依赖的命令放同一批。
-- [ ] 配置热加载、模型选择器、运行中切换模型（改 `models.jsonc` 需重启）。
+- [x] 模型选择器、运行中切换模型：`/model`。
+- [ ] 配置热加载：改 `models.jsonc` 仍需重启才生效，`/model` 只列启动时读到的模型。
+- [ ] 剪贴板取图（`Ctrl+V` 粘贴图片）、图片缩放与降采样：超过 3 MB 直接拒绝（见 `docs/m2-vision.md` §7）。
 - [ ] 交互式 CLI REPL；`sprout run` 不支持从 stdin 读提问。
 - [x] 思考程度调节：`/effort` 档位条与 `--effort`，档位由 `models.jsonc` 的 `effort` 按模型声明；四种协议按各自真实字段发送，Anthropic 思考块带签名原样回传（`docs/effort.md`）。
 - [x] Responses 协议下的思考摘要：`reasoning.summary=auto` 时接收 `reasoning_summary_text` 并显示。
@@ -128,8 +151,11 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 
 - [ ] 没有 CI（无 `.github/`）：至少跑 `go build` / `go vet` / `go test`，最好覆盖 Windows 与 Linux。
 - [ ] 没有 LICENSE（README 写的是 TBD）。
-- [ ] `README.md` 的“项目结构”缺少 `internal/agent/tool/shell`（bash / powershell 共用的执行器）。
-- [ ] `docs/` 只有两份 M1 计划；`AGENTS.md` 约定的架构 / 协议 / 决策记录文档还没有单独成文（事件协议和会话格式目前散落在 `m1-implementation.md` §10、§15）。
+- [ ] `README.md` 的“项目结构”缺少 `internal/agent/tool/shell`（bash / powershell 共用的执行器）、`internal/media`、`internal/provider/google`、`internal/provider/transport`；`provider/` 的注释仍只写了 openai 与 anthropic。
+- [ ] `README.md` 与 `AGENTS.md` 的“当前处于 M1”“M1 只有 OpenAI Chat + Responses”已过时，没有提到 Anthropic、Gemini 与识图。
+- [ ] `docs/斜杠命令.md` 的命令表缺少 `/new` 与 `/image`（`/help` 里已有）。
+- [ ] `docs/CLI命令.md`、`docs/快捷键.md`、`docs/斜杠命令.md` 尚未提交到 git。
+- [ ] `AGENTS.md` 约定的架构 / 协议 / 决策记录文档还没有单独成文（事件协议和会话格式目前散落在 `m1-implementation.md` §10、§15 与 `m2-vision.md` §3）。
 - [ ] 部分测试里仍用旧模型名 `deepseek-chat` 作为随意的字符串（`session_test.go`、`tui/helpers_test.go`），不影响功能，可顺手统一。
 
 
