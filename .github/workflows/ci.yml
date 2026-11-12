@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          # go.mod 声明的是 1.27；用 1.27.x 而不是 latest，
+          # 免得新版本工具链的行为差异让 CI 与本地判断不一致。
+          go-version-file: go.mod
+          cache: true
+
+      - name: go build
+        run: go build ./...
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test ./...
+
+  release-dry-run:
+    name: 发布工具能在 Linux 上跑通
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # 只验证交叉编译与打包能跑通，不产出可发布的包，也不上传任何东西。
+      - name: 构建全部平台
+        run: go run ./tools/release -check=false -out /tmp/sprout-release
