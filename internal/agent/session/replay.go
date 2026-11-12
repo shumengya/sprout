@@ -179,7 +179,9 @@ func (r *replayer) compact(rec rawRec) {
 		r.summary = rec.Summary
 		r.base = max(r.base-cut, 0)
 	case event.CompactPrune:
-		agent.PruneToolOutputs(r.history, agent.PruneKeepRecent)
+		// 记录里的 Dropped 是当初裁掉的条数，从最旧的开始裁同样多条。
+		// 旧版本一次裁光，那时的条数就是候选总数，这里的结果与当年相同。
+		agent.PruneToolOutputs(r.history, agent.PruneKeepRecent, rec.Dropped)
 	}
 	r.emit(event.Compacted{
 		Mode: rec.Mode, TokensBefore: rec.TokensBefore, TokensAfter: rec.TokensAfter,

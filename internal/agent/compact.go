@@ -58,8 +58,19 @@ func (t *turn) compact(force bool) bool {
 	}
 
 	changed := false
-	if n := PruneToolOutputs(a.history, keepRecentMsgs); n > 0 {
-		a.resetCalibration()
+	// 先裁剪旧工具输出（便宜，不丢对话）。从最旧的开始，估算降到目标的 pruneHeadroom 以下就停，
+	// 不一次裁光：能多保留一些旧输出的原文，也让服务端的前缀缓存少失效一些。
+	goal := int(float64(target) * pruneHeadroom)
+	if n, _, savedCalibrated := pruneToward(a.history, keepRecentMsgs, est-goal, a.calibLen); n > 0 {
+		// 校准值是服务端对 history[:calibLen] 报告的真实用量，被裁掉的那部分要从中扣掉；
+		// 直接复位会退回纯估算，而纯估算整体偏高，会让紧接着的下一步又判定超限。
+		if a.calibLen > 0 {
+			if a.calibTokens > savedCalibrated {
+				a.calibTokens -= savedCalibrated
+			} else {
+				a.resetCalibration()
+			}
+		}
 		after := a.requestTokens()
 		t.out.Emit(event.Compacted{Mode: event.CompactPrune, TokensBefore: est, TokensAfter: after, Dropped: n})
 		changed, est = true, after

@@ -99,11 +99,11 @@ func TestPruneDropsNative(t *testing.T) {
 		{Role: RoleTool, Content: []Block{TextBlock(string(long))}},
 		{Role: RoleAssistant, Content: []Block{TextBlock("a")}, Reasoning: "r", Native: native},
 	}
-	if PruneToolOutputs(h, 0) != 1 || h[1].Native != nil || h[1].Reasoning != "r" {
+	if PruneToolOutputs(h, 0, 0) != 1 || h[1].Native != nil || h[1].Reasoning != "r" {
 		t.Fatalf("裁剪后应清掉 Native、保留思维链文本: %+v", h[1])
 	}
 	h[1].Native = native
-	if PruneToolOutputs(h, 0) != 0 || h[1].Native == nil {
+	if PruneToolOutputs(h, 0, 0) != 0 || h[1].Native == nil {
 		t.Error("没有裁剪时不应动 Native")
 	}
 }

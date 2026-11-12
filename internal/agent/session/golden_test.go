@@ -152,6 +152,73 @@ func assertGoldenPremises(t *testing.T, path string) {
 	}
 }
 
+// 部分裁剪的重放：三个大输出里只裁了最旧的几个，最终历史里还留着没裁的。
+// 重放必须按记录里的条数从最旧的开始裁同样多条，既不能多裁（照旧版本裁光），也不能少裁。
+func TestReplayReappliesPartialPruneExactly(t *testing.T) {
+	prov := funcProvider(func(req agent.Request) agent.Response {
+		last := req.Messages[len(req.Messages)-1]
+		if last.Role == agent.RoleUser && last.Text() == "大输出" {
+			return calls("", agent.ToolCall{ID: "ch", Name: "huge", Arguments: "{}"})
+		}
+		return answer("好的：" + strings.Repeat("字", 30))
+	})
+	huge := funcTool{name: "huge", run: func(context.Context) (tool.Result, error) {
+		return tool.Result{Command: "huge", Stdout: strings.Repeat("大", 900)}, nil
+	}}
+	dir := t.TempDir()
+	rec := NewRecorder(dir, Info{Provider: "p", Model: "m", Cwd: `D:\proj3`}, nil)
+	// 窗口要让三个大输出都攒下来之后才越线，且越线时裁掉最旧的一两个就够。
+	ag, err := agent.New(agent.Config{
+		Provider: prov, Model: "m", Recorder: rec, ContextWindow: 2800,
+		Tools: registryOf(t, huge), Retry: &agent.RetryPolicy{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ev kinds
+	questions := []string{"大输出", "大输出", "大输出"}
+	for i := 1; i <= 7; i++ {
+		questions = append(questions, fmt.Sprintf("短问题 %d", i))
+	}
+	for _, q := range questions {
+		if err := ag.Run(context.Background(), agent.Input{Text: q}, &ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec.Close()
+
+	modes := map[string]int{}
+	for _, r := range readRecords(t, rec.Path()) {
+		if r["type"] == "compact" {
+			modes[r["mode"].(string)]++
+		}
+	}
+	if modes["prune"] == 0 || modes["summary"] != 0 {
+		t.Fatalf("前提不成立：应只发生裁剪、不发生摘要，实际 %v", modes)
+	}
+	pruned, kept := 0, 0
+	for _, m := range ag.History() {
+		switch {
+		case m.Role != agent.RoleTool:
+		case strings.Contains(m.Text(), "旧输出已裁剪"):
+			pruned++
+		case len([]rune(m.Text())) > 600:
+			kept++
+		}
+	}
+	if pruned == 0 || kept == 0 {
+		t.Fatalf("前提不成立：应有被裁的、也应有够不上被裁而保留原文的大输出，实际 裁剪 %d 保留 %d", pruned, kept)
+	}
+
+	st, err := Load(rec.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(st.History, ag.History()) {
+		t.Fatalf("重放没有还原部分裁剪：\n重放:   %+v\n运行时: %+v", st.History, ag.History())
+	}
+}
+
 // 专门覆盖“裁剪”的重放：对话在裁剪之后立刻结束，没有后续摘要把被裁剪的消息切掉，
 // 所以最终历史里一定还留着被裁剪的那条，重放漏掉裁剪就会和运行时不一致。
 func TestReplayReappliesPruneExactly(t *testing.T) {

@@ -102,7 +102,7 @@ func TestNoCompactionWhenUnderBudget(t *testing.T) {
 }
 
 func TestPruneAloneIsEnoughNoSummaryCall(t *testing.T) {
-	// 历史里是几个很大的旧工具输出：裁掉它们就够了，不需要为此多调一次模型做摘要。
+	// 历史里是几个很大的旧工具输出：裁掉一部分就够了，不需要为此多调一次模型做摘要。
 	h := []Message{{Role: RoleUser, Content: []Block{TextBlock("旧问题")}}}
 	for i := 0; i < 4; i++ {
 		h = append(h, Message{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "c", Name: "bash", Arguments: "{}"}}},
@@ -119,10 +119,32 @@ func TestPruneAloneIsEnoughNoSummaryCall(t *testing.T) {
 	if len(p.reqs) != 1 || len(evs) != 1 || evs[0].Mode != event.CompactPrune || evs[0].Dropped < 1 || a.Summary() != "" {
 		t.Fatalf("只应裁剪、不应摘要: 请求 %d 次，事件 %+v", len(p.reqs), evs)
 	}
+	if budget := contextBudget(2000, 123); evs[0].TokensAfter > budget {
+		t.Errorf("裁剪后应在预算内: %d > %d", evs[0].TokensAfter, budget)
+	}
+
+	// 从最旧的开始裁：已裁的在前、未裁的在后，不能交错。
+	var states []bool // true = 已裁剪
 	for _, m := range p.reqs[0].Messages {
-		if m.Role == RoleTool && len([]rune(m.Text())) > 1000 && !strings.Contains(m.Text(), "已裁剪") {
-			t.Fatal("发给模型的历史里不应再有未裁剪的大输出")
+		if m.Role == RoleTool {
+			states = append(states, strings.Contains(m.Text(), "已裁剪"))
 		}
+	}
+	pruned := 0
+	for i, s := range states {
+		if s {
+			pruned++
+			if i > 0 && !states[i-1] {
+				t.Fatalf("应从最旧的开始裁，实际 %v", states)
+			}
+		}
+	}
+	if pruned != evs[0].Dropped {
+		t.Errorf("事件里的条数 %d 与实际裁剪条数 %d 不符", evs[0].Dropped, pruned)
+	}
+	// 够用就停：这个场景里不需要把全部四条都裁掉。
+	if pruned == len(states) {
+		t.Errorf("估算已经降到目标以下，不该把旧输出全部裁光: %v", states)
 	}
 }
 

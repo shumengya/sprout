@@ -158,7 +158,7 @@ type Compacted struct {
 	Mode         string // CompactPrune 或 CompactSummary
 	TokensBefore int    // 估算值
 	TokensAfter  int    // 估算值
-	Dropped      int    // summary：被摘要替代的消息条数；prune：被裁剪的工具输出条数
+	Dropped      int    // summary：被摘要替代的消息条数；prune：被裁剪的工具输出条数（重放时从最旧的开始裁同样多条）
 	Summary      string // summary：压缩后的完整摘要文本（会话记录保存它，恢复时用）
 	Err          string // 非空表示摘要失败，历史未改动，本轮照常继续
 }
