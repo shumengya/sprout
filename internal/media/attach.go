@@ -116,8 +116,11 @@ func addTrimmed(cand string, add func(string)) bool {
 	return false
 }
 
-// pathStarts 给出一段文本里可能是路径起点的后缀：盘符（C:\、D:/）和每个分隔符之后的位置。
+// pathStarts 给出一段文本里可能是路径起点的后缀：盘符（C:\、D:/）和每个分隔符本身。
 // 中文和路径粘连时，真正的起点一定在其中。
+//
+// 分隔符处要保留分隔符本身（s[i:]）：Unix 的绝对路径以 / 开头，从 / 之前截起会丢掉开头的斜杠，
+// 得到相对路径 p/tmp/x.png，stat 必然失败；Windows 的盘符则要连盘符字母一起保留（s[i-1:]）。
 func pathStarts(s string) []string {
 	var out []string
 	for i := 1; i < len(s); i++ {
@@ -127,7 +130,7 @@ func pathStarts(s string) []string {
 			continue
 		}
 		if c == '/' || c == '\\' {
-			out = append(out, s[i-1:])
+			out = append(out, s[i:])
 		}
 	}
 	return out

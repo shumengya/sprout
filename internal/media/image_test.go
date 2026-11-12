@@ -108,6 +108,19 @@ func TestFindImagePaths(t *testing.T) {
 	}
 }
 
+// 中文直接贴着路径写时，路径起点会落在分隔符上。Unix 的绝对路径以 / 开头，
+// 起点必须保留这个斜杠；早期版本从斜杠前一个字符截起，得到 tmp/x.png 这种相对路径，
+// stat 失败，于是 Windows 上正常、Linux 上找不到图。
+func TestFindImagePathsGluedToChinese(t *testing.T) {
+	dir := t.TempDir()
+	p := writePNG(t, dir, "截图.png", 1, 1)
+	text := "看这张图：" + p + "这张图的内容"
+	got := FindImagePaths(text)
+	if len(got) != 1 || got[0] != p {
+		t.Fatalf("路径应该被找到: %q（文本 %q）", got, text)
+	}
+}
+
 func TestAutoAttachReadsPathsFromTextAndDedupes(t *testing.T) {
 	dir := t.TempDir()
 	a := writePNG(t, dir, "a.png", 1, 1)

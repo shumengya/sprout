@@ -49,8 +49,10 @@ func resolveDataDir(flagValue, envValue string, executable func() (string, error
 }
 
 // isGoBuildPath 判断路径是否位于 go run 生成的临时构建目录（go-build*）下。
+// 两种分隔符都认：在 Unix 上调用时也可能拿到 Windows 风格的路径（跨平台测试、日志里的历史路径），
+// filepath.ToSlash 只转当前平台的分隔符，反斜杠得自己先换掉。
 func isGoBuildPath(p string) bool {
-	for _, part := range strings.Split(filepath.ToSlash(p), "/") {
+	for part := range strings.SplitSeq(strings.ReplaceAll(filepath.ToSlash(p), `\`, "/"), "/") {
 		if strings.HasPrefix(part, "go-build") {
 			return true
 		}

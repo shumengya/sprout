@@ -171,9 +171,19 @@ func TestSlashCommandsMatchDispatcher(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	body := string(src)
-	body = body[strings.Index(body, "func (m *Model) slash("):]
-	body = body[:strings.Index(body, "\n}\n")]
+	// Windows 上检出为 CRLF，下面的 "\n}\n" 就匹配不到，会切到文件末尾并混进
+	// 其他函数里的 case。先统一成 LF 再解析。
+	body := strings.ReplaceAll(string(src), "\r\n", "\n")
+	start := strings.Index(body, "func (m *Model) slash(")
+	if start < 0 {
+		t.Fatal("找不到 slash()，测试要跟着实现改")
+	}
+	body = body[start:]
+	end := strings.Index(body, "\n}\n")
+	if end < 0 {
+		t.Fatal("找不到 slash() 的结尾")
+	}
+	body = body[:end]
 	var handled []string
 	for _, c := range regexp.MustCompile(`case ([^:]+):`).FindAllStringSubmatch(body, -1) {
 		for _, q := range regexp.MustCompile(`"(/[^"]+)"`).FindAllStringSubmatch(c[1], -1) {
