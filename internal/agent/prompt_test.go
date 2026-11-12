@@ -126,3 +126,33 @@ func TestDefaultPromptMatchesExampleFile(t *testing.T) {
 		t.Fatal("SYSTEMPROMPT.example.md 与 agent.DefaultPromptTemplate 不一致，请同步修改")
 	}
 }
+
+// 模板里的条件块很容易多出或吃掉空行；每种工具 × 识图组合都要保持「段落之间正好一个空行」。
+func TestDefaultPromptLayoutInEveryEnvironment(t *testing.T) {
+	sets := [][]string{nil, {"read"}, {"write"}, {"bash"}, {"powershell"}, {"read", "write"}, {"bash", "powershell", "read", "write", "ls"}}
+	for _, tools := range sets {
+		for _, vision := range []bool{false, true} {
+			p := BuildSystemPrompt(PromptInfo{OS: "Windows", Cwd: ".", Tools: tools, Vision: vision})
+			if strings.HasPrefix(p, "\n") || strings.Contains(p, "\n\n\n") {
+				t.Errorf("tools=%v vision=%v 有多余空行:\n%s", tools, vision, p)
+			}
+			for _, line := range strings.Split(p, "\n")[1:] {
+				if strings.HasPrefix(line, "## ") && !strings.Contains(p, "\n\n"+line) {
+					t.Errorf("tools=%v vision=%v 标题 %q 前缺少空行", tools, vision, line)
+				}
+			}
+		}
+	}
+}
+
+// 曾经发生过：模型按进程名结束 sprout.exe，把正在运行的 Sprout 自己杀掉了。
+func TestPromptForbidsKillingByProcessName(t *testing.T) {
+	for _, tools := range [][]string{{"bash"}, {"powershell"}} {
+		if p := promptFor(tools...); !strings.Contains(p, "不要按进程名批量结束") || !strings.Contains(p, "运行你的这个 Sprout") {
+			t.Errorf("%v 可用时应禁止按进程名结束进程:\n%s", tools, p)
+		}
+	}
+	if strings.Contains(promptFor("read"), "按进程名") {
+		t.Error("没有 shell 时不应出现进程相关规则")
+	}
+}
