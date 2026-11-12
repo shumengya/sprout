@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -341,36 +343,132 @@ func TestSummaryRejectsTruncatedOrEmptyAnswers(t *testing.T) {
 	}
 }
 
-func TestSecondCompactionMergesPreviousSummary(t *testing.T) {
-	p := &scripted{steps: []scriptStep{say("合并后的新摘要"), say("回答")}}
+func isMergeReq(r Request) bool { return r.System == mergeSummarySystemPrompt }
+
+func TestSecondCompactionAppendsANewLayer(t *testing.T) {
+	// 再次压缩时只总结新切掉的那段，追加成新的一层；旧摘要原样保留，不参与摘要请求，也不被重写。
+	p := &scripted{steps: []scriptStep{say("新一层摘要"), say("回答")}}
 	a := compactAgent(t, p, 800, textTurns(8, 100))
 	a.Restore(textTurns(8, 100), "旧摘要内容")
 	if err := a.Run(context.Background(), Input{Text: "q"}, &collector{}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(p.reqs[0].Messages[0].Text(), "此前的摘要") ||
-		!strings.Contains(p.reqs[0].Messages[0].Text(), "旧摘要内容") {
-		t.Error("再次压缩时应把旧摘要一并交给摘要请求")
+	if strings.Contains(p.reqs[0].Messages[0].Text(), "旧摘要内容") {
+		t.Error("旧摘要不该再交给摘要请求重写")
 	}
-	if a.Summary() != "合并后的新摘要" {
-		t.Errorf("摘要应被新摘要取代: %q", a.Summary())
+	if want := joinSummary([]string{"旧摘要内容", "新一层摘要"}); a.Summary() != want {
+		t.Errorf("摘要应是旧层加新层: %q，期望 %q", a.Summary(), want)
+	}
+	if main := p.reqs[1]; !strings.Contains(main.System, "旧摘要内容") || !strings.Contains(main.System, "新一层摘要") {
+		t.Errorf("正式请求应带上全部层: %.300s", main.System)
+	}
+	if len(p.reqs) != 2 {
+		t.Errorf("没超过层数上限不该多一次合并请求: %d 次", len(p.reqs))
+	}
+}
+
+// layersOf 造出 n 层摘要，内容依次为“层1”“层2”……
+func layersOf(n int) string {
+	var ls []string
+	for i := 1; i <= n; i++ {
+		ls = append(ls, fmt.Sprintf("层%d", i))
+	}
+	return joinSummary(ls)
+}
+
+func TestSummaryOverLayerLimitMergesTheOldestTwo(t *testing.T) {
+	p := &scripted{steps: []scriptStep{say("新层"), say("层1和层2合并"), say("回答")}}
+	a := compactAgent(t, p, 800, textTurns(8, 100))
+	a.Restore(textTurns(8, 100), layersOf(maxSummaryLayers))
+	var c collector
+	if err := a.Run(context.Background(), Input{Text: "q"}, &c); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.reqs) != 3 || !isSummaryReq(p.reqs[0]) || !isMergeReq(p.reqs[1]) {
+		t.Fatalf("应先摘要新内容、再合并最旧两层、最后正式请求: %d 次", len(p.reqs))
+	}
+	merge := p.reqs[1].Messages[0].Text()
+	if !strings.Contains(merge, "层1") || !strings.Contains(merge, "层2") || strings.Contains(merge, "层3") || strings.Contains(merge, "新层") {
+		t.Errorf("合并请求应只含最旧的两层: %q", merge)
+	}
+	if got, want := splitSummary(a.Summary()), []string{"层1和层2合并", "层3", "新层"}; !slices.Equal(got, want) {
+		t.Errorf("层 = %q，期望 %q", got, want)
+	}
+	if evs := compactedEvents(&c); len(evs) != 1 || evs[0].Err != "" || evs[0].Summary != a.Summary() {
+		t.Errorf("Compacted 事件应带完整的合并后摘要: %+v", evs)
+	}
+}
+
+func TestMergeFailureKeepsTheNewLayerAndTheTurnContinues(t *testing.T) {
+	// 合并只是为了控制摘要的长度。它失败了，新的一层已经有了，不该因此丢掉这次压缩。
+	p := &scripted{steps: []scriptStep{say("新层"), {err: errors.New("合并失败")}, say("回答")}}
+	a := compactAgent(t, p, 800, textTurns(8, 100))
+	a.Restore(textTurns(8, 100), layersOf(maxSummaryLayers))
+	var c collector
+	if err := a.Run(context.Background(), Input{Text: "q"}, &c); err != nil {
+		t.Fatalf("合并失败不应让本轮失败: %v", err)
+	}
+	if got := splitSummary(a.Summary()); len(got) != maxSummaryLayers+1 || got[len(got)-1] != "新层" {
+		t.Errorf("应保留全部旧层并追加新层: %q", got)
+	}
+	evs := compactedEvents(&c)
+	if len(evs) != 1 || evs[0].Err != "" || evs[0].Dropped == 0 {
+		t.Errorf("压缩本身成功，不应报告失败: %+v", evs)
+	}
+}
+
+func TestCancelDuringMergeLeavesHistoryAndSummaryUntouched(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p := &scripted{steps: []scriptStep{
+		say("新层"),
+		{hook: func(context.Context) { cancel() }, resp: Response{Message: NewTextMessage(RoleAssistant, "合并结果"), StopReason: StopStop}},
+		{err: context.Canceled}, // 压缩放弃后主循环继续发请求，这时 ctx 已取消
+	}}
+	h := textTurns(8, 100)
+	old := layersOf(maxSummaryLayers)
+	a := compactAgent(t, p, 800, h)
+	a.Restore(h, old)
+	var c collector
+	_ = a.Run(ctx, Input{Text: "q"}, &c)
+	if a.Summary() != old {
+		t.Errorf("被取消时摘要必须保持原样: %q", a.Summary())
+	}
+	if len(compactedEvents(&c)) != 0 {
+		t.Errorf("被取消的压缩不该发 Compacted 事件: %+v", compactedEvents(&c))
+	}
+	if got := a.History(); len(got) < len(h) || got[0].Text() != h[0].Text() {
+		t.Errorf("被取消时历史不能被切掉: %d 条", len(got))
+	}
+}
+
+func TestSplitAndJoinSummary(t *testing.T) {
+	if got := splitSummary(""); len(got) != 0 {
+		t.Errorf("空摘要没有层: %q", got)
+	}
+	if got := splitSummary("旧会话留下的单层摘要"); len(got) != 1 || got[0] != "旧会话留下的单层摘要" {
+		t.Errorf("没有分隔符的摘要（旧会话）按单层处理: %q", got)
+	}
+	layers := []string{"甲", "乙", "丙"}
+	if got := splitSummary(joinSummary(layers)); !slices.Equal(got, layers) {
+		t.Errorf("拆分应还原合并前的各层: %q", got)
 	}
 }
 
 func TestRenderForSummaryBoundsInputAndNotesDrops(t *testing.T) {
 	msgs := textTurns(50, 100)
-	out := renderForSummary("", msgs, 1000)
+	out := renderForSummary(msgs, 1000)
 	if n := len([]rune(out)); n > 1400 {
 		t.Errorf("渲染结果 %d 字符，应受上限约束", n)
 	}
 	if !strings.Contains(out, "更早的") || !strings.Contains(out, "未纳入") {
 		t.Error("丢弃了更早的消息时要注明")
 	}
-	full := renderForSummary("", textTurns(1, 10), 100000)
+	full := renderForSummary(textTurns(1, 10), 100000)
 	if strings.Contains(full, "未纳入") || !strings.Contains(full, "用户: ") || !strings.Contains(full, "助手: ") {
 		t.Errorf("没超限时应完整保留: %q", full)
 	}
-	withTools := renderForSummary("", []Message{
+	withTools := renderForSummary([]Message{
 		{Role: RoleAssistant, ToolCalls: []ToolCall{{Name: "bash", Arguments: `{"command":"ls"}`}}},
 		{Role: RoleTool, Content: []Block{TextBlock("输出")}},
 	}, 10000)

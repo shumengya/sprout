@@ -219,6 +219,59 @@ func TestReplayReappliesPartialPruneExactly(t *testing.T) {
 	}
 }
 
+// 分层摘要的重放：多次压缩后摘要被合并过，Compacted 事件带的是合并后的完整摘要，
+// 重放直接采用它，恢复出的历史和摘要必须与运行时逐条一致。
+func TestReplayReproducesLayeredSummaryExactly(t *testing.T) {
+	summaries, merges := 0, 0
+	prov := funcProvider(func(req agent.Request) agent.Response {
+		switch {
+		case isMergeRequest(req):
+			merges++
+			return answer(fmt.Sprintf("合并摘要%d", merges))
+		case isSummaryRequest(req):
+			summaries++
+			return answer(fmt.Sprintf("摘要%d", summaries))
+		}
+		return answer("好的：" + strings.Repeat("字", 120))
+	})
+	dir := t.TempDir()
+	rec := NewRecorder(dir, Info{Provider: "p", Model: "m", Cwd: `D:\proj4`}, nil)
+	// 窗口很小，每隔三四轮就压缩一次，摘要层数很快越过上限。
+	ag, err := agent.New(agent.Config{
+		Provider: prov, Model: "m", Recorder: rec, ContextWindow: 700, Retry: &agent.RetryPolicy{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ev kinds
+	for i := 1; i <= 40; i++ {
+		if err := ag.Run(context.Background(), agent.Input{Text: fmt.Sprintf("继续聊 %d", i)}, &ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec.Close()
+
+	// 前提：压缩次数多到摘要层数越过上限，合并确实发生过，且合并后的层数没有超限。
+	if summaries < 4 || merges == 0 {
+		t.Fatalf("前提不成立：应压缩过多次并合并过摘要，实际摘要 %d 次、合并 %d 次", summaries, merges)
+	}
+	const separators = 2 // 最多 3 层，层与层之间 2 段分隔文字（对应 agent 包的 maxSummaryLayers）
+	if n := strings.Count(ag.Summary(), "（以上是较早的对话摘要，以下是之后的对话摘要）"); n == 0 || n > separators {
+		t.Fatalf("前提不成立：运行时摘要应是 2~3 层，分隔文字出现 %d 次：%q", n, ag.Summary())
+	}
+
+	st, err := Load(rec.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Summary != ag.Summary() {
+		t.Errorf("摘要不一致：\n重放:   %q\n运行时: %q", st.Summary, ag.Summary())
+	}
+	if !reflect.DeepEqual(st.History, ag.History()) {
+		t.Fatalf("历史不一致：\n重放:   %+v\n运行时: %+v", st.History, ag.History())
+	}
+}
+
 // 专门覆盖“裁剪”的重放：对话在裁剪之后立刻结束，没有后续摘要把被裁剪的消息切掉，
 // 所以最终历史里一定还留着被裁剪的那条，重放漏掉裁剪就会和运行时不一致。
 func TestReplayReappliesPruneExactly(t *testing.T) {

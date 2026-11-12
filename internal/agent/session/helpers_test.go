@@ -34,6 +34,12 @@ func isSummaryRequest(req agent.Request) bool {
 		strings.Contains(req.Messages[0].Text(), "需要并入摘要的对话")
 }
 
+// isMergeRequest 判断请求是不是合并两层旧摘要的请求。
+func isMergeRequest(req agent.Request) bool {
+	return len(req.Tools) == 0 && len(req.Messages) == 1 &&
+		strings.Contains(req.Messages[0].Text(), "## 较早的摘要")
+}
+
 func answer(text string) agent.Response {
 	return agent.Response{Message: agent.NewTextMessage(agent.RoleAssistant, text), StopReason: agent.StopStop}
 }
