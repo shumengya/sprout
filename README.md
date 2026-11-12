@@ -158,6 +158,12 @@ sprout web             # WebUI
 
 TUI 选型依据：[Charm v2 公告](https://charm.land/blog/v2/)、[GitLab CLI 从 tview 迁移到 Bubble Tea](https://gitlab.com/groups/gitlab-org/-/epics/19748)、[Console 对 Bubble Tea v2 的评测](https://console.dev/tools/bubble-tea-v2)。
 
+## 发布与下载
+
+版本号用日期，如 `2026.11.12`。每个版本提供 Windows（x64 / ARM64）、Linux（x64 / ARM64 / ARMv7，ARM64 可跑在 Android Termux）、macOS（Intel / Apple 芯片）七个平台的压缩包，单二进制、无 CGO。
+
+发布说明见 `docs/releases/<版本号>.md`；打包流程、校验方法与发布前检查见 `docs/发布.md`。
+
 ## License
 
 TBD

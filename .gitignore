@@ -9,3 +9,6 @@ data/
 .env
 .env.*
 auth.json
+
+# 发布产物（分发用的压缩包，不随仓库提交）
+/release/
