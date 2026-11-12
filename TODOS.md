@@ -31,7 +31,9 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 
 ### 工具（`internal/agent/tool`）
 - [x] `bash`（Git Bash / MSYS2 / Cygwin / 系统 bash）与 `powershell`（pwsh 7+ 优先，回退 5.1）。
-- [x] 工具注册表 `tools.jsonc`：数据目录下按工具名列出 `{"enable": true}`，只有显式启用的工具才注册给模型；缺失或为空时自动生成模板（默认四个工具全开），未知工具名启动即报错。设计见 `docs/tools.md`。
+- [x] 工具注册表 `tools.jsonc`：每个工具写完整定义——`enable`、`description`、`parameters`（JSON Schema）、`exec`（外部命令封装）；只有 `enable: true` 才注册。非内置名字没有 `exec`、内置工具写了 `exec`、名字不合法、参数 schema 不是对象等都在启动时报错。设计见 `docs/tools.md`。
+- [x] 外部工具：`exec.shell` 支持 `bash` / `powershell` / `direct`，命令里的 `{{参数名}}` 按 shell 规则加引号转义（direct 下按 argv 原样传），必填参数缺失直接报错；需要但本机没有的 shell 不注册并在 `/tools` 说明。模板内置 `ls` 示例。
+- [x] 内置工具的描述与参数可由 `tools.jsonc` 覆盖（`tool.Decorator`）；`bash` / `powershell` 覆盖描述时仍追加当前环境与版本说明。
 - [x] `read`：按行号读文本文件，可指定 `offset` / `limit`，拒绝二进制与超大文件，输出超 50KB 自动截断并提示续读位置。
 - [x] `write`：创建或覆盖文本文件，自动建父目录，先写同目录临时文件再原子替换；覆盖时沿用原权限。
 - [x] 平台探测：按文档顺序查找；`System32\bash.exe`（WSL 启动器）判为不可用并提示安装 Git for Windows。开关已开但本机没有 shell 时，该工具不注册并在 `/tools` 里说明原因。
@@ -112,7 +114,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
   - [ ] MCP 客户端与工具接入（`internal/agent/mcp`，占位）；
   - [ ] skills 发现与加载（`internal/agent/skills`，占位）；
   - [ ] 子代理 / 多 agent 编排；
-  - [ ] 搜索、web 等更多工具（现有 `bash`、`powershell`、`read`、`write`，由 `tools.jsonc` 开关控制）；
+  - [ ] 搜索、web 等更多工具（现有 `bash`、`powershell`、`read`、`write`，外加 `tools.jsonc` 里定义的外部命令工具）；
   - [ ] 权限模块（审批流、allow/deny、沙箱）——目前默认完全权限，不要提前加。
 
 ### M1 范围内有意没做

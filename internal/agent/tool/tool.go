@@ -115,3 +115,39 @@ func (r *Registry) Names() []string {
 	}
 	return names
 }
+
+// PlatformNoter 由描述依赖运行环境的工具实现（bash / powershell）：返回当前 shell 的版本与语法限制。
+//
+// 配置文件覆盖 description 时，这段说明仍会追加在后面。否则用户写死的描述会让模型
+// 在 PowerShell 5.1 上用 &&，或者不知道 Windows 上的 bash 是 Git Bash。
+type PlatformNoter interface {
+	PlatformNotes() string
+}
+
+// Decorator 用配置文件里的定义覆盖工具的静态元数据，执行行为保持不变。
+//
+// 只覆盖非空字段：description / parameters 留空时沿用内置值。
+type Decorator struct {
+	Tool
+	DescriptionText string
+	ParamSchema     json.RawMessage
+}
+
+func (d Decorator) Description() string {
+	if d.DescriptionText == "" {
+		return d.Tool.Description()
+	}
+	if n, ok := d.Tool.(PlatformNoter); ok {
+		if notes := strings.TrimSpace(n.PlatformNotes()); notes != "" {
+			return strings.TrimRight(d.DescriptionText, "\n") + "\n" + notes
+		}
+	}
+	return d.DescriptionText
+}
+
+func (d Decorator) Parameters() json.RawMessage {
+	if len(d.ParamSchema) > 0 {
+		return d.ParamSchema
+	}
+	return d.Tool.Parameters()
+}

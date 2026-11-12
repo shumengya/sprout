@@ -12,6 +12,7 @@ import (
 	"github.com/shumengya/sprout/internal/agent/session"
 	"github.com/shumengya/sprout/internal/agent/tool"
 	"github.com/shumengya/sprout/internal/agent/tool/bash"
+	"github.com/shumengya/sprout/internal/agent/tool/external"
 	"github.com/shumengya/sprout/internal/agent/tool/file"
 	"github.com/shumengya/sprout/internal/agent/tool/powershell"
 	"github.com/shumengya/sprout/internal/provider/anthropic"
@@ -148,6 +149,10 @@ func (a *app) registerTools(cfg *config.File, e env) (*tool.Registry, error) {
 	}
 
 	add := func(t tool.Tool, detail string) error {
+		// tools.jsonc 里写了 description / parameters 时覆盖内置值；外部工具本来就用配置值，包一层也无害。
+		if entry, ok := a.tools.Entry(t.Name()); ok && (entry.Description != "" || len(entry.Parameters) > 0) {
+			t = tool.Decorator{Tool: t, DescriptionText: entry.Description, ParamSchema: entry.Parameters}
+		}
 		if err := reg.Register(t); err != nil {
 			return err
 		}
@@ -187,6 +192,39 @@ func (a *app) registerTools(cfg *config.File, e env) (*tool.Registry, error) {
 			if err := add(file.NewWrite(e.cwd), "内置  创建或覆盖文本文件"); err != nil {
 				return nil, err
 			}
+		}
+	}
+
+	// 外部工具：tools.jsonc 里非内置名字的条目，按名字排序注册在内置工具之后。
+	for _, name := range a.tools.Names() {
+		if config.IsBuiltin(name) {
+			continue
+		}
+		entry, _ := a.tools.Entry(name)
+		x := entry.Exec
+		var sh platform.Shell
+		switch x.Shell {
+		case config.ExecBash:
+			if shells.Bash == nil {
+				a.info.Unavailable = append(a.info.Unavailable,
+					fmt.Sprintf("%s 需要 bash，但本机不可用：%s", name, reason(config.ToolBash)))
+				continue
+			}
+			sh = *shells.Bash
+		case config.ExecPowerShell:
+			if shells.PowerShell == nil {
+				a.info.Unavailable = append(a.info.Unavailable,
+					fmt.Sprintf("%s 需要 powershell，但本机不可用：%s", name, reason(config.ToolPowerShell)))
+				continue
+			}
+			sh = *shells.PowerShell
+		}
+		t := external.New(external.Spec{
+			Name: name, Description: entry.Description, Parameters: entry.Parameters,
+			Shell: x.Shell, Command: x.Command, Args: x.Args, TimeoutSeconds: x.TimeoutSeconds,
+		}, e.cwd, sh)
+		if err := add(t, "外部  "+x.Shell+"  "+x.Command); err != nil {
+			return nil, err
 		}
 	}
 	return reg, nil

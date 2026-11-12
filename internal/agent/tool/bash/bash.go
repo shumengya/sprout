@@ -37,6 +37,15 @@ func (t *Tool) Description() string {
 
 func (t *Tool) Parameters() json.RawMessage { return shell.Schema }
 
+// PlatformNotes 是与本机环境相关的说明；tools.jsonc 覆盖描述时它仍会附在后面。
+func (t *Tool) PlatformNotes() string {
+	s := fmt.Sprintf("当前环境：%s（%s）。", t.sh.Label, t.sh.Path)
+	if t.sh.Notes != "" {
+		s += t.sh.Notes
+	}
+	return s
+}
+
 func (t *Tool) Run(ctx context.Context, raw json.RawMessage) (tool.Result, error) {
 	args, timeout, err := shell.ParseArgs(raw)
 	if err != nil {

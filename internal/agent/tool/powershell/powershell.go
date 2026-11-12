@@ -16,8 +16,12 @@ import (
 //   - 把控制台输出编码设为无 BOM 的 UTF-8。PowerShell 5.1 重定向后默认走 OEM 代码页，
 //     中文会乱码；pwsh 7 同理。try 包裹是因为没有附着控制台时赋值会抛 IOException。
 //   - 关闭进度条，否则非交互模式下会往 stderr 写 CLIXML 噪声。
-const preamble = `$ProgressPreference='SilentlyContinue';` +
-	`try{[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false);$OutputEncoding=[Console]::OutputEncoding}catch{};`
+//
+// 外部工具（tools.jsonc 里的 exec.shell=powershell）也要用同一份前导，所以这里是导出函数。
+func Preamble() string {
+	return `$ProgressPreference='SilentlyContinue';` +
+		`try{[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false);$OutputEncoding=[Console]::OutputEncoding}catch{};`
+}
 
 // Tool 在固定工作目录下用 PowerShell 执行命令。
 type Tool struct {
@@ -48,6 +52,15 @@ func (t *Tool) Description() string {
 
 func (t *Tool) Parameters() json.RawMessage { return shell.Schema }
 
+// PlatformNotes 是与本机 PowerShell 版本相关的说明；tools.jsonc 覆盖描述时它仍会附在后面。
+func (t *Tool) PlatformNotes() string {
+	s := fmt.Sprintf("当前环境：%s（%s）。", t.sh.Label, t.sh.Path)
+	if t.sh.Edition == "7+" {
+		return s + "支持现代语法（&&、||、?:、??）。"
+	}
+	return s + "这是 Windows PowerShell 5.1：不支持 &&、||、三元运算符 ?: 和 ??，多条命令用分号 ; 连接，条件执行用 if ($?) { ... }。"
+}
+
 func (t *Tool) Run(ctx context.Context, raw json.RawMessage) (tool.Result, error) {
 	args, timeout, err := shell.ParseArgs(raw)
 	if err != nil {
@@ -55,7 +68,7 @@ func (t *Tool) Run(ctx context.Context, raw json.RawMessage) (tool.Result, error
 	}
 	out, err := shell.Run(ctx, shell.Options{
 		Path:    t.sh.Path,
-		Args:    []string{"-NoProfile", "-NonInteractive", "-Command", preamble + args.Command},
+		Args:    []string{"-NoProfile", "-NonInteractive", "-Command", Preamble() + args.Command},
 		Dir:     t.dir,
 		Timeout: timeout,
 	})
