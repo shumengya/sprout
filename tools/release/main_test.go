@@ -171,6 +171,27 @@ func TestWriteChecksumsSkipsNotes(t *testing.T) {
 	}
 }
 
+// 复用目标必须排在它复用的平台之后，否则构建循环拿不到已编好的二进制。
+func TestReuseTargetsComeAfterTheirSource(t *testing.T) {
+	seen := map[string]bool{}
+	for _, tg := range targets() {
+		if tg.Reuse != "" && !seen[tg.Reuse] {
+			t.Errorf("%s 复用 %s，但 %s 还没出现", tg.Platform, tg.Reuse, tg.Reuse)
+		}
+		seen[tg.Platform] = true
+	}
+	// Termux 用户的直觉是找 “termux” 这个名字，而不是 Linux ARM64。
+	var termux bool
+	for _, tg := range targets() {
+		if tg.Platform == "termux_arm64" {
+			termux = tg.Reuse == "linux_arm64"
+		}
+	}
+	if !termux {
+		t.Error("缺少 termux_arm64，或它没有复用 linux_arm64")
+	}
+}
+
 // 自动生成的段落要覆盖到每个实际打出来的包，否则发布说明里的下载表会撒谎。
 func TestAutoSectionsListEveryArtifact(t *testing.T) {
 	const version = "2026.11.12"
