@@ -56,6 +56,8 @@ func helperMain(mode string) {
 		child.Stdout, child.Stderr = os.Stdout, os.Stderr
 		child.Start()
 		fmt.Fprint(os.Stdout, "done")
+	case "consolepids":
+		printConsolePIDs()
 	case "sleep3":
 		time.Sleep(3 * time.Second)
 	case "sleep20":
