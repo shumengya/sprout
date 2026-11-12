@@ -98,7 +98,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
   - 流式渲染观感、窗口缩放。
 - [ ] **OpenAI 官方服务**（Chat 与 Responses）：只验证过 DeepSeek。Responses 的 `function_call` 不带 `id` 是依据文档推断，带 reasoning 的 gpt-5 / o 系列可能不同。
 - [ ] **思维链 token 数**：Chat 协议下真实 DeepSeek 已确认返回 `completion_tokens_details.reasoning_tokens`（本机 11 次调用，与分词器数出的一致）；Responses 协议的 `output_tokens_details.reasoning_tokens` 和 OpenAI 官方服务只有 `httptest` 测试。不返回时 TUI 显示内核估算的“约 N token”。
-- [ ] **Linux / macOS / Termux 实际运行**：只验证过能编译；`bash` 探测、进程组终止等 Unix 路径只有单元测试（fake probe）。
+- [ ] **Linux / macOS / Termux 实际运行**：CI 在 Linux / macOS 上跑单元测试（`bash` 探测、进程组终止等 Unix 路径仍以 fake probe 为主），但没有在这些系统上交互式地跑过 TUI 与真实模型；Termux 只验证过能用 `GOOS=android` 编译，CI 不覆盖。
 - [ ] **识图（M2）的真实服务商往返**：四种协议的图片请求形状只有 `httptest` 验证，没有对真实服务商手工发过图；Gemini 协议整体也只用测试替身验证过。
 - [ ] **`/model` 切换与恢复后的历史重放**：换模型时丢弃旧思维链、保留正文的逻辑有单元测试，但没有在真实多模型服务上跑过。
 - [ ] **双击 `sprout.exe` 启动**（含出错后等待回车）。
@@ -108,10 +108,10 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 ## 三、未实现
 
 ### 后续里程碑（见 README 路线图，需用户确认后再做）
-- [ ] **里程碑编号与 `docs/m2-vision.md` 冲突**：README 路线图把 M2 定为 JSON-RPC、M3 为 WebUI；`docs/m2-vision.md` 把“M2”用于视觉（识图，已实现）。需要统一编号后再继续写路线图。
-- [ ] **JSON-RPC**（`internal/rpc`，目前只有占位目录）：会话管理、流式事件、取消；`sprout serve`。
-- [ ] **WebUI**（`internal/webui`，占位）：独立前端模块，复用 JSON-RPC 事件；`sprout web`。
-- [ ] **扩展**：
+- [x] **里程碑编号**：已统一，以 `docs/m2-vision.md` 为准——M2 是识图（已实现），JSON-RPC 顺延为 M3，WebUI 为 M4，扩展为 M5。README 路线图与 `AGENTS.md` 已同步。
+- [ ] **JSON-RPC（M3）**（`internal/rpc`，目前只有占位目录）：会话管理、流式事件、取消；`sprout serve`。
+- [ ] **WebUI（M4）**（`internal/webui`，占位）：独立前端模块，复用 JSON-RPC 事件；`sprout web`。
+- [ ] **扩展（M5）**：
   - [x] Anthropic Messages 协议（`internal/provider/anthropic`，已实现并测试）；
   - [x] Google Gemini 协议（`internal/provider/google`，已实现并测试）；
   - [ ] MCP 客户端与工具接入（`internal/agent/mcp`，占位）；
@@ -157,12 +157,12 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 
 ## 六、工程与文档
 
-- [ ] 没有 CI（无 `.github/`）：至少跑 `go build` / `go vet` / `go test`，最好覆盖 Windows 与 Linux。
-- [ ] 没有 LICENSE（README 写的是 TBD）。
-- [ ] `README.md` 的“项目结构”缺少 `internal/agent/tool/shell`（bash / powershell 共用的执行器）、`internal/media`、`internal/provider/google`、`internal/provider/transport`；`provider/` 的注释仍只写了 openai 与 anthropic。
-- [ ] `README.md` 与 `AGENTS.md` 的“当前处于 M1”“M1 只有 OpenAI Chat + Responses”已过时，没有提到 Anthropic、Gemini 与识图。
-- [ ] `docs/斜杠命令.md` 的命令表缺少 `/new` 与 `/image`（`/help` 里已有）。
-- [ ] `docs/CLI命令.md`、`docs/快捷键.md`、`docs/斜杠命令.md` 尚未提交到 git。
+- [x] CI：`.github/workflows/ci.yml` 在 Windows / Ubuntu / macOS 上跑 `go build` / `go vet` / `go test`，另有一个 job 在 Linux 上交叉编译全部发布目标（只验证能打包，不上传）。是否通过以 GitHub 上的运行结果为准，本文件不记录。
+- [x] LICENSE：Apache-2.0，发布包一并附带。
+- [x] `README.md` 的“项目结构”已补上 `tool/shell`、`tool/file`、`tool/external`、`media`、`provider/google`、`provider/transport`，并标出 `rpc` / `webui` / `skills` / `mcp` 仍是占位。
+- [x] `README.md` 与 `AGENTS.md` 的“当前状态”已更新为 M1 + M2，协议表补上 Gemini，深入文档列表补全。
+- [x] `docs/斜杠命令.md` 已列出 `/new` 与 `/image`。
+- [x] `docs/CLI命令.md`、`docs/快捷键.md`、`docs/斜杠命令.md` 已提交到 git。
 - [ ] `AGENTS.md` 约定的架构 / 协议 / 决策记录文档还没有单独成文（事件协议和会话格式目前散落在 `m1-implementation.md` §10、§15 与 `m2-vision.md` §3）。
 - [ ] 部分测试里仍用旧模型名 `deepseek-chat` 作为随意的字符串（`session_test.go`、`tui/helpers_test.go`），不影响功能，可顺手统一。
 

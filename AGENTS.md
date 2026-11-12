@@ -6,7 +6,7 @@
 
 Sprout 是 Go 编写的跨平台通用型 agent runtime：内核是 ReAct 循环，TUI / WebUI / CLI / JSON-RPC 四种入口共用同一套会话与工具。模块路径 `github.com/shumengya/sprout`，Go 1.27+。
 
-当前处于 **M1（最小可用闭环）**，ReAct 循环、OpenAI Chat Completions + Responses、`bash` + `powershell`、Bubble Tea v2 TUI、`sprout run`、JSONL 会话已实现。M1 范围与实现差异见 `docs/m1-minimal.md`、`docs/m1-implementation.md`（§15 列出了与原计划的差异和尚未验证的部分）。未经用户确认，不要提前实现后续里程碑。
+M1（最小可用闭环）与 M2（识图）已实现：ReAct 循环、OpenAI Chat Completions + Responses、Anthropic Messages、Gemini、`bash` + `powershell` + `read` + `write` 与外部命令工具、Bubble Tea v2 TUI、`sprout run`、JSONL 会话与恢复、自动重试与上下文压缩。M1 范围与实现差异见 `docs/m1-minimal.md`、`docs/m1-implementation.md`（§15 列出了与原计划的差异和尚未验证的部分），识图设计见 `docs/m2-vision.md`，逐项的完成与待办状态见 `TODOS.md`。未经用户确认，不要提前实现后续里程碑（JSON-RPC、WebUI、MCP、skills、子代理）。
 
 ## 常用命令
 
@@ -36,7 +36,7 @@ go vet ./...
 
 | 主题 | 决策 |
 | --- | --- |
-| LLM 协议 | OpenAI Chat Completions → OpenAI Responses → Anthropic Messages，按此顺序实现；其他供应商通过 `models.jsonc` 配置，不写死在代码里 |
+| LLM 协议 | OpenAI Chat Completions → OpenAI Responses → Anthropic Messages → Google Gemini，四种均已实现；其他供应商通过 `models.jsonc` 配置，不写死在代码里 |
 | 配置格式 | 用户会编辑的文件一律 JSONC（`models.jsonc` 等）；`meta.json`、会话 JSONL、缓存用普通 JSON/JSONL |
 | 会话 | JSONL 追加写，按 agent 工作目录分组：`<数据目录>/sessions/<工作目录 slug>/<session-id>.jsonl`，同目录放 `meta.json` |
 | 数据目录 | 默认 `<exeDir>/data/.sprout`（安装级/系统级，跟随二进制）；`--data-dir` / `SPROUT_DATA_DIR` 覆盖；默认不写 `~/.sprout` |
@@ -80,6 +80,13 @@ go vet ./...
 ## 深入文档
 
 - 产品定位、四种入口、路线图：`README.md`
+- 已实现 / 未实现 / 待验证的逐项清单：`TODOS.md`
 - M1 最小实现计划：`docs/m1-minimal.md`
-- M1 详细实现：`docs/m1-implementation.md`
+- M1 详细实现与落地后的差异：`docs/m1-implementation.md`
+- 识图（图片输入）：`docs/m2-vision.md`
+- 工具注册与外部命令工具：`docs/tools.md`
+- 系统提示词与 `AGENTS.md` 读取：`docs/system-prompt.md`
+- 思考程度（effort）：`docs/effort.md`
+- 命令行、斜杠命令、快捷键参考：`docs/CLI命令.md`、`docs/斜杠命令.md`、`docs/快捷键.md`
+- 发布流程：`docs/发布.md`
 - 设计文档（M1 起放在 `docs/`）：架构、协议、决策记录。

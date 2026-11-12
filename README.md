@@ -53,22 +53,28 @@ internal/
     session/             JSONL 会话
     config/              models.jsonc 与运行配置
     platform/            shell / 路径 / 终端差异
-    tool/                工具
+    tool/                工具接口与注册表
+      shell/             bash / powershell 共用的进程执行器
       bash/
       powershell/
-    skills/              技能发现与加载
-    mcp/                 MCP 客户端与工具接入
+      file/              read / write 文件工具
+      external/          tools.jsonc 里用 exec 声明的外部命令工具
+    skills/              技能发现与加载（占位，未实现）
+    mcp/                 MCP 客户端与工具接入（占位，未实现）
   provider/              模型渠道商
     openai/              Chat Completions + Responses
     anthropic/           Messages
+    google/              Gemini
+    transport/           四种协议共用的 HTTP / SSE 传输层
+  media/                 图片读取、类型嗅探与大小限制
   tui/                   Bubble Tea v2 终端界面
   cli/                   非交互 CLI
-  webui/                 WebUI 模块
-  rpc/                   JSON-RPC 服务
+  webui/                 WebUI 模块（占位，未实现）
+  rpc/                   JSON-RPC 服务（占位，未实现）
 docs/                    设计文档
 ```
 
-小模块（事件、会话、配置、平台、工具、skills、MCP）挂在内核 `agent/` 下；`provider`、`tui`、`cli`、`webui`、`rpc` 是平级的大组件。所有组件在同一个 Go module 内，靠包边界隔离，暂不拆成多个 module。对外 API 稳定前统一放在 `internal/`，需要对外嵌出时再加 `pkg/sprout` 门面。
+小模块（事件、会话、配置、平台、工具、skills、MCP）挂在内核 `agent/` 下；`provider`、`media`、`tui`、`cli`、`webui`、`rpc` 是平级的大组件。所有组件在同一个 Go module 内，靠包边界隔离，暂不拆成多个 module。对外 API 稳定前统一放在 `internal/`，需要对外嵌出时再加 `pkg/sprout` 门面。
 
 ## 架构
 
@@ -113,15 +119,18 @@ TUI、WebUI、CLI、JSON-RPC 都只是这套协议的适配器。
 
 ## 当前状态
 
-**M1 已实现（最小可用闭环）。** 终端界面、单次运行、两种 OpenAI 协议、`bash` / `powershell` 工具和 JSONL 会话均可用；WebUI、JSON-RPC 等后续里程碑尚未开始。真实模型服务和真实终端的手工验证状态见 `docs/m1-implementation.md` §12、§15。
+**M1（最小可用闭环）与 M2（识图）已实现。** 终端界面、单次运行、OpenAI Chat / Responses、Anthropic Messages、Gemini 四种协议、`bash` / `powershell` / `read` / `write` 与外部命令工具、图片输入、JSONL 会话与恢复、自动重试、上下文压缩均可用；JSON-RPC、WebUI、MCP、skills 等后续里程碑尚未开始。已实现与未实现的逐项清单见 `TODOS.md`；真实模型服务和真实终端的手工验证状态见 `docs/m1-implementation.md` §12、§15 与 `TODOS.md` 第二节。
 
 ## 路线图
 
 - **M0 设计**：README、AGENTS.md、M1 详细计划（`docs/m1-minimal.md`）。
-- **M1 内核 + TUI + CLI**：ReAct 循环、OpenAI Chat Completions + Responses、`bash` / `powershell`、Bubble Tea v2 TUI、单次 CLI、JSONL 会话。
-- **M2 JSON-RPC**：会话管理、流式事件、取消。
-- **M3 WebUI**：独立前端模块，复用 JSON-RPC 事件。
-- **M4 扩展**：更多工具、MCP、skills、子代理、更多 provider。
+- **M1 内核 + TUI + CLI**（已完成）：ReAct 循环、OpenAI Chat Completions + Responses、`bash` / `powershell`、Bubble Tea v2 TUI、单次 CLI、JSONL 会话。
+- **M2 识图**（已完成）：四种协议的图片输入、会话保存图片、不支持视觉的模型自动降级，见 `docs/m2-vision.md`。
+- **M3 JSON-RPC**：会话管理、流式事件、取消。
+- **M4 WebUI**：独立前端模块，复用 JSON-RPC 事件。
+- **M5 扩展**：MCP、skills、子代理、搜索与 web 等更多工具。
+
+M1 与 M2 之间还陆续补入了 Anthropic Messages、Gemini、`read` / `write`、外部命令工具、会话恢复与上下文压缩，它们不单独占里程碑编号。
 
 ## 快速开始
 
