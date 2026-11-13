@@ -306,3 +306,30 @@ func TestBuiltinToolInvalidParametersRejected(t *testing.T) {
 		t.Errorf("应拒绝不合法的 parameters，得到 %v", err)
 	}
 }
+
+// 升级后才新增的内置工具，旧配置里没有条目时要说明“没有这个条目”，
+// 和“写了但关着”区分开：前者告诉用户补哪一行。
+func TestMissingBuiltinEntryIsReportedWithHowToAdd(t *testing.T) {
+	dir := t.TempDir()
+	tools := `{ "tools": { "read": { "enable": true }, "write": { "enable": true }, "edit": { "enable": false } } }`
+	if err := os.WriteFile(config.ToolsPath(dir), []byte(tools), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a, err := buildApp(dir, testEnv(map[string]string{"DEEPSEEK_API_KEY": "k"}, shellSet(false, false)), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(a.info.Unavailable, "\n")
+	for _, want := range []string{
+		`bash 未启用（tools.jsonc 里没有这个条目；加上 "bash": { "enable": true } 即可）`,
+		`powershell 未启用（tools.jsonc 里没有这个条目；加上 "powershell": { "enable": true } 即可）`,
+		"edit 未启用（tools.jsonc 中设成了 enable: false）",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("缺少提示 %q，实际:\n%s", want, joined)
+		}
+	}
+	if _, ok := a.reg.Get("edit"); ok {
+		t.Error("edit 写了 enable: false，不应注册")
+	}
+}

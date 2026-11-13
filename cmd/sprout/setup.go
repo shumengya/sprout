@@ -230,7 +230,14 @@ func (a *app) registerTools(cfg *config.File, e env) (*tool.Registry, error) {
 
 	for _, name := range config.KnownTools {
 		if !a.tools.Enabled(name) {
-			a.info.Unavailable = append(a.info.Unavailable, fmt.Sprintf("%s 未启用（tools.jsonc 中未设为 enable: true）", name))
+			// 区分“配置里根本没写这条”和“写了但关着”：前者常见于升级后才新增的内置工具，
+			// 用户按提示补一条即可，不必翻模板找位置。
+			if _, ok := a.tools.Entry(name); ok {
+				a.info.Unavailable = append(a.info.Unavailable, fmt.Sprintf("%s 未启用（tools.jsonc 中设成了 enable: false）", name))
+			} else {
+				a.info.Unavailable = append(a.info.Unavailable,
+					fmt.Sprintf("%s 未启用（tools.jsonc 里没有这个条目；加上 \"%s\": { \"enable\": true } 即可）", name, name))
+			}
 			continue
 		}
 		switch name {
