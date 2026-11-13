@@ -133,6 +133,30 @@ func TestScrollHintOverlaysLastRowWithoutResizing(t *testing.T) {
 	}
 }
 
+// 活动行（比如“已复制”）和历史提示同时在时，两者应显示在同一行，不能一上一下错开。
+// 先上滚再复制：复制的画面来自鼠标松开，不会清掉正在显示的上滚提示。
+func TestScrollHintJoinsActivityLine(t *testing.T) {
+	m := scrolled(t)
+	m.Update(keyPgUp)
+	m.onCopied(copiedMsg{n: 37})
+
+	found := ""
+	for _, l := range strings.Split(plain(m), "\n") {
+		if strings.Contains(l, "已复制 37 个字符") {
+			found = l
+		}
+	}
+	if found == "" {
+		t.Fatal("活动行应显示复制提示")
+	}
+	if !strings.HasSuffix(strings.TrimRight(found, " "), "End 回到底部") {
+		t.Fatalf("历史提示应与复制提示同一行: %q", found)
+	}
+	if len(strings.Split(plain(m), "\n")) != 25 {
+		t.Error("活动行本来就占一行，历史提示叠上去不该再加一行")
+	}
+}
+
 func TestStatusShowsHistoryPositionAndNewContent(t *testing.T) {
 	m := scrolled(t)
 	mustNotContain(t, plain(m), "历史", "有新内容")

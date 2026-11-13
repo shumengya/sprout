@@ -29,9 +29,15 @@ func (m *Model) View() tea.View {
 	if !overlaid {
 		input = m.inputView()
 	}
-	parts := []string{overlayHint(m.body(), m.scrollHint(), m.w)}
+	// 活动行存在时，历史提示叠在活动行右端，与左侧提示同一行；否则仍叠在对话区最后一行。
+	// 两者都在时叠到对话区会让提示看起来错位一行。
+	hint, act := m.scrollHint(), m.activityLine()
+	if act != "" && hint != "" {
+		act, hint = overlayHint(act, hint, m.w), ""
+	}
+	parts := []string{overlayHint(m.body(), hint, m.w)}
 	above := m.vp.Height() // 输入框上面的行数：对话区、活动行（如果有）、分隔线
-	if act := m.activityLine(); act != "" {
+	if act != "" {
 		parts = append(parts, act)
 		above++
 	}
