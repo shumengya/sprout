@@ -129,7 +129,7 @@ func TestDefaultPromptMatchesExampleFile(t *testing.T) {
 
 // 模板里的条件块很容易多出或吃掉空行；每种工具 × 识图组合都要保持「段落之间正好一个空行」。
 func TestDefaultPromptLayoutInEveryEnvironment(t *testing.T) {
-	sets := [][]string{nil, {"read"}, {"write"}, {"bash"}, {"powershell"}, {"read", "write"}, {"bash", "powershell", "read", "write", "ls"}}
+	sets := [][]string{nil, {"read"}, {"write"}, {"bash"}, {"powershell"}, {"read", "write"}, {"edit"}, {"delete"}, {"edit", "delete"}, {"bash", "powershell", "read", "write", "edit", "delete", "ls"}}
 	for _, tools := range sets {
 		for _, vision := range []bool{false, true} {
 			p := BuildSystemPrompt(PromptInfo{OS: "Windows", Cwd: ".", Tools: tools, Vision: vision})

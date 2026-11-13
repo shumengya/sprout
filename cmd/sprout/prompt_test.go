@@ -76,7 +76,7 @@ func TestCustomSystemPromptReachesModelRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := srv.bodies[0]
-	for _, want := range []string{"自定义提示词", `cwd=work`, "tools=bash,read,write,edit,ls", "HAS_BASH"} {
+	for _, want := range []string{"自定义提示词", `cwd=work`, "tools=bash,read,write,edit,delete,ls", "HAS_BASH"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("请求里缺少 %q: %.400s", want, body)
 		}

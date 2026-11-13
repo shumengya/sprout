@@ -19,7 +19,7 @@
 
 - 工具名：字母开头，后接字母、数字、`_`、`-`，最长 64 字符。模型把它当函数名用。
 - 没写出的工具视为**未注册**；`enable: false` 或省略 `enable` 同样不启用。
-- 内置工具（`bash`、`powershell`、`read`、`write`、`edit`）由程序实现，`description` / `parameters`
+- 内置工具（`bash`、`powershell`、`read`、`write`、`edit`、`delete`）由程序实现，`description` / `parameters`
   只覆盖默认值，省略即用内置值。`parameters` 同样要满足 `type: "object"`，写错启动即报错。
   `bash` / `powershell` 覆盖描述时，程序仍会在末尾追加
   当前环境的版本说明（如 PowerShell 5.1 不支持 `&&`），避免写死的描述误导模型。
@@ -63,6 +63,7 @@
 | `read` | `path`、`offset`、`limit` | 按行读文本文件：默认从第 1 行读 2000 行，行号随内容返回 |
 | `write` | `path`、`content` | 创建或覆盖文本文件，自动建父目录，先写临时文件再原子替换 |
 | `edit` | `path`、`old_string`、`new_string`、`replace_all` | 把文件里的一段原文换成新内容：默认要求唯一匹配，匹配到多处或找不到都报错且不改文件；`replace_all` 替换全部。保留原换行符风格与权限 |
+| `delete` | `path`、`recursive`、`dry_run` | 删除文件或目录，不进回收站。空目录可直接删，非空目录必须 `recursive: true`（否则报错并给出文件数、目录数与总大小）；`dry_run: true` 只统计不删。符号链接只删链接本身；Windows 只读文件先去掉只读位。磁盘根目录、工作目录及其上级、用户主目录及其上级一律拒绝 |
 
 ## 示例
 

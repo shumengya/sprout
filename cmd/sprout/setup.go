@@ -271,6 +271,10 @@ func (a *app) registerTools(cfg *config.File, e env) (*tool.Registry, error) {
 			if err := add(file.NewEdit(e.cwd), "内置  按原文片段修改文件"); err != nil {
 				return nil, err
 			}
+		case config.ToolDelete:
+			if err := add(file.NewDelete(e.cwd), "内置  删除文件或目录（不进回收站）"); err != nil {
+				return nil, err
+			}
 		}
 	}
 

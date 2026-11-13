@@ -3,6 +3,7 @@ package file
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -295,5 +296,211 @@ func TestEditRejectsBinary(t *testing.T) {
 	e := NewEdit(dir)
 	if _, err := e.Run(context.Background(), json.RawMessage(`{"path":"x.bin","old_string":"a","new_string":"c"}`)); err == nil || !strings.Contains(err.Error(), "二进制") {
 		t.Errorf("二进制文件应被拒绝，得到 %v", err)
+	}
+}
+
+func runDelete(t *testing.T, dir, raw string) (string, error) {
+	t.Helper()
+	res, err := NewDelete(dir).Run(context.Background(), json.RawMessage(raw))
+	return res.Stdout, err
+}
+
+func TestDeleteFileAndMissingPath(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "a.txt")
+	if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runDelete(t, dir, `{"path":"a.txt"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "已删除这个文件") || !strings.Contains(out, "1 个文件") {
+		t.Errorf("Stdout = %q", out)
+	}
+	if _, err := os.Stat(p); !os.IsNotExist(err) {
+		t.Error("文件应已删除")
+	}
+
+	// 路径写错时必须报错：静默成功会让模型以为删掉了。
+	if _, err := runDelete(t, dir, `{"path":"nope.txt"}`); err == nil || !strings.Contains(err.Error(), "不存在") {
+		t.Errorf("不存在的路径应报错，得到 %v", err)
+	}
+}
+
+func TestDeleteEmptyDirWithoutRecursive(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "empty")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runDelete(t, dir, `{"path":"empty"}`); err != nil {
+		t.Fatalf("空目录不需要 recursive: %v", err)
+	}
+	if _, err := os.Stat(sub); !os.IsNotExist(err) {
+		t.Error("空目录应已删除")
+	}
+}
+
+func TestDeleteNonEmptyDirNeedsRecursive(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "tree")
+	if err := os.MkdirAll(filepath.Join(sub, "inner"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "inner", "x.txt"), []byte("abc"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := runDelete(t, dir, `{"path":"tree"}`)
+	if err == nil {
+		t.Fatal("非空目录未开 recursive 应报错")
+	}
+	// 报错里要带影响范围，模型才能直接判断要不要继续。
+	for _, want := range []string{"不是空目录", "1 个文件", "1 个目录", "recursive: true"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("报错缺少 %q: %v", want, err)
+		}
+	}
+	if _, statErr := os.Stat(sub); statErr != nil {
+		t.Fatal("报错时不应删除任何东西")
+	}
+
+	out, err := runDelete(t, dir, `{"path":"tree","recursive":true}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "已删除这个目录及其内容") || !strings.Contains(out, "inner") {
+		t.Errorf("Stdout = %q", out)
+	}
+	if _, statErr := os.Stat(sub); !os.IsNotExist(statErr) {
+		t.Error("目录应已删除")
+	}
+}
+
+func TestDeleteDryRunChangesNothing(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "tree")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "a.txt"), []byte("12345"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runDelete(t, dir, `{"path":"tree","dry_run":true}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"dry_run", "1 个文件", "5B", "a.txt"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("Stdout 缺少 %q: %q", want, out)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(sub, "a.txt")); err != nil {
+		t.Error("dry_run 不应删除任何内容")
+	}
+}
+
+func TestDeleteSymlinkKeepsTarget(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.txt")
+	if err := os.WriteFile(target, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link.txt")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("本机不支持创建符号链接: %v", err)
+	}
+	out, err := runDelete(t, dir, `{"path":"link.txt"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "符号链接") {
+		t.Errorf("Stdout = %q", out)
+	}
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Error("链接应已删除")
+	}
+	if b, err := os.ReadFile(target); err != nil || string(b) != "keep" {
+		t.Errorf("链接目标不应受影响: %q, %v", b, err)
+	}
+}
+
+func TestDeleteRefusesDangerousPaths(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "work", "proj")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	d := NewDelete(sub)
+	for _, p := range []string{".", "..", sub} {
+		raw, _ := json.Marshal(map[string]any{"path": p, "recursive": true})
+		if _, err := d.Run(context.Background(), raw); err == nil || !strings.Contains(err.Error(), "拒绝删除") {
+			t.Errorf("工作目录及其上级 %q 应被拒绝，得到 %v", p, err)
+		}
+	}
+	if _, err := os.Stat(sub); err != nil {
+		t.Error("被拒绝时目录必须还在")
+	}
+}
+
+func TestGuardDeleteRejectsVolumeRootAndHome(t *testing.T) {
+	root := "/"
+	if runtime.GOOS == "windows" {
+		root = `C:\`
+	}
+	if err := guardDelete(root, `C:\work`); err == nil || !strings.Contains(err.Error(), "磁盘根目录") {
+		t.Errorf("盘符根应被拒绝，得到 %v", err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skip("本机取不到用户主目录")
+	}
+	// 主目录的上级同时也是工作目录的上级，具体命中哪条守卫取决于传入的 cwd；只要拒绝即可。
+	if tmp := t.TempDir(); guardDelete(filepath.Dir(home), tmp) == nil {
+		t.Errorf("主目录的上级 %q 应被拒绝", filepath.Dir(home))
+	}
+	if err := guardDelete(t.TempDir(), t.TempDir()); err != nil {
+		t.Errorf("普通临时目录不应被拒绝: %v", err)
+	}
+}
+
+func TestDeleteReadOnlyFileOnWindows(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "ro.txt")
+	if err := os.WriteFile(p, []byte("x"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" {
+		if _, err := runDelete(t, dir, `{"path":"ro.txt"}`); err != nil {
+			t.Fatalf("只读文件在 Unix 上删除只取决于目录权限: %v", err)
+		}
+		return
+	}
+	if _, err := runDelete(t, dir, `{"path":"ro.txt"}`); err != nil {
+		t.Fatalf("Windows 只读文件应先去掉只读位再删: %v", err)
+	}
+	if _, err := os.Stat(p); !os.IsNotExist(err) {
+		t.Error("只读文件应已删除")
+	}
+}
+
+func TestDeleteReportCapsNames(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "many")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < maxReportNames+5; i++ {
+		if err := os.WriteFile(filepath.Join(sub, fmt.Sprintf("f%02d.txt", i)), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := runDelete(t, dir, `{"path":"many","recursive":true}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "…还有 5 项没列出") {
+		t.Errorf("超出上限应折叠: %q", out)
 	}
 }
