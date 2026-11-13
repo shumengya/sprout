@@ -41,7 +41,7 @@ go vet ./...
 | 会话 | JSONL 追加写，按 agent 工作目录分组：`<数据目录>/sessions/<工作目录 slug>/<session-id>.jsonl`，同目录放 `meta.json` |
 | 数据目录 | 默认 `<exeDir>/data/.sprout`（安装级/系统级，跟随二进制）；`--data-dir` / `SPROUT_DATA_DIR` 覆盖；默认不写 `~/.sprout` |
 | 工具 | 内置 `bash`、`powershell`、`read`、`write`，另可在 `tools.jsonc` 里用 `exec` 把外部命令包装成工具；条目必须 `"enable": true` 才注册给模型（见 `docs/tools.md`） |
-| MCP | 自带最小客户端（`internal/agent/mcp`，stdio + Streamable HTTP），配置在数据目录 `mcp.jsonc`；工具注册为 `mcp__<服务端>__<工具>`；不引官方 SDK，避免 OAuth / JSON Schema / JWT 依赖（见 `docs/mcp.md`） |
+| MCP | 自带最小客户端（`internal/agent/mcp`，stdio + Streamable HTTP），配置在数据目录 `mcp.jsonc`；工具注册为 `mcp__<服务端>__<工具>`；启动时**后台**连接（界面不等服务端），连好后重建 agent 接入工具；协商版本缓存在 `<数据目录>/mcp-versions.json`；不引官方 SDK，避免 OAuth / JSON Schema / JWT 依赖（见 `docs/mcp.md`） |
 | Skills | 扫描 `<工作目录>/.sprout/skills`、`<工作目录>/.agents/skills`、`<数据目录>/skills`、`~/.agents/skills`；只把元数据追加进系统提示词，正文由模型用 `read` 按需读取（见 `docs/skills.md`） |
 | 权限 | 暂不实现权限模块，默认完全权限；不要提前加审批流或 allow/deny 配置 |
 | TUI | Bubble Tea v2 + lipgloss + bubbles；不用 tview |
@@ -61,6 +61,8 @@ go vet ./...
 - 外部工具（`internal/agent/tool/external`）只做「把参数替换进命令再执行」，不校验参数取值；覆盖 `parameters` 只影响模型看到的 schema，不是执行期约束。别把它当成沙箱。
 - Termux 没有 systemd、没有 CGO 工具链；不要引入依赖这些的库。
 - MCP 客户端是自己写的：不要为了“省事”改成引官方 SDK，那会带进 OAuth、JWT、JSON Schema、x/tools 一串依赖。改协议细节时同时更新 `docs/mcp.md`。
+- MCP 连接不能在启动路径上同步等待：`buildApp` 只调 `startMCP` 起后台 goroutine，工具就绪后由 `applyMCP` 重建 agent。重建必须发生在没有 `Run` 进行时（TUI 空闲时或 run 模式第一次提问前），否则进行中那一轮的消息会丢；TUI 的 `mcpReadyMsg` 只是置标记，实际接入在 `Update` 末尾的空闲检查里。
+- `mcp-versions.json` 只存目标指纹的 SHA-256，不存 URL 原文：URL / args 里可能有 `${VAR}` 展开出的令牌。缓存只能用来跳过 `server/discover` 试探，任何握手失败都必须能退回完整协商。
 - 技能的目录段是追加在系统提示词末尾的（`skills.AppendCatalog`），不要改成模板变量：用户的 `SYSTEMPROMPT.md` 可能是旧版本，没有那个变量的模板会让技能静默失效。
 - `mcp.jsonc` 的模板（`config.MCPTemplate`）与仓库根的 `mcp.example.jsonc` 由测试保证一致，改一处要同步另一处。
 - 数据目录用 `os.Executable()` 定位，`go run` 时二进制在临时目录；开发时显式传 `--data-dir ./data/.sprout`，不要用 cwd 当默认。目录不可写时明确报错，不要静默回退到 `~/.sprout`。

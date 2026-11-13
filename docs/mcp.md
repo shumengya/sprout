@@ -108,16 +108,19 @@ stdio 的读循环按 id 分发响应到等待者，所以同一批工具调用�
 
 ## 代码位置
 
-- `internal/agent/mcp/mcp.go`：客户端、握手与版本协商、工具列表、调用
+- `internal/agent/mcp/mcp.go`：客户端、握手与版本协商（`KnownVersion` 缓存命中、失败回退）、工具列表、调用
+- `internal/agent/mcp/versions.go`：协议版本缓存（读写、目标指纹失效）
 - `internal/agent/mcp/stdio.go`、`http.go`：两种传输
 - `internal/agent/mcp/jsonrpc.go`：JSON-RPC 消息结构
 - `internal/agent/mcp/tool.go`：把 MCP 工具适配成 `tool.Tool`
-- `internal/agent/config/mcp.go`、`mcp_template.go`：`mcp.jsonc` 的解析、校验与模板
-- `cmd/sprout/mcp.go`：并行连接、环境变量展开、工具注册
+- `internal/agent/config/mcp.go`、`mcp_template.go`：`mcp.jsonc` 的解析、校验与模板；`paths.go` 的 `MCPVersionsPath` 是缓存文件位置
+- `cmd/sprout/mcp.go`：后台连接（`startMCP` / `waitMCP` / `applyMCP`）、环境变量展开、工具注册
+- `internal/tui/model.go`：`Options.MCPReady` / `Options.ApplyMCP` 与“连接中”状态；`update.go` 在空闲时接入
 
 ## 测试
 
 - `internal/agent/mcp/mcp_test.go`：旧版 HTTP 握手与调用、无状态 `server/discover`、SSE 响应、HTTP 错误、工具名清洗。
+- `internal/agent/mcp/versions_test.go`：版本缓存往返、目标变化失效、令牌不落盘、坏文件容错、按缓存版本跳过探测、过期缓存回退。
 - `internal/agent/mcp/stdio_test.go`：真实子进程充当服务端（测试二进制自举），验证握手、分页外的调用、`isError`、命令不存在、超时。
 - `internal/agent/config/mcp_test.go`：模板合法、示例与模板一致、缺文件不报错、校验一次报全、按 enable 过滤。
-- `cmd/sprout/mcp_test.go`：`${VAR}` 展开、`excludeTools` 生效、注册名前缀、连接失败只记录不致命。
+- `cmd/sprout/mcp_test.go`：`${VAR}` 展开、`excludeTools` 生效、注册名前缀、连接失败只记录不致命、后台连接后工具接入且保留历史。
