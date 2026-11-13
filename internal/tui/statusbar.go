@@ -293,6 +293,9 @@ func (m *Model) mcpSegValue() string {
 	}
 	ok := 0
 	for _, s := range list {
+		if s.Pending {
+			return "连接中"
+		}
 		if s.Err == "" {
 			ok++
 		}

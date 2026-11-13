@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/shumengya/sprout/internal/agent"
 	"github.com/shumengya/sprout/internal/agent/config"
+	"github.com/shumengya/sprout/internal/agent/mcp"
 	"github.com/shumengya/sprout/internal/agent/platform"
 	"github.com/shumengya/sprout/internal/agent/session"
 	"github.com/shumengya/sprout/internal/agent/skills"
@@ -38,33 +40,47 @@ type env struct {
 
 // app 是装配好的运行时。ag 为 nil 表示当前不能对话，原因在 disabled 里。
 type app struct {
-	dataDir  string
-	cwd      string
-	cfg      *config.File
-	tools    *config.ToolsFile
-	mcpCfg   *config.MCPFile
-	prompt   *agent.PromptTemplate // SYSTEMPROMPT.md；切模型、/new 时按同一份模板重新渲染
-	instr    []agent.Instruction   // AGENTS.md：启动时读一次，切模型时按同一份重新拼接
-	skills   []skills.Skill        // 发现到的技能，启动时扫一次
-	env      env
-	log      *slog.Logger
-	sel      config.Selection
-	reg      *tool.Registry
-	mcp      *mcpSet // 已连接的 MCP 服务端；没有启用任何服务端时为 nil
-	ag       *agent.Agent
-	rec      *session.Recorder
-	info     tui.Info
-	effort   string // 当前思考档位，跨 /new、/resume 保留；切模型时尽量沿用
-	disabled string
-	notices  []string
+	dataDir string
+	cwd     string
+	cfg     *config.File
+	tools   *config.ToolsFile
+	mcpCfg  *config.MCPFile
+	prompt  *agent.PromptTemplate // SYSTEMPROMPT.md；切模型、/new 时按同一份模板重新渲染
+	instr   []agent.Instruction   // AGENTS.md：启动时读一次，切模型时按同一份重新拼接
+	skills  []skills.Skill        // 发现到的技能，启动时扫一次
+	env     env
+	log     *slog.Logger
+	sel     config.Selection
+	reg     *tool.Registry
+	mcp     *mcpSet // 已连接的 MCP 服务端；没有启用任何服务端时为 nil
+	// MCP 在后台连接：mcpReady 在连接流程结束时关闭，mcpCancel 在退出时中止它。
+	// mu 保护后台 goroutine 与界面线程共用的字段（mcp、info），避免数据竞争。
+	mu          sync.Mutex
+	mcpVersions *mcp.Versions
+	mcpReady    chan struct{}
+	mcpCancel   context.CancelFunc
+	key         string // 当前模型的 API Key；后台重建 agent 时要用
+	ag          *agent.Agent
+	rec         *session.Recorder
+	info        tui.Info
+	effort      string // 当前思考档位，跨 /new、/resume 保留；切模型时尽量沿用
+	disabled    string
+	notices     []string
 }
 
 func (a *app) close() {
+	if a.mcpCancel != nil {
+		a.mcpCancel() // 正在连接的服务端随请求取消，不再等它们
+	}
+	a.waitMCP()
 	if a.rec != nil {
 		a.rec.Close()
 	}
-	if a.mcp != nil {
-		a.mcp.Close()
+	a.mu.Lock()
+	m := a.mcp
+	a.mu.Unlock()
+	if m != nil {
+		m.Close()
 	}
 }
 
@@ -147,16 +163,9 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 		Skills: skillNames(skillList),
 	}
 	// 模型不支持工具时连 MCP 没有意义：那些工具注册了也发不下去。
-	if sel.Model.SupportsTools() {
-		a.mcp = connectMCP(context.Background(), mcpCfg, e, log)
-		if a.mcp != nil {
-			for _, s := range a.mcp.servers {
-				if s.Err != "" {
-					a.notices = append(a.notices, fmt.Sprintf("MCP 服务端 %s 连接失败：%s", s.Name, s.Err))
-				}
-			}
-			a.info.MCP = a.mcp.servers
-		}
+	// 连接放到后台：服务端在网络那头，等它们就绪要几秒，界面不该陪着等。
+	if sel.Model.SupportsTools() && len(mcpCfg.EnabledServers()) > 0 {
+		a.startMCP(mcpCfg)
 	}
 	reg, err := a.registerTools(cfg, e)
 	if err != nil {
@@ -174,6 +183,7 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 			a.notices = append(a.notices, "已生成配置文件 "+path)
 		}
 		a.reg = reg
+		a.key = key
 		a.enable(key, reg, e, log)
 	}
 	return a, nil
@@ -289,8 +299,16 @@ func (a *app) registerTools(cfg *config.File, e env) (*tool.Registry, error) {
 	// MCP 工具排在内置与外部工具之后：名字都带 mcp__ 前缀，正常情况下不会撞名，
 	// 万一撞了（比如两个服务端都叫同一个名字）先注册的赢，冲突的那条记进 Unavailable。
 	a.info.Unavailable = append(a.info.Unavailable,
-		registerMCPTools(reg, a.mcp, a.mcpCfg, add, a.log)...)
+		registerMCPTools(reg, a.connectedMCP(), a.mcpCfg, add, a.log)...)
 	return reg, nil
+}
+
+// connectedMCP 返回后台已连好的服务端；仍在连接或没有启用时为 nil。
+// 后台 goroutine 会写 a.mcp，所以读取要加锁。
+func (a *app) connectedMCP() *mcpSet {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.mcp
 }
 
 // buildAgent 用选定的模型与工具构造 agent。渲染模型切换时也走这里，保证两条路径的装配完全一致。

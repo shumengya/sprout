@@ -114,6 +114,10 @@ func homeDir() string {
 // 带 -c / --resume 时先恢复会话；找不到可恢复的会话是错误而不是悄悄开新会话——
 // 在脚本里，用户期望的是“接着上次的上下文”，静默开新会话会得到完全不同的答案。
 func runOnce(ap *app, prompt string, images []string, resume string, stdout, stderr io.Writer) int {
+	// MCP 在后台连接：run 模式是单次提问，等到连好再问，才能用上那些工具。
+	ap.waitMCP()
+	_, notices := ap.applyMCP()
+	ap.notices = append(ap.notices, notices...)
 	for _, n := range append(append([]string{}, ap.notices...), ap.info.Unavailable...) {
 		fmt.Fprintln(stderr, "提示:", n)
 	}
@@ -158,6 +162,11 @@ func runOnce(ap *app, prompt string, images []string, resume string, stdout, std
 // runTUI 启动终端界面。resume 非空时先恢复会话；失败不致命，只提示并开新会话。
 func runTUI(ap *app, resume string, stderr io.Writer) int {
 	opts := tui.Options{Info: ap.info, Disabled: ap.disabled, Notices: ap.notices, Installer: commandInstaller{}, Resources: systemResources()}
+	// 后台连接结束后由 TUI 在空闲时调用 applyMCP，把工具接进 agent 并刷新信息栏。
+	if ap.mcpReady != nil {
+		opts.MCPReady = ap.mcpReady
+		opts.ApplyMCP = ap.applyMCP
+	}
 	if ap.ag != nil { // 不能直接赋值：nil 指针放进接口后接口本身不为 nil
 		opts.Runner = runnerFunc{ap}
 		opts.Sessions = sessionStore{ap}

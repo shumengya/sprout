@@ -118,7 +118,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [ ] **扩展（M5）**：
   - [x] Anthropic Messages 协议（`internal/provider/anthropic`，已实现并测试）；
   - [x] Google Gemini 协议（`internal/provider/google`，已实现并测试）；
-  - [x] MCP 客户端与工具接入（`internal/agent/mcp`）：stdio 与 Streamable HTTP 两种传输、无状态 `server/discover` 与旧版 `initialize` 双协议、配置 `mcp.jsonc`、工具注册为 `mcp__<服务端>__<工具>`，见 `docs/mcp.md`；
+  - [x] MCP 客户端与工具接入（`internal/agent/mcp`）：stdio 与 Streamable HTTP 两种传输、无状态 `server/discover` 与旧版 `initialize` 双协议、配置 `mcp.jsonc`、工具注册为 `mcp__<服务端>__<工具>`；后台连接（启动不等服务端）与协议版本缓存（`mcp-versions.json`），见 `docs/mcp.md`；
   - [x] skills 发现与加载（`internal/agent/skills`）：扫描四个位置、解析 frontmatter、元数据追加进系统提示词、正文按需 `read`，见 `docs/skills.md`；
   - [ ] 子代理 / 多 agent 编排；
   - [ ] 搜索、web 等更多工具（现有 `bash`、`powershell`、`read`、`write`，外加 `tools.jsonc` 里定义的外部命令工具）；
@@ -132,7 +132,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] `花费`：单价来自 models.dev（`sprout models update` 下载到 `<数据目录>/models.dev.json`，启动时只读缓存、不联网）。每次用量到达时按当时模型的单价累加，切换模型不重算历史；`/new` 与恢复会话清零，恢复时按当前模型的价格重算重放出来的用量。没有价格时显示 `—`，一部分用量没价格时显示 `≥` 加金额。**已知限制**：只用基础价，忽略 models.dev 的分档价（`tiers`、`context_over_200k`）；价格没有和真实账单核对过。
 - [ ] 状态栏里还是占位的：`插件`（没有插件机制）。
 - [ ] MCP 只做了工具：Resources、Prompts、Sampling、Elicitation、MRTR、`ttlMs` 缓存、OAuth、`notifications/tools/list_changed` 均未实现；工具结果里的图片只写占位文本（见 `docs/mcp.md`“已知限制”）。
-- [ ] MCP 没有工具列表缓存：每次启动重新发现，服务端慢时启动会等（整体 20 秒上限）。
+- [ ] MCP 没有工具列表缓存：每次启动重新发现（协议版本有缓存，跳过的是 `server/discover` 探测）。连接在后台进行，不拖慢启动，但连接完成前用不到 MCP 工具；整体 20 秒上限。
 - [ ] 技能正文的裁剪保护：压缩时不会特意保留已激活技能的正文（它只是一条普通的 tool 结果）。
 - [ ] 每轮回答结束后的统计行（TPS、输出 / 输入 / 缓存 / 合计 token、耗时、首字耗时）：需要在内核记录首个增量到达的时间，尚未做。
 - [ ] 配置热加载：改 `models.jsonc` 仍需重启才生效，`/model` 只列启动时读到的模型。

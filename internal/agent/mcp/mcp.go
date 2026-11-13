@@ -45,6 +45,9 @@ type Spec struct {
 	Dir     string
 	// Timeout 是单次请求的超时，<= 0 取 DefaultTimeout。
 	Timeout time.Duration
+	// KnownVersion 是上次连接时与服务端谈成的协议版本。非空时跳过 server/discover 试探，
+	// 直接按这个版本握手；失败也只是一次额外往返，之后照常退回完整流程。
+	KnownVersion string
 }
 
 // IsHTTP 报告这个服务端是否走 HTTP。
@@ -137,8 +140,20 @@ func Dial(ctx context.Context, spec Spec, hc *http.Client, log *slog.Logger) (*C
 	return c, nil
 }
 
-// handshake 先试无状态发现，失败后退回 initialize。
+// handshake 先按缓存的上次版本直连，失败或没有缓存时先试无状态发现，再退回 initialize。
 func (c *Client) handshake(ctx context.Context) error {
+	if v := c.spec.KnownVersion; v != "" {
+		if err := c.handshakeKnown(ctx, v); err != nil {
+			// 缓存可能过期（服务端升级、换了地址、令牌失效）。清掉试出来的状态再走完整流程，
+			// 否则残留的版本头会让后面的请求继续被拒。
+			c.log.Debug("按缓存版本握手失败，改为完整协商", "server", c.spec.Name, "version", v, "error", err)
+			c.version, c.stateless, c.info = "", false, ServerInfo{}
+			c.tr.setVersion("")
+		} else {
+			return nil
+		}
+	}
+
 	params := map[string]any{
 		"_meta": map[string]any{
 			"io.modelcontextprotocol/protocolVersion":    ProtocolStateless,
@@ -162,14 +177,56 @@ func (c *Client) handshake(ctx context.Context) error {
 	// 退回旧版握手。先试的 server/discover 已经把 2026-07-28 留在 HTTP 版本头里，
 	// 退回前必须清掉，否则旧版服务端会因为不认识的版本号拒掉 initialize。
 	c.tr.setVersion("")
+	if err := c.initialize(ctx, ProtocolLegacy); err != nil {
+		return fmt.Errorf("握手失败（server/discover 与 initialize 都不通）: %w", err)
+	}
+	return nil
+}
+
+// handshakeKnown 按上次谈成的版本直接握手，省掉 server/discover 的一次往返。
+//
+// 无状态版本本身就是靠 server/discover 建立的，按缓存走时要补一次（服务端身份也得从它拿）；
+// 旧版版本则直接 initialize，这正是耗时的那一轮。
+func (c *Client) handshakeKnown(ctx context.Context, v string) error {
+	if v >= ProtocolStateless {
+		c.tr.setVersion(ProtocolStateless)
+		raw, err := c.tr.request(ctx, "server/discover", "", map[string]any{
+			"_meta": map[string]any{
+				"io.modelcontextprotocol/protocolVersion":    ProtocolStateless,
+				"io.modelcontextprotocol/clientInfo":         clientInfo(),
+				"io.modelcontextprotocol/clientCapabilities": map[string]any{},
+			},
+		})
+		if err != nil {
+			return err
+		}
+		var res struct {
+			SupportedVersions []string   `json:"supportedVersions"`
+			ServerInfo        ServerInfo `json:"serverInfo"`
+		}
+		if err := json.Unmarshal(raw, &res); err != nil {
+			return err
+		}
+		if !supportsVersion(res.SupportedVersions, ProtocolStateless) {
+			return fmt.Errorf("服务端不再支持 %s", ProtocolStateless)
+		}
+		c.version, c.stateless, c.info = ProtocolStateless, true, res.ServerInfo
+		return nil
+	}
+	c.tr.setVersion("")
+	return c.initialize(ctx, v)
+}
+
+// initialize 走旧版握手：声明版本、接受服务端谈成的版本，再发 initialized 通知。
+func (c *Client) initialize(ctx context.Context, declared string) error {
 	// 服务端可能谈成比我们声明的更低的版本，原样记下即可。
 	raw, err := c.tr.request(ctx, "initialize", "", map[string]any{
-		"protocolVersion": ProtocolLegacy,
+		"protocolVersion": declared,
 		"capabilities":    map[string]any{},
 		"clientInfo":      clientInfo(),
 	})
 	if err != nil {
-		return fmt.Errorf("握手失败（server/discover 与 initialize 都不通）: %w", err)
+		return err
 	}
 	var res struct {
 		ProtocolVersion string     `json:"protocolVersion"`
@@ -180,7 +237,7 @@ func (c *Client) handshake(ctx context.Context) error {
 	}
 	c.version = res.ProtocolVersion
 	if c.version == "" {
-		c.version = ProtocolLegacy
+		c.version = declared
 	}
 	c.info = res.ServerInfo
 	// 谈定的版本要立刻用于后续请求的 MCP-Protocol-Version 头。

@@ -78,6 +78,10 @@ func ensureWritableDir(dir string) error {
 // ModelsPath 是 models.jsonc 的路径。
 func ModelsPath(dataDir string) string { return filepath.Join(dataDir, "models.jsonc") }
 
+// MCPVersionsPath 是 MCP 协商版本缓存的路径：记住每个服务端上次谈成的协议版本，
+// 下次启动可以跳过 server/discover 的试探，少一次 HTTPS 往返。
+func MCPVersionsPath(dataDir string) string { return joinDataDir(dataDir, "mcp-versions.json") }
+
 // joinDataDir 是数据目录下文件的统一拼接入口；单独抽出来方便测试替换，也避免各处手拼分隔符。
 func joinDataDir(dataDir, name string) string { return filepath.Join(dataDir, name) }
 

@@ -15,6 +15,9 @@ import (
 // 打字会让输入框增高，按键会清掉状态提示，开始或结束一轮会让活动行出现或消失。
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	model, cmd := m.update(msg)
+	// MCP 连好时若正忙，推迟到任意一条消息处理完、状态回到空闲时再接入；
+	// 这样不必在每个“操作结束”的分支里各补一次。
+	m.applyMCP()
 	m.syncSuggest() // 输入框内容可能变了（打字、粘贴、提交后清空），候选跟着变
 	m.fit()
 	return model, cmd
@@ -105,6 +108,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case installDoneMsg:
 		m.onInstalled(msg)
 		m.refresh()
+		return m, nil
+
+	case mcpReadyMsg:
+		m.mcpDone = m.opts.ApplyMCP != nil
 		return m, nil
 
 	case turnClosedMsg:

@@ -33,10 +33,12 @@ type MCPServerInfo struct {
 	Name    string
 	URL     string // 远程服务端的地址；stdio 服务端为空
 	Command string // stdio 服务端的启动命令；远程服务端为空
-	Version string // 协商出的协议版本；连接失败时为空
+	Version string // 协商出的协议版本；连接失败或还没连上时为空
 	Server  string // 服务端自报的名字；可以没有
 	Tools   int    // 服务端提供的工具数（不含被 excludeTools 屏蔽的）
 	Err     string // 非空表示连接失败
+	// Pending 表示还在连接中。启动时连接在后台进行，界面先显示这一状态。
+	Pending bool
 }
 
 // Info 是 header 与 /tools 展示的信息，由 main 装配好传入。
@@ -95,6 +97,11 @@ type Options struct {
 	// Resources 采样整机内存和 CPU 占用，状态栏每秒调用一次（在 tea.Cmd 里，不占 Update）；
 	// 为 nil 时状态栏不显示这两项。
 	Resources func() Resources
+	// MCPReady 在后台的 MCP 连接流程结束时关闭；为 nil 表示没有后台连接（启动时已就绪或没有配置）。
+	MCPReady <-chan struct{}
+	// ApplyMCP 在 MCP 连接完成后调用，返回刷新后的 Info 与要显示的提示（连接失败等）。
+	// 它会重建 agent 并保留对话历史，因此只能在空闲时调用；TUI 会等到一轮结束再调。
+	ApplyMCP func() (Info, []string)
 }
 
 // 输入框按内容增高：空时一行，最多显示这么多行，再多就在输入框内部滚动。
@@ -131,6 +138,7 @@ type Model struct {
 	resuming   bool      // 正在恢复会话：此时不能发送，否则新提问会和恢复的历史交错
 	switching  bool      // 正在切换模型：同上，禁止发送
 	compacting bool      // 正在手动压缩上下文（/compact）：同上，且可用 Ctrl+C 取消
+	mcpDone    bool      // 后台 MCP 连接已结束、等待接入工具；忙时推迟到本轮结束
 	started    time.Time // 本轮开始时间，状态行显示已耗时
 	// busySince、busyTotal 是状态栏“耗时”的数据：只累计 agent 干活的时间（一轮回答或一次 /compact，
 	// 从开始到结束），空闲时不涨。busySince 为零表示当前空闲。
@@ -227,8 +235,42 @@ func New(o Options) *Model {
 }
 
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(m.in.Focus(), m.resourceCmd(0))
+	return tea.Batch(m.in.Focus(), m.resourceCmd(0), m.mcpReadyCmd())
 }
+
+// mcpReadyMsg 表示后台 MCP 连接流程已结束（不论成败）。
+type mcpReadyMsg struct{}
+
+// mcpReadyCmd 等后台的 MCP 连接结束，再让 Update 在主线程里接上工具。
+// 网络等待放在 Cmd 的 goroutine 里，界面启动不被它拖住。
+func (m *Model) mcpReadyCmd() tea.Cmd {
+	ch := m.opts.MCPReady
+	if ch == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		<-ch
+		return mcpReadyMsg{}
+	}
+}
+
+// applyMCP 把后台连上的 MCP 工具接进 agent，刷新信息栏。
+// 只在空闲时调用：重建 agent 会搬移历史，进行中的一轮会丢掉它已经产生的消息。
+func (m *Model) applyMCP() {
+	if !m.mcpDone || m.busy() {
+		return
+	}
+	m.mcpDone = false
+	info, notices := m.opts.ApplyMCP()
+	m.opts.Info = info
+	for _, n := range notices {
+		m.add(&entry{kind: kindNotice, text: n})
+	}
+	m.refresh()
+}
+
+// busy 表示当前有不能被打断的操作：生成、压缩、恢复会话、切换模型。
+func (m *Model) busy() bool { return m.running || m.compacting || m.resuming || m.switching }
 
 func (m *Model) add(e *entry) *entry {
 	e.dirty = true

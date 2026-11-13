@@ -125,6 +125,8 @@ func (m *Model) toolsReport() string {
 			target = s.Command
 		}
 		switch {
+		case s.Pending:
+			fmt.Fprintf(&b, "\n  %s  连接中…  %s", s.Name, target)
 		case s.Err != "":
 			fmt.Fprintf(&b, "\n  %s  连接失败：%s", s.Name, s.Err)
 		default:

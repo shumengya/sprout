@@ -11,7 +11,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shumengya/sprout/internal/agent"
 	"github.com/shumengya/sprout/internal/agent/config"
+	"github.com/shumengya/sprout/internal/agent/mcp"
 	"github.com/shumengya/sprout/internal/agent/skills"
 	"github.com/shumengya/sprout/internal/agent/tool"
 )
@@ -114,7 +116,7 @@ func TestMCPToolsAreRegisteredWithPrefixAndExclusions(t *testing.T) {
 		"fake": {Enable: true, URL: srv.URL + "/mcp", ExcludeTools: []string{"secret"}},
 	}}
 	e := testEnv(nil, shellSet(true, true))
-	set := connectMCP(context.Background(), f, e, slog.New(slog.DiscardHandler))
+	set := connectMCP(context.Background(), f, e, slog.New(slog.DiscardHandler), mcp.LoadVersions(filepath.Join(t.TempDir(), "v.json")))
 	if set == nil || len(set.servers) != 1 {
 		t.Fatalf("应连接一个服务端: %+v", set)
 	}
@@ -148,7 +150,7 @@ func TestMCPConnectionFailureIsRecordedNotFatal(t *testing.T) {
 	f := &config.MCPFile{Servers: map[string]config.MCPServer{
 		"dead": {Enable: true, Command: "definitely-not-a-real-binary-xyz"},
 	}}
-	set := connectMCP(context.Background(), f, testEnv(nil, shellSet(true, true)), slog.New(slog.DiscardHandler))
+	set := connectMCP(context.Background(), f, testEnv(nil, shellSet(true, true)), slog.New(slog.DiscardHandler), mcp.LoadVersions(filepath.Join(t.TempDir(), "v.json")))
 	if set == nil || len(set.servers) != 1 || set.servers[0].Err == "" {
 		t.Fatalf("失败应记录在 servers 里: %+v", set)
 	}
@@ -234,4 +236,55 @@ func registerMCPInto(t *testing.T, set *mcpSet, f *config.MCPFile) (*tool.Regist
 		return reg.Register(tl)
 	}, slog.New(slog.DiscardHandler))
 	return reg, notes
+}
+
+// 后台连接：buildApp 不等 MCP 就返回，连好后 applyMCP 把工具接进 agent，且对话历史不丢。
+func TestBackgroundMCPIsAppliedAndKeepsHistory(t *testing.T) {
+	model := newModelServer(t, "bash")
+	mcpSrv := fakeMCPServer(t)
+	defer mcpSrv.Close()
+
+	dir := t.TempDir()
+	writeServerConfig(t, dir, model.URL)
+	cfg := `{"servers": {"fake": {"enable": true, "url": "` + mcpSrv.URL + `/mcp", "excludeTools": ["secret"]}}}`
+	if err := os.WriteFile(config.MCPPath(dir), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := buildApp(dir, testEnv(nil, shellSet(true, true)), nil)
+	if err != nil || a.ag == nil {
+		t.Fatalf("装配失败: %v / %s", err, a.disabled)
+	}
+	defer a.close()
+	if len(a.info.MCP) != 1 || !a.info.MCP[0].Pending {
+		t.Fatalf("启动时应先显示连接中: %+v", a.info.MCP)
+	}
+	// 连接期间 agent 已经可用，只是还没有 MCP 工具。
+	if _, ok := a.reg.Get("mcp__fake__echo"); ok {
+		t.Fatal("连好之前不该已经注册 MCP 工具")
+	}
+	before := a.ag
+	before.Restore([]agent.Message{agent.NewTextMessage(agent.RoleUser, "早先的问题")}, "早先的摘要")
+
+	a.waitMCP()
+	info, notices := a.applyMCP()
+	if len(notices) != 0 {
+		t.Fatalf("不应有提示: %v", notices)
+	}
+	if len(info.MCP) != 1 || info.MCP[0].Pending || info.MCP[0].Err != "" || info.MCP[0].Tools != 1 {
+		t.Fatalf("连好后的状态 = %+v", info.MCP)
+	}
+	if _, ok := a.reg.Get("mcp__fake__echo"); !ok {
+		t.Fatalf("应注册 mcp__fake__echo: %v", a.reg.Names())
+	}
+	if a.ag == before {
+		t.Fatal("增加工具后应重建 agent")
+	}
+	if h := a.ag.History(); len(h) != 1 || a.ag.Summary() != "早先的摘要" {
+		t.Errorf("重建后历史 = %d 条，摘要 = %q", len(h), a.ag.Summary())
+	}
+	// 版本缓存写下来了，下次启动可以跳过 server/discover。
+	if _, err := os.Stat(config.MCPVersionsPath(dir)); err != nil {
+		t.Errorf("应写出版本缓存: %v", err)
+	}
 }
