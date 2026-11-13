@@ -83,9 +83,10 @@ func TestContextUsesTheLatestRequestNotTheSum(t *testing.T) {
 func TestContextColorsWarnNearTheLimit(t *testing.T) {
 	info := testInfo
 	info.ContextWindow = 1000
+	own := "\x1b[38;5;" + labelColors["上下文"] + "m"
 	cases := []struct {
 		input int
-		sgr   string // 空串表示不该带警告色
+		sgr   string // 空串表示值和标签同色，不带警告色
 	}{
 		{500, ""},
 		{700, "\x1b[33m"}, // 黄
@@ -94,9 +95,13 @@ func TestContextColorsWarnNearTheLimit(t *testing.T) {
 	for _, c := range cases {
 		m := newSized(t, Options{Runner: scriptRunner(), Info: info}, 200, 24)
 		apply(m, event.Usage{InputTokens: c.input})
-		ctx := m.contextValue()
-		if c.sgr == "" && strings.Contains(ctx, "\x1b[") {
-			t.Errorf("%d/1000 不该着色: %q", c.input, ctx)
+		ctx := m.contextSeg().render()
+		if !strings.Contains(ctx, own+"上下文") {
+			t.Errorf("%d/1000 标签应保持自己的颜色: %q", c.input, ctx)
+		}
+		if c.sgr == "" && (strings.Contains(ctx, "\x1b[33m") || strings.Contains(ctx, "\x1b[31m") ||
+			!strings.Contains(ctx, own+"上下文 50.0%")) {
+			t.Errorf("%d/1000 值应与标签同色，不带警告色: %q", c.input, ctx)
 		}
 		if c.sgr != "" && !strings.Contains(ctx, c.sgr) {
 			t.Errorf("%d/1000 应着色 %q: %q", c.input, c.sgr, ctx)
@@ -106,11 +111,11 @@ func TestContextColorsWarnNearTheLimit(t *testing.T) {
 
 func TestContextWithoutAKnownWindowShowsTheTokenCount(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 200, 24) // testInfo 没有窗口
-	if v := m.contextValue(); v != placeholder {
+	if v := m.contextSeg().value; v != placeholder {
 		t.Errorf("没有数据也没有窗口时应是占位符，得到 %q", v)
 	}
 	apply(m, event.Usage{InputTokens: 2900})
-	if v := m.contextValue(); v != "2.9k" || strings.Contains(v, "%") {
+	if v := m.contextSeg().value; v != "2.9k" || strings.Contains(v, "%") {
 		t.Errorf("不知道窗口时只显示 token 数，不能编一个百分比: %q", v)
 	}
 }
@@ -171,16 +176,38 @@ func TestTurnsCountUserMessagesOnly(t *testing.T) {
 	}
 }
 
-func TestElapsedFollowsTheClockAndResetsOnNewSession(t *testing.T) {
+func TestElapsedCountsOnlyBusyTime(t *testing.T) {
 	f := &fakeSessions{}
 	m := sessionsModel(t, f)
 	start := m.now()
 	clock := start
 	m.now = func() time.Time { return clock }
-	clock = start.Add(46*time.Minute + 43*time.Second)
-	if line := infoText(m, 0); !strings.Contains(line, "耗时 46m43s") {
-		t.Fatalf("耗时应随时钟走: %q", line)
+	// 空闲时无论过多久都不涨。
+	clock = start.Add(10 * time.Minute)
+	if line := infoText(m, 0); !strings.Contains(line, "耗时 0s") {
+		t.Fatalf("没在干活时耗时不应增长: %q", line)
 	}
+	// 一轮回答期间按时钟累计，结束后定格。
+	begin(m, "第一问")
+	m.busyStart()
+	clock = start.Add(10*time.Minute + 51*time.Second)
+	if line := infoText(m, 0); !strings.Contains(line, "耗时 51s") {
+		t.Fatalf("回答期间耗时应随时钟走: %q", line)
+	}
+	apply(m, event.TurnFinished{Reason: event.ReasonStop})
+	clock = start.Add(20 * time.Minute)
+	if line := infoText(m, 0); !strings.Contains(line, "耗时 51s") {
+		t.Errorf("回答结束后耗时应停住: %q", line)
+	}
+	// 第二轮接在第一轮后面累加。
+	begin(m, "第二问")
+	m.busyStart()
+	clock = start.Add(20*time.Minute + 12*time.Second)
+	if line := infoText(m, 0); !strings.Contains(line, "耗时 1m03s") {
+		t.Errorf("多轮耗时应累加: %q", line)
+	}
+	// 生成中拒绝 /new，先结束本轮再新建。
+	apply(m, event.TurnFinished{Reason: event.ReasonStop})
 	submit(m, "/new")
 	if line := infoText(m, 0); !strings.Contains(line, "耗时 0s") {
 		t.Errorf("/new 之后应重新计时: %q", line)
@@ -189,13 +216,13 @@ func TestElapsedFollowsTheClockAndResetsOnNewSession(t *testing.T) {
 
 func TestElapsedIsNeverNegative(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 200, 24)
-	m.sessionStart = m.now().Add(time.Hour) // 时钟回拨
+	m.busySince = m.now().Add(time.Hour) // 时钟回拨
 	if line := infoText(m, 0); !strings.Contains(line, "耗时 0s") {
 		t.Errorf("耗时不能是负数: %q", line)
 	}
-	m.sessionStart = time.Time{}
+	m.busySince = time.Time{}
 	if line := infoText(m, 0); !strings.Contains(line, "耗时 0s") {
-		t.Errorf("还没开始计时时是 0s，而不是从公元 1 年算起: %q", line)
+		t.Errorf("空闲时是 0s，而不是从公元 1 年算起: %q", line)
 	}
 }
 

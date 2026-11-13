@@ -57,35 +57,55 @@ func (m *Model) resourceCmd(delay time.Duration) tea.Cmd {
 	return tea.Tick(delay, func(time.Time) tea.Msg { return run() })
 }
 
-// 各项标签的颜色。值用默认前景色，只有需要提醒的（上下文接近上限）才换色。
-var (
-	styLblPath    = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
-	styLblTurns   = lipgloss.NewStyle().Foreground(lipgloss.Color("208"))
-	styLblElapsed = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
-	styLblMem     = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
-	styLblCPU     = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
-	styLblInput   = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
-	styLblOutput  = lipgloss.NewStyle().Foreground(lipgloss.Color("13"))
-	styLblCache   = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
-	styLblCost    = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
-	styLblCtx     = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
-	styLblModel   = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
-	styLblEffort  = lipgloss.NewStyle().Faint(true)
-	styLblStatus  = lipgloss.NewStyle().Faint(true)
-	styLblMCP     = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
-	styLblPlugin  = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
-	styLblSkill   = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
-	styLblTool    = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
-)
-
-// seg 是状态栏里的一项：标签 + 值。
-type seg struct {
-	label string
-	lbl   lipgloss.Style
-	value string // 已经渲染好的值（可以带颜色）
+// labelColors 是各项的颜色（256 色编号），每项一种，互不重复；标签和值用同一种颜色，一眼就能看出哪个值属于哪一项。
+// statusbar_test 保证不重复、不漏登记。唯一的例外是上下文接近上限时值变黄或变红，那是提醒，不是装饰。
+//
+// 同一行相邻的几项刻意拉开色相，不用 0-15 号基础色：基础色跟随终端主题，换个主题可能变成同一种颜色。
+var labelColors = map[string]string{
+	// 第一行
+	"路径":   "75",  // 天蓝
+	"对话轮次": "208", // 橙
+	"耗时":   "220", // 金黄
+	"内存":   "114", // 浅绿
+	"CPU":  "176", // 粉紫
+	// 第二行
+	"输入":   "80",  // 青
+	"输出":   "211", // 粉
+	"缓存":   "179", // 土黄
+	"花费":   "120", // 亮绿
+	"上下文":  "111", // 浅蓝
+	"模型ID": "141", // 紫
+	"思考强度": "152", // 浅青灰
+	// 第三行
+	"状态":  "250", // 灰
+	"MCP": "37",  // 深青
+	"插件":  "168", // 玫红
+	"技能":  "105", // 蓝紫
+	"工具":  "215", // 杏色
 }
 
-func (s seg) render() string { return s.lbl.Render(s.label) + " " + s.value }
+// labelStyle 返回一项的样式；没登记的标签用淡色，不会因为漏登记而崩溃。
+func labelStyle(label string) lipgloss.Style {
+	if c, ok := labelColors[label]; ok {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(c))
+	}
+	return styFaint
+}
+
+// seg 是状态栏里的一项：标签 + 值，两者同色（见 labelColors）。
+type seg struct {
+	label string
+	value string          // 纯文本，不带样式
+	alert *lipgloss.Style // 非空时值改用这个颜色（上下文快满的提醒）
+}
+
+func (s seg) render() string {
+	st := labelStyle(s.label)
+	if s.alert != nil {
+		return st.Render(s.label) + " " + s.alert.Render(s.value)
+	}
+	return st.Render(s.label + " " + s.value)
+}
 
 const segSep = " | "
 
@@ -128,32 +148,48 @@ func (m *Model) turns() int {
 	return n
 }
 
+// elapsed 是本会话里 agent 实际干活的累计时长：每轮回答和 /compact 从开始到结束的时间相加，
+// 空闲（等用户输入）时不涨。恢复的会话不知道当初花了多久，从 0 开始。
 func (m *Model) elapsed() time.Duration {
-	if m.sessionStart.IsZero() {
-		return 0
+	d := m.busyTotal
+	if !m.busySince.IsZero() {
+		d += m.now().Sub(m.busySince)
 	}
-	return m.now().Sub(m.sessionStart)
+	return max(d, 0)
 }
+
+// busyStart、busyStop 标记一段干活时间的起止；只在一轮回答或一次压缩的开头和结尾调用。
+func (m *Model) busyStart() { m.busySince = m.now() }
+
+func (m *Model) busyStop() {
+	if !m.busySince.IsZero() {
+		m.busyTotal += max(m.now().Sub(m.busySince), 0) // 时钟回拨时不倒扣
+		m.busySince = time.Time{}
+	}
+}
+
+// resetBusy 在新会话、恢复会话时把耗时清零。
+func (m *Model) resetBusy() { m.busyTotal, m.busySince = 0, time.Time{} }
 
 // infoPathLine：路径、对话轮次、耗时、内存、CPU。路径是唯一可伸缩的一项，把剩下的宽度都给它，
 // 放不下时从左边截断（保留末尾几级最有辨识度的部分），其他项宁可整行被截也不为它让位。
 func (m *Model) infoPathLine() string {
 	rest := []seg{
-		{"对话轮次", styLblTurns, fmt.Sprint(m.turns())},
-		{"耗时", styLblElapsed, fmtElapsed(m.elapsed())},
+		{"对话轮次", fmt.Sprint(m.turns()), nil},
+		{"耗时", fmtElapsed(m.elapsed()), nil},
 	}
 	if r := m.res; r.Mem >= 0 {
-		rest = append(rest, seg{"内存", styLblMem, fmt.Sprintf("%.0f%%", r.Mem)})
+		rest = append(rest, seg{"内存", fmt.Sprintf("%.0f%%", r.Mem), nil})
 	}
 	if r := m.res; r.CPU >= 0 {
-		rest = append(rest, seg{"CPU", styLblCPU, fmt.Sprintf("%.0f%%", r.CPU)})
+		rest = append(rest, seg{"CPU", fmt.Sprintf("%.0f%%", r.CPU), nil})
 	}
 	fixed := 0
 	for _, s := range rest {
 		fixed += ansi.StringWidth(s.render()) + len(segSep)
 	}
 	room := max(m.w-fixed-ansi.StringWidth("路径 "), 8)
-	path := seg{"路径", styLblPath, styInfoDir.Render(truncateLeft(m.opts.Info.Cwd, room))}
+	path := seg{"路径", truncateLeft(m.opts.Info.Cwd, room), nil}
 	return joinSegs(m.w, append([]seg{path}, rest...))
 }
 
@@ -161,48 +197,50 @@ func (m *Model) infoPathLine() string {
 func (m *Model) infoUsageLine() string {
 	u := m.usage
 	segs := []seg{
-		{"输入", styLblInput, fmtTokens(u.Input)},
-		{"输出", styLblOutput, fmtTokens(u.Output)},
-		{"缓存", styLblCache, fmtTokens(u.CacheRead) + "/" + fmtTokens(u.CacheWrite)},
-		{"花费", styLblCost, placeholder},
-		{"上下文", styLblCtx, m.contextValue()},
-		{"模型ID", styLblModel, styInfoModel.Render(m.opts.Info.Model)},
+		{"输入", fmtTokens(u.Input), nil},
+		{"输出", fmtTokens(u.Output), nil},
+		{"缓存", fmtTokens(u.CacheRead) + "/" + fmtTokens(u.CacheWrite), nil},
+		{"花费", placeholder, nil},
+		m.contextSeg(),
+		{"模型ID", m.opts.Info.Model, nil},
 	}
 	if e := m.opts.Info.Effort; e != "" {
-		segs = append(segs, seg{"思考强度", styLblEffort, styInfoThink.Render(e)})
+		segs = append(segs, seg{"思考强度", e, nil})
 	}
 	return joinSegs(m.w, segs)
 }
 
-// contextValue 是“上下文”一项的值：知道窗口大小时是 占用%/窗口，不知道时只写当前占用的 token 数。
-// 占用接近压缩的触发线时变黄，快满了变红。
-func (m *Model) contextValue() string {
+// contextSeg 是“上下文”一项：知道窗口大小时是 占用%/窗口，不知道时只写当前占用的 token 数。
+// 占用接近压缩的触发线时值变黄，快满了变红。
+func (m *Model) contextSeg() seg {
+	s := seg{label: "上下文"}
 	win := m.opts.Info.ContextWindow
 	if win <= 0 {
-		if m.ctxTokens <= 0 {
-			return placeholder
+		s.value = placeholder
+		if m.ctxTokens > 0 {
+			s.value = fmtTokens(m.ctxTokens)
 		}
-		return fmtTokens(m.ctxTokens)
+		return s
 	}
 	pct := float64(m.ctxTokens) * 100 / float64(win)
-	text := fmt.Sprintf("%.1f%%/%s", pct, fmtTokens(win))
+	s.value = fmt.Sprintf("%.1f%%/%s", pct, fmtTokens(win))
 	switch {
 	case pct >= 90:
-		return styErr.Render(text)
+		s.alert = &styErr
 	case pct >= 70:
-		return styWarn.Render(text)
+		s.alert = &styWarn
 	}
-	return text
+	return s
 }
 
 // infoStatusLine：当前在做什么，以及尚未实现的 MCP、插件、技能，和可用的工具数。
 func (m *Model) infoStatusLine() string {
 	return joinSegs(m.w, []seg{
-		{"状态", styLblStatus, m.statusName()},
-		{"MCP", styLblMCP, placeholder},
-		{"插件", styLblPlugin, placeholder},
-		{"技能", styLblSkill, placeholder},
-		{"工具", styLblTool, fmt.Sprint(len(m.opts.Info.Tools))},
+		{"状态", m.statusName(), nil},
+		{"MCP", placeholder, nil},
+		{"插件", placeholder, nil},
+		{"技能", placeholder, nil},
+		{"工具", fmt.Sprint(len(m.opts.Info.Tools)), nil},
 	})
 }
 

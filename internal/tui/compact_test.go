@@ -86,8 +86,13 @@ func TestCompactRunsAndReportsTheResult(t *testing.T) {
 		event.Compacted{Mode: event.CompactSummary, Manual: true, Dropped: 12, TokensBefore: 9000, TokensAfter: 1200, Summary: "摘要"},
 	}}
 	m := compactModel(t, c)
+	// 压缩开始时记下时刻，结束前把时钟拨快 7 秒：耗时应只记这段，空闲时不涨。
+	start := m.now()
+	clock := start
+	m.now = func() time.Time { return clock }
 
 	run, _ := startedCompact(t, m, "/compact")
+	clock = start.Add(7 * time.Second)
 	if !m.compacting || m.running {
 		t.Fatalf("应进入压缩中而不是生成中: compacting=%v running=%v", m.compacting, m.running)
 	}
@@ -100,6 +105,15 @@ func TestCompactRunsAndReportsTheResult(t *testing.T) {
 	s := plain(m)
 	mustContain(t, s, "已把前面 12 条消息总结成摘要", "约 9k → 1.2k token")
 	mustNotContain(t, s, "上下文接近上限", "Ctrl+C 取消")
+
+	// 压缩也算进耗时：压缩期间随时钟走，结束后定格，空闲时不再涨。
+	if line := infoText(m, 0); !strings.Contains(line, "耗时 7s") {
+		t.Fatalf("压缩结束后耗时应定格: %q", line)
+	}
+	clock = start.Add(time.Minute)
+	if line := infoText(m, 0); !strings.Contains(line, "耗时 7s") {
+		t.Errorf("空闲后耗时不应再涨: %q", line)
+	}
 
 	// 结束后可以正常继续对话，没有被卡住。
 	m.in.SetValue("接着聊")

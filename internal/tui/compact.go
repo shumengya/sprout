@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -50,7 +49,8 @@ func (m *Model) compactCmd(arg string) tea.Cmd {
 // 压缩期间禁止发送和切换，避免新提问落进一个正在被改写的历史；Ctrl+C 可以取消。
 func (m *Model) startCompact(focus string) tea.Cmd {
 	m.compacting = true
-	m.started = time.Now()
+	m.started = m.now()
+	m.busyStart()
 	m.status = ""
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
@@ -76,6 +76,7 @@ func (m *Model) startCompact(focus string) tea.Cmd {
 // 没有事件的几种结局（没东西可压、被取消、其他错误）各给一句提示。
 func (m *Model) onCompactDone(msg compactDoneMsg) {
 	m.compacting, m.status = false, ""
+	m.busyStop()
 	if m.cancel != nil {
 		m.cancel() // 释放 context
 		m.cancel = nil

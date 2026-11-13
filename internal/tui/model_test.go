@@ -155,19 +155,25 @@ func TestInfoLineWithNoToolsShowsZero(t *testing.T) {
 
 func TestInfoLabelsHaveDistinctColors(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 200, 24)
+	m.res = Resources{Mem: 43, CPU: 1}
 	all := strings.Join(m.infoLines(), "\n")
-	// 每个标签各用一种前景色（淡色的两个除外），值默认色；这里只确认带了颜色，且不是一整片同色。
-	colors := map[string]bool{}
-	for _, sgr := range []string{"\x1b[94m", "\x1b[38;5;208m", "\x1b[93m", "\x1b[32m", "\x1b[35m", "\x1b[36m", "\x1b[95m", "\x1b[38;5;214m", "\x1b[92m"} {
-		if strings.Contains(all, sgr) {
-			colors[sgr] = true
+	seen := map[string]string{}
+	for label, c := range labelColors {
+		sgr := "\x1b[38;5;" + c + "m"
+		if _, dup := seen[c]; dup {
+			t.Errorf("颜色 %s 被 %q 和 %q 重复使用", c, seen[c], label)
+		}
+		seen[c] = label
+		if !strings.Contains(all, label) {
+			continue // 思考强度只在声明了 effort 时显示
+		}
+		// 标签和值必须用同一种颜色：标签名出现在它自己的 SGR 作用域内。
+		if !strings.Contains(all, sgr+label) {
+			t.Errorf("%q 没有用它登记的颜色 %s 渲染: %q", label, c, all)
 		}
 	}
-	if len(colors) < 6 {
-		t.Errorf("标签应使用多种颜色，实际只有 %d 种: %q", len(colors), all)
-	}
 	if !strings.Contains(all, "\x1b[2m") {
-		t.Errorf("分隔线和部分标签应是淡色: %q", all)
+		t.Errorf("分隔线应是淡色: %q", all)
 	}
 }
 

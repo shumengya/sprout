@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -39,7 +38,8 @@ func (s chanSink) Emit(e event.Event) {
 func (m *Model) startTurn(in agent.Input) tea.Cmd {
 	m.turn++
 	turn := m.turn
-	m.started = time.Now()
+	m.started = m.now()
+	m.busyStart()
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	events := make(chan event.Event, 64)
@@ -196,6 +196,7 @@ func (m *Model) endThink() {
 
 func (m *Model) finishTurn(reason string) {
 	// 一轮结束，“正在取消…”这类针对本轮的临时提示也该消失。
+	m.busyStop()
 	m.endThink()
 	m.thinkShown = false
 	m.callThink, m.usageThink = nil, nil

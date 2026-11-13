@@ -105,13 +105,16 @@ type Model struct {
 	switching  bool      // 正在切换模型：同上，禁止发送
 	compacting bool      // 正在手动压缩上下文（/compact）：同上，且可用 Ctrl+C 取消
 	started    time.Time // 本轮开始时间，状态行显示已耗时
-	status     string    // 状态行的临时提示，下次按键时清除
-	statusOK   bool      // status 是成功提示（如已复制），用绿色而不是警告色显示
-	// 状态栏的数据：本会话累计用量、最近一次请求的输入 token（上下文占用）、会话开始时间、整机资源。
-	usage        usageTotals
-	ctxTokens    int
-	sessionStart time.Time
-	res          Resources
+	// busySince、busyTotal 是状态栏“耗时”的数据：只累计 agent 干活的时间（一轮回答或一次 /compact，
+	// 从开始到结束），空闲时不涨。busySince 为零表示当前空闲。
+	busySince time.Time
+	busyTotal time.Duration
+	status    string // 状态行的临时提示，下次按键时清除
+	statusOK  bool   // status 是成功提示（如已复制），用绿色而不是警告色显示
+	// 状态栏的数据：本会话累计用量、最近一次请求的输入 token（上下文占用）、整机资源。
+	usage     usageTotals
+	ctxTokens int
+	res       Resources
 	// pending 是下一条消息待发送的图片（/image 附加），发送或 /image clear 后清空。
 	pending []agent.Image
 
@@ -195,9 +198,6 @@ func New(o Options) *Model {
 }
 
 func (m *Model) Init() tea.Cmd {
-	if m.sessionStart.IsZero() {
-		m.sessionStart = m.now() // 在 Init 里取，测试先换上冻结的时钟再 Init，耗时就不会是负的
-	}
 	return tea.Batch(m.in.Focus(), m.resourceCmd(0))
 }
 

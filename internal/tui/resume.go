@@ -102,7 +102,8 @@ func (m *Model) newSessionCmd() {
 		return
 	}
 	m.entries, m.tools = nil, map[string]*entry{}
-	m.usage, m.ctxTokens, m.sessionStart = usageTotals{}, 0, m.now() // 新会话从零开始计数和计时
+	m.usage, m.ctxTokens = usageTotals{}, 0 // 新会话从零开始计数
+	m.resetBusy()
 	m.callThink, m.usageThink = nil, nil
 	m.clearSel()
 	m.add(&entry{kind: kindNotice, text: welcomeText})
@@ -118,8 +119,10 @@ func (m *Model) onResumed(msg resumeDoneMsg) {
 		return
 	}
 	m.entries, m.tools = nil, map[string]*entry{}
-	// 用量和上下文占用由重放的 usage / compacted 事件重新累计出来；耗时从恢复这一刻算起。
-	m.usage, m.ctxTokens, m.sessionStart = usageTotals{}, 0, m.now()
+	// 用量和上下文占用由重放的 usage / compacted 事件重新累计出来；
+	// 恢复的会话不知道当初花了多久，耗时从 0 开始。
+	m.usage, m.ctxTokens = usageTotals{}, 0
+	m.resetBusy()
 	m.callThink, m.usageThink = nil, nil
 	m.replay(msg.res.Events)
 	m.add(&entry{kind: kindNotice, text: msg.res.Notice})
