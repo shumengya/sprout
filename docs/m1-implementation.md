@@ -59,6 +59,7 @@ bin/
 └── data/
     └── .sprout/
         ├── models.jsonc
+        ├── models.dev.json   # sprout models update 下载的模型目录缓存，没有时用默认值
         ├── sessions/
         └── logs/
 ```
@@ -134,6 +135,7 @@ bin/
 - `baseUrl` 必须 http/https。
 - `apiKeyEnv` 优先，`apiKey` 兜底；都没有时 TUI 显示配置提示，不发起请求。
 - 首次运行生成模板，不覆盖已有文件。
+- `contextWindow` 与 `maxOutput` 可以不写，启动时补全，优先级是 `models.jsonc` 里手写的值 > models.dev 目录里查到的 > 默认值（上下文 400000、输出 16000）。目录由 `sprout models update` 下载到数据目录的 `models.dev.json`，启动时只读这份缓存、不联网；没有缓存或查不到该模型时直接用默认值。查找先按 `baseUrl` 匹配同一渠道，匹配不上再按模型 id 取第一条。价格只有 models.dev 一个来源，查不到就没有价格（状态栏显示 `—`）。补全只发生在内存里，不改写 `models.jsonc`。
 
 ## 6. Provider
 
@@ -224,7 +226,7 @@ type Provider interface {
 
 - `POST {baseUrl}/messages`，`stream:true`；鉴权头 `x-api-key` + `anthropic-version: 2023-06-01`，不发 Bearer。
 - system 放顶层 `system` 字段，不进 `messages`。
-- `max_tokens` 必填：模型未配 `maxOutput` 时用默认值 4096。
+- `max_tokens` 必填：模型未配 `maxOutput` 时用默认值 8192。
 - 工具声明：`tools[].{name,description,input_schema}`。
 - assistant 历史：文本与 `tool_use` block 放在同一条 assistant 消息；不回传 Reasoning 文本（thinking block 需服务端签名，且历史可能来自其他协议）。
   开启思考后，同一模型产生的带思考块的消息改为原样回传 `Message.Native`，见 `docs/effort.md` §4。
