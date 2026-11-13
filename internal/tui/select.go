@@ -134,7 +134,7 @@ func (m *Model) onMouseMotion(msg tea.MouseMotionMsg) {
 	}
 }
 
-// onMouseRelease 结束拖动。真的拖选过就复制；单纯点击用来展开或收起思考过程（或只是取消选区）。
+// onMouseRelease 结束拖动。真的拖选过就复制；单纯点击用来展开或收起思考过程和工具调用（或只是取消选区）。
 func (m *Model) onMouseRelease() tea.Cmd {
 	if m.inSel {
 		m.inSel = false
@@ -152,7 +152,7 @@ func (m *Model) onMouseRelease() tea.Cmd {
 		row, dismiss := m.sel.row, m.sel.dismiss
 		m.clearSel()
 		if !dismiss {
-			m.toggleThinkAt(row)
+			m.toggleAt(row)
 		}
 		return nil
 	}

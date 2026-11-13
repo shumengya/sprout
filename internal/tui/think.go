@@ -88,16 +88,27 @@ func (m *Model) entryAt(row int) int {
 	return -1
 }
 
-// toggleThinkAt 展开或收起内容第 row 行所在的思考条目；点中的不是已结束的思考条目时什么也不做。
+// foldable 表示条目能不能点击展开：已结束的思考过程和工具调用可以，流式中的不行。
+func (e *entry) foldable() bool {
+	switch e.kind {
+	case kindThink:
+		return !e.live
+	case kindTool:
+		return !e.running
+	}
+	return false
+}
+
+// toggleAt 展开或收起内容第 row 行所在的条目：思考过程和已结束的工具调用都可以单独展开。
 // 切换后让这个条目的开头停在屏幕上原来的位置，内容不会跳走；展开前开头已经滚出屏幕上方
-// （点在长思考的中间收起）时，收起后把它放到对话区顶部。
-func (m *Model) toggleThinkAt(row int) {
+// （点在长内容的中间收起）时，收起后把它放到对话区顶部。
+func (m *Model) toggleAt(row int) {
 	i := m.entryAt(row)
 	if i < 0 || i >= len(m.entries) {
 		return
 	}
 	e := m.entries[i]
-	if e.kind != kindThink || e.live {
+	if !e.foldable() {
 		return
 	}
 	screen := max(m.spans[i].start-m.vp.YOffset(), 0)

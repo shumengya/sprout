@@ -87,13 +87,47 @@ func TestToolOutputIsSanitized(t *testing.T) {
 	mustContain(t, plain(m), "红色", "制表", "响铃")
 }
 
-func TestMultilineCommandShowsFirstLineOnly(t *testing.T) {
+func TestMultilineCommandCollapsedToOneLine(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 100, 30)
 	begin(m, "q")
 	apply(m, requested("c", "bash", `{"command":"echo one\necho two"}`))
 	s := plain(m)
-	mustContain(t, s, "echo one …")
-	mustNotContain(t, s, "echo two")
+	mustContain(t, s, "bash(echo one echo two)")
+}
+
+func TestToolCallShownAsFunctionCall(t *testing.T) {
+	m := newSized(t, Options{Runner: scriptRunner()}, 100, 30)
+	begin(m, "q")
+	apply(m, requested("r", "read", `{"path":"a/b.go","offset":10}`))
+	mustContain(t, plain(m), "read(a/b.go)")
+}
+
+func TestClickExpandsToolCall(t *testing.T) {
+	m := newSized(t, Options{Runner: scriptRunner()}, 100, 40)
+	begin(m, "q")
+	var out strings.Builder
+	for i := 1; i <= 20; i++ {
+		fmt.Fprintf(&out, "line%02d\n", i)
+	}
+	apply(m, requested("c", "bash", `{"command":"seq"}`),
+		event.ToolFinished{ID: "c", Name: "bash", Stdout: out.String()})
+	mustContain(t, plain(m), "… 还有 12 行，点击展开")
+
+	// 点击工具卡片（它是最后一个条目）：参数与输出都展开到完整内容。
+	m.toggleAt(m.spans[len(m.spans)-1].start)
+	s := plain(m)
+	mustContain(t, s, "line01", "line20")
+	mustNotContain(t, s, "点击展开")
+}
+
+func TestExpandedMultilineCommandIsFullyShown(t *testing.T) {
+	m := newSized(t, Options{Runner: scriptRunner()}, 100, 30)
+	begin(m, "q")
+	apply(m, requested("c", "bash", `{"command":"echo one\necho two"}`),
+		event.ToolFinished{ID: "c", Name: "bash", Stdout: "ok\n"})
+	m.toggleAt(m.spans[len(m.spans)-1].start)
+	s := plain(m)
+	mustContain(t, s, "bash(", "  echo one", "  echo two", ")")
 }
 
 func TestCommandOfFallsBackToRawArgs(t *testing.T) {

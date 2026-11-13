@@ -12,7 +12,7 @@ import (
 	"github.com/shumengya/sprout/internal/agent/event"
 )
 
-// 工具卡片的输出预览最多显示的行数。
+// 工具卡片折叠时，输出预览最多显示的行数。
 const previewMax = 8
 
 // commandOf 从工具参数里取出用于展示的一行：
@@ -34,36 +34,60 @@ func commandOf(args string) string {
 	return args
 }
 
+// drawTool 把工具调用画成一行函数调用 name(args)，参数放括号里；点击条目展开或收起。
+// 展开时展示完整参数（多行命令按行铺开）和全部输出；收起时参数压成一行并截断，输出只留前几行。
 func (e *entry) drawTool(w int) string {
-	cmd := sanitize(e.command)
-	first, rest, multi := strings.Cut(cmd, "\n")
-	if multi && strings.TrimSpace(rest) != "" {
-		first += " …"
-	}
-	// 触发技能时在最前面标出来，和普通工具调用一眼区分开。
-	lead, leadW := "", 0
-	if e.skill != "" {
-		lead = stySkill.Render("[技能] ") + stySkill.Render(e.skill) + "  "
-		leadW = ansi.StringWidth(lead)
-	}
-	room := max(w-leadW-ansi.StringWidth(e.name)-2, 1)
-	head := lead + styTool.Render(e.name) + "  " + ansi.Truncate(first, room, "…")
-
 	var b strings.Builder
-	b.WriteString(head)
+	b.WriteString(e.callHead(w))
 	b.WriteString("\n  └ " + e.statusLine())
 	if e.running {
 		return b.String()
 	}
 	lines := outputLines(e.fin)
-	for i, ln := range lines {
-		if i == previewMax {
-			b.WriteString("\n    " + styFaint.Render(fmt.Sprintf("… 还有 %d 行", len(lines)-previewMax)))
-			break
-		}
-		b.WriteString("\n    " + styFaint.Render(ansi.Truncate(ln, max(w-4, 1), "…")))
+	limit := len(lines)
+	if !e.open {
+		limit = previewMax
+	}
+	for i := 0; i < min(limit, len(lines)); i++ {
+		b.WriteString("\n    " + styFaint.Render(ansi.Truncate(lines[i], max(w-4, 1), "…")))
+	}
+	if len(lines) > limit {
+		b.WriteString("\n    " + styFaint.Render(fmt.Sprintf("… 还有 %d 行，点击展开", len(lines)-limit)))
 	}
 	return b.String()
+}
+
+// callHead 是 name(args) 这一行。技能触发的标记同样放在前面。
+func (e *entry) callHead(w int) string {
+	// 触发技能时在最前面标出来，和普通工具调用一眼区分开。
+	lead := ""
+	leadW := 0
+	if e.skill != "" {
+		lead = stySkill.Render("[技能] ") + stySkill.Render(e.skill) + "  "
+		leadW = ansi.StringWidth(lead)
+	}
+	name := styTool.Render(e.name)
+	nameW := ansi.StringWidth(e.name)
+	arg := sanitize(e.command)
+
+	if !e.open || !strings.Contains(arg, "\n") {
+		// 折叠时一律压成一行；展开时单行命令也保持一行，超宽就折行，不丢内容。
+		flat := strings.Join(strings.Fields(arg), " ")
+		room := max(w-leadW-nameW-3, 1) // 留出括号和省略号的位置
+		if e.open {
+			return lead + name + "(" + styFaint.Render(wrap(flat, room)) + ")"
+		}
+		return lead + name + "(" + styFaint.Render(ansi.Truncate(flat, room, "…")) + ")"
+	}
+	// 展开的多行命令：括号单独占行，每条命令一行缩进后折行，收尾再补一个右括号。
+	parts := []string{lead + name + "("}
+	for _, ln := range strings.Split(strings.TrimRight(arg, "\n"), "\n") {
+		for _, l := range strings.Split(wrap(ln, max(w-4, 1)), "\n") {
+			parts = append(parts, styFaint.Render("  "+l))
+		}
+	}
+	parts = append(parts, styFaint.Render(")"))
+	return strings.Join(parts, "\n")
 }
 
 func (e *entry) statusLine() string {
