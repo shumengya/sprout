@@ -83,8 +83,8 @@ func realMain(argv []string, stdout, stderr io.Writer) (code int) {
 		return cli.ExitError
 	}
 	ap, err := buildApp(dataDir, env{
-		getenv: os.Getenv, cwd: cwd, version: version, now: time.Now, detect: platform.DetectShells,
-		effort: a.effort,
+		getenv: os.Getenv, cwd: cwd, home: homeDir(), version: version, now: time.Now,
+		detect: platform.DetectShells, effort: a.effort,
 	}, log)
 	if err != nil {
 		log.Error("startup failed", "error", err.Error())
@@ -99,6 +99,15 @@ func realMain(argv []string, stdout, stderr io.Writer) (code int) {
 		return runOnce(ap, *a.runPrompt, a.images, a.resume, stdout, stderr)
 	}
 	return runTUI(ap, a.resume, stderr)
+}
+
+// homeDir 返回用户主目录；拿不到时返回空串（此时不扫描 ~/.agents/skills）。
+func homeDir() string {
+	dir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return dir
 }
 
 // runOnce 实现 sprout run：答案写 stdout，其余写 stderr。

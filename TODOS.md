@@ -68,7 +68,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] `/image 路径` 附加图片，粘贴或消息里直接写图片路径时自动附加（`internal/media`、`internal/tui/image.go`）。
 - [x] 对话区拖选复制：按住左键拖动选中（反色显示），松开自动复制；选区跟着内容走，拖到上下边缘自动滚动；中文按整个字选中；内容重排（窗口缩放、`/think` 展开）导致选区对不上时自动取消。复制同时走 OSC 52 和系统剪贴板，任何一条失败只提示、不当作致命。
 - [x] 真实终端光标（输入法候选窗跟随）；退出时 `Shutdown` 等 agent 收尾，保证 `turn.finished` 被记录。
-- [x] 底部三行状态栏（路径、对话轮次、耗时、内存、CPU / 输入、输出、缓存读写、花费、上下文占用、模型ID、思考强度 / 状态、工具数）；MCP、插件、技能三项功能未实现，显示 `—` 占位。花费按 models.dev 的单价折算，见下。设计见 `docs/m1-implementation.md` §9。
+- [x] 底部三行状态栏（路径、对话轮次、耗时、内存、CPU / 输入、输出、缓存读写、花费、上下文占用、模型ID、思考强度 / 状态、MCP、插件、技能、工具数）；MCP 显示 `已连接/已配置`、技能显示个数，没配置时显示 `—`；`插件` 仍未实现，恒为占位。花费按 models.dev 的单价折算，见下。设计见 `docs/m1-implementation.md` §9。
 
 ### 识图（`internal/media`，设计见 `docs/m2-vision.md`）
 - [x] `Message.Content` 改为 text / image 块数组；工具结果也能带图片。
@@ -118,8 +118,8 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [ ] **扩展（M5）**：
   - [x] Anthropic Messages 协议（`internal/provider/anthropic`，已实现并测试）；
   - [x] Google Gemini 协议（`internal/provider/google`，已实现并测试）；
-  - [ ] MCP 客户端与工具接入（`internal/agent/mcp`，占位；状态栏的 `MCP` 一项暂时显示 `—`）；
-  - [ ] skills 发现与加载（`internal/agent/skills`，占位；状态栏的 `技能` 一项暂时显示 `—`）；
+  - [x] MCP 客户端与工具接入（`internal/agent/mcp`）：stdio 与 Streamable HTTP 两种传输、无状态 `server/discover` 与旧版 `initialize` 双协议、配置 `mcp.jsonc`、工具注册为 `mcp__<服务端>__<工具>`，见 `docs/mcp.md`；
+  - [x] skills 发现与加载（`internal/agent/skills`）：扫描四个位置、解析 frontmatter、元数据追加进系统提示词、正文按需 `read`，见 `docs/skills.md`；
   - [ ] 子代理 / 多 agent 编排；
   - [ ] 搜索、web 等更多工具（现有 `bash`、`powershell`、`read`、`write`，外加 `tools.jsonc` 里定义的外部命令工具）；
   - [ ] 权限模块（审批流、allow/deny、沙箱）——目前默认完全权限，不要提前加。
@@ -131,6 +131,9 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] 模型选择器、运行中切换模型：`/model`。
 - [x] `花费`：单价来自 models.dev（`sprout models update` 下载到 `<数据目录>/models.dev.json`，启动时只读缓存、不联网）。每次用量到达时按当时模型的单价累加，切换模型不重算历史；`/new` 与恢复会话清零，恢复时按当前模型的价格重算重放出来的用量。没有价格时显示 `—`，一部分用量没价格时显示 `≥` 加金额。**已知限制**：只用基础价，忽略 models.dev 的分档价（`tiers`、`context_over_200k`）；价格没有和真实账单核对过。
 - [ ] 状态栏里还是占位的：`插件`（没有插件机制）。
+- [ ] MCP 只做了工具：Resources、Prompts、Sampling、Elicitation、MRTR、`ttlMs` 缓存、OAuth、`notifications/tools/list_changed` 均未实现；工具结果里的图片只写占位文本（见 `docs/mcp.md`“已知限制”）。
+- [ ] MCP 没有工具列表缓存：每次启动重新发现，服务端慢时启动会等（整体 20 秒上限）。
+- [ ] 技能正文的裁剪保护：压缩时不会特意保留已激活技能的正文（它只是一条普通的 tool 结果）。
 - [ ] 每轮回答结束后的统计行（TPS、输出 / 输入 / 缓存 / 合计 token、耗时、首字耗时）：需要在内核记录首个增量到达的时间，尚未做。
 - [ ] 配置热加载：改 `models.jsonc` 仍需重启才生效，`/model` 只列启动时读到的模型。
 - [ ] 剪贴板取图（`Ctrl+V` 粘贴图片）、图片缩放与降采样：超过 3 MB 直接拒绝（见 `docs/m2-vision.md` §7）。
@@ -144,6 +147,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 ## 四、已知限制与风险
 
 - **环境变量泄露给模型**：工具子进程继承 `sprout` 的环境变量，包括 `DEEPSEEK_API_KEY` 等；模型可以让命令读到它。没有权限模块前是已知取舍。
+- **项目级技能是提示注入面**：克隆来的陌生仓库可能带着 `.agents/skills/` 或 `.sprout/skills/`，其中的技能正文会进上下文。目前没有信任门槛，只建议在可信仓库里使用项目级技能。
 - **非终端启动 TUI 不退出**：stdin 重定向到 `/dev/null` 时 TUI 会一直挂到被外部终止。
 - **思维链回传**：DeepSeek 文档要求带 `tools` 的请求回传历史 `reasoning_content`，已实现；实测当前服务端尚未强制，之后可能变严。
 - **`max_tokens`**：直接取 `models.jsonc` 的 `maxOutput`。个别新 OpenAI 模型（o 系列）在 Chat 协议下拒绝 `max_tokens`，需改用 Responses 协议；没有按模型切换参数名的机制。

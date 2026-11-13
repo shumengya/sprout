@@ -36,7 +36,7 @@ const helpText = `快捷键
   /resume             打开会话浏览器，可搜索、重命名、删除（按键提示在浏览器里）；/resume 选择器 直接恢复
   /think              展开 / 折叠全部思考过程；点击单条思考过程可以单独展开或收起
   /mouse              开关鼠标上报（滚轮、对话区与输入框的拖选复制；关闭后改用终端自带的选中）
-  /tools              查看检测到的终端工具
+  /tools              查看检测到的终端工具、MCP 服务端与已安装的技能
   /install-sprout     把当前程序注册成全局 sprout 命令（新开的终端里生效）
   /uninstall-sprout   卸载全局 sprout 命令（程序文件不动）
   /help               显示本帮助
@@ -113,6 +113,33 @@ func (m *Model) toolsReport() string {
 	}
 	for _, u := range info.Unavailable {
 		b.WriteString("\n  " + u)
+	}
+
+	b.WriteString("\n\nMCP 服务端: ")
+	if len(info.MCP) == 0 {
+		b.WriteString("无（在数据目录的 mcp.jsonc 里配置）")
+	}
+	for _, s := range info.MCP {
+		target := s.URL
+		if target == "" {
+			target = s.Command
+		}
+		switch {
+		case s.Err != "":
+			fmt.Fprintf(&b, "\n  %s  连接失败：%s", s.Name, s.Err)
+		default:
+			fmt.Fprintf(&b, "\n  %s  %d 个工具  %s", s.Name, s.Tools, target)
+			if s.Version != "" {
+				fmt.Fprintf(&b, "  （协议 %s）", s.Version)
+			}
+		}
+	}
+
+	b.WriteString("\n\n技能: ")
+	if len(info.Skills) == 0 {
+		b.WriteString("无（放进数据目录的 skills/ 或项目里的 .agents/skills/）")
+	} else {
+		b.WriteString(strings.Join(info.Skills, "、"))
 	}
 	return b.String()
 }

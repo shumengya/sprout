@@ -28,6 +28,17 @@ type ToolInfo struct {
 	Detail string // 如 "PowerShell 7+  C:\Program Files\PowerShell\7\pwsh.exe"
 }
 
+// MCPServerInfo 是一个已连接的 MCP 服务端，供状态栏与 /tools 展示。
+type MCPServerInfo struct {
+	Name    string
+	URL     string // 远程服务端的地址；stdio 服务端为空
+	Command string // stdio 服务端的启动命令；远程服务端为空
+	Version string // 协商出的协议版本；连接失败时为空
+	Server  string // 服务端自报的名字；可以没有
+	Tools   int    // 服务端提供的工具数（不含被 excludeTools 屏蔽的）
+	Err     string // 非空表示连接失败
+}
+
 // Info 是 header 与 /tools 展示的信息，由 main 装配好传入。
 type Info struct {
 	Model       string
@@ -36,6 +47,10 @@ type Info struct {
 	DataDir     string
 	Tools       []ToolInfo // 实际可用的工具
 	Unavailable []string   // 不可用的工具及原因，每项一行
+	// MCP 是已配置的 MCP 服务端；没有配置任何服务端时为空，状态栏显示占位符。
+	MCP []MCPServerInfo
+	// Skills 是发现到的技能名。为空表示没有安装技能，状态栏显示占位符。
+	Skills []string
 	// Vision 表示当前模型支持图片输入；为 false 时仍可附加图片，但会提示会被省略。
 	Vision bool
 	// Effort 是当前思考档位；为空表示当前模型没有声明 effort，信息栏不显示。

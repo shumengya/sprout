@@ -1,0 +1,37 @@
+// Sprout MCP 配置（JSONC：支持 // 和 /* */ 注释，以及尾逗号）。
+// 修改后需要重启 sprout 才会生效。
+//
+// MCP（Model Context Protocol）让 agent 用上外部服务端提供的工具。
+// 每个服务端二选一：
+//   url      远程端点，走 Streamable HTTP
+//   command  本地程序，以子进程方式启动，走 stdio（args / env / cwd 配合）
+//
+// 每个服务端可以写：
+//   enable         是否启用（必须显式写 true）
+//   timeoutSeconds 单次请求超时，默认 60，最大 600
+//   headers        远程服务端的请求头，用来放令牌等
+//   excludeTools   不交给模型的工具名（服务端上的原始名字）
+//
+// 服务端提供的工具会以 mcp__<服务端名>__<工具名> 的名字注册给模型；
+// 与内置工具或其他服务端重名时只保留先注册的那个，并在 /tools 里说明。
+{
+  "servers": {
+    // 远程服务端示例：接一个托管式的搜索服务。
+    // "tavily": {
+    //   "enable": true,
+    //   "url": "https://mcp.example.com/mcp",
+    //   "headers": { "Authorization": "Bearer 你的令牌" },
+    //   "timeoutSeconds": 60,
+    //   "excludeTools": ["tavily_crawl"]
+    // },
+
+    // 本地服务端示例：npx 启动的社区服务端。apiKey 这类机密建议放在 env 里，
+    // 用 ${环境变量名} 引用当前进程的环境变量，避免明文写进配置文件。
+    // "filesystem": {
+    //   "enable": true,
+    //   "command": "npx",
+    //   "args": ["-y", "@modelcontextprotocol/server-filesystem", "D:/work"],
+    //   "env": { "API_KEY": "${MY_API_KEY}" }
+    // }
+  }
+}

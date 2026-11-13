@@ -273,15 +273,39 @@ func (m *Model) contextSeg() seg {
 	return s
 }
 
-// infoStatusLine：当前在做什么，以及尚未实现的 MCP、插件、技能，和可用的工具数。
+// infoStatusLine：当前在做什么、MCP 与技能、可用的工具数。
 func (m *Model) infoStatusLine() string {
 	return joinSegs(m.w, []seg{
 		{"状态", m.statusName(), nil},
-		{"MCP", placeholder, nil},
+		{"MCP", m.mcpSegValue(), nil},
 		{"插件", placeholder, nil},
-		{"技能", placeholder, nil},
+		{"技能", m.skillsSegValue(), nil},
 		{"工具", fmt.Sprint(len(m.opts.Info.Tools)), nil},
 	})
+}
+
+// mcpSegValue 是状态栏“MCP”一项：显示 已连接/已配置 的服务端数。
+// 没配置任何服务端时才是占位符——配置了但全部连接失败要显示 0/N，那是真实状态。
+func (m *Model) mcpSegValue() string {
+	list := m.opts.Info.MCP
+	if len(list) == 0 {
+		return placeholder
+	}
+	ok := 0
+	for _, s := range list {
+		if s.Err == "" {
+			ok++
+		}
+	}
+	return fmt.Sprintf("%d/%d", ok, len(list))
+}
+
+// skillsSegValue 是状态栏“技能”一项：没有安装技能时显示占位符。
+func (m *Model) skillsSegValue() string {
+	if n := len(m.opts.Info.Skills); n > 0 {
+		return fmt.Sprint(n)
+	}
+	return placeholder
 }
 
 // statusName 是“状态”一项的值。

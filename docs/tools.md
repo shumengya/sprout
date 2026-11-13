@@ -108,3 +108,11 @@
 约束执行行为仍要改代码。这是当前实现的边界，不是沙箱。
 
 模板与仓库根目录的 `tools.example.jsonc` 由测试保证一致。
+
+## 与 MCP 工具的关系
+
+MCP 服务端提供的工具走同一张注册表，名字统一是 `mcp__<服务端>__<工具>`（见 `docs/mcp.md`）。它们排在 `tools.jsonc` 的内置与外部工具之后注册：
+
+- `tools.jsonc` 管不到 MCP 工具：开关与屏蔽在 `mcp.jsonc` 的 `enable` / `excludeTools` 里。
+- 重名时先注册的赢（内置 > 外部 > MCP），被跳过的写在 `/tools` 的不可用列表里。
+- 模型 `tools=false` 时不连接任何 MCP 服务端。

@@ -59,8 +59,8 @@ internal/
       powershell/
       file/              read / write 文件工具
       external/          tools.jsonc 里用 exec 声明的外部命令工具
-    skills/              技能发现与加载（占位，未实现）
-    mcp/                 MCP 客户端与工具接入（占位，未实现）
+    skills/              Agent Skills 发现、frontmatter 解析与目录渲染
+    mcp/                 MCP 客户端（stdio / Streamable HTTP）与工具适配
   provider/              模型渠道商
     openai/              Chat Completions + Responses
     anthropic/           Messages
@@ -119,7 +119,7 @@ TUI、WebUI、CLI、JSON-RPC 都只是这套协议的适配器。
 
 ## 当前状态
 
-**M1（最小可用闭环）与 M2（识图）已实现。** 终端界面、单次运行、OpenAI Chat / Responses、Anthropic Messages、Gemini 四种协议、`bash` / `powershell` / `read` / `write` 与外部命令工具、图片输入、JSONL 会话与恢复、自动重试、上下文压缩均可用；JSON-RPC、WebUI、MCP、skills 等后续里程碑尚未开始。已实现与未实现的逐项清单见 `TODOS.md`；真实模型服务和真实终端的手工验证状态见 `docs/m1-implementation.md` §12、§15 与 `TODOS.md` 第二节。
+**M1（最小可用闭环）、M2（识图）与 M5 中的 MCP、skills 已实现。** 终端界面、单次运行、OpenAI Chat / Responses、Anthropic Messages、Gemini 四种协议、`bash` / `powershell` / `read` / `write` 与外部命令工具、图片输入、JSONL 会话与恢复、自动重试、上下文压缩、MCP 工具接入（`docs/mcp.md`）与 Agent Skills（`docs/skills.md`）均可用；JSON-RPC、WebUI、子代理等尚未开始。已实现与未实现的逐项清单见 `TODOS.md`；真实模型服务和真实终端的手工验证状态见 `docs/m1-implementation.md` §12、§15 与 `TODOS.md` 第二节。
 
 ## 路线图
 
@@ -128,7 +128,7 @@ TUI、WebUI、CLI、JSON-RPC 都只是这套协议的适配器。
 - **M2 识图**（已完成）：四种协议的图片输入、会话保存图片、不支持视觉的模型自动降级，见 `docs/m2-vision.md`。
 - **M3 JSON-RPC**：会话管理、流式事件、取消。
 - **M4 WebUI**：独立前端模块，复用 JSON-RPC 事件。
-- **M5 扩展**：MCP、skills、子代理、搜索与 web 等更多工具。
+- **M5 扩展**：MCP、skills（均已实现，见 `docs/mcp.md`、`docs/skills.md`）、子代理、搜索与 web 等更多工具。
 
 M1 与 M2 之间还陆续补入了 Anthropic Messages、Gemini、`read` / `write`、外部命令工具、会话恢复与上下文压缩，它们不单独占里程碑编号。
 

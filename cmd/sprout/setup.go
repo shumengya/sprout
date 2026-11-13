@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"github.com/shumengya/sprout/internal/agent/config"
 	"github.com/shumengya/sprout/internal/agent/platform"
 	"github.com/shumengya/sprout/internal/agent/session"
+	"github.com/shumengya/sprout/internal/agent/skills"
 	"github.com/shumengya/sprout/internal/agent/tool"
 	"github.com/shumengya/sprout/internal/agent/tool/bash"
 	"github.com/shumengya/sprout/internal/agent/tool/external"
@@ -25,6 +27,7 @@ import (
 type env struct {
 	getenv  func(string) string
 	cwd     string
+	home    string // 用户主目录；为空时不扫描 ~/.agents/skills
 	version string
 	now     func() time.Time
 	detect  func(cfgBash, cfgPS string) platform.Shells
@@ -39,12 +42,15 @@ type app struct {
 	cwd      string
 	cfg      *config.File
 	tools    *config.ToolsFile
+	mcpCfg   *config.MCPFile
 	prompt   *agent.PromptTemplate // SYSTEMPROMPT.md；切模型、/new 时按同一份模板重新渲染
 	instr    []agent.Instruction   // AGENTS.md：启动时读一次，切模型时按同一份重新拼接
+	skills   []skills.Skill        // 发现到的技能，启动时扫一次
 	env      env
 	log      *slog.Logger
 	sel      config.Selection
 	reg      *tool.Registry
+	mcp      *mcpSet // 已连接的 MCP 服务端；没有启用任何服务端时为 nil
 	ag       *agent.Agent
 	rec      *session.Recorder
 	info     tui.Info
@@ -56,6 +62,9 @@ type app struct {
 func (a *app) close() {
 	if a.rec != nil {
 		a.rec.Close()
+	}
+	if a.mcp != nil {
+		a.mcp.Close()
 	}
 }
 
@@ -99,6 +108,18 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 		log.Info("已加载 AGENTS.md", "scope", d.Scope, "path", d.Path, "bytes", len(d.Text))
 	}
 
+	// 技能是“用到才翻的手册”：启动时只扫元数据，正文由模型自己按需 read。
+	skillList, skillProblems := loadSkills(dataDir, e.cwd, e.home)
+	for _, sk := range skillList {
+		log.Info("已加载技能", "name", sk.Name, "source", string(sk.Source), "path", sk.Path)
+	}
+
+	// mcp.jsonc 里的服务端是可选扩展：缺文件视为没有，单个服务端连不上只记提示。
+	mcpCfg, err := loadMCPConfig(dataDir)
+	if err != nil {
+		return nil, err
+	}
+
 	// models.jsonc 里没写的窗口、输出上限和价格从 models.dev 的本地缓存补，查不到用默认值。
 	// 缓存由 `sprout models update` 维护；这里不联网，缺缓存不影响启动。
 	// 必须在 Selected 之前：Selection 拷贝的是 Model 值，之后再补全就补不到它身上。
@@ -113,12 +134,29 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 		return nil, err
 	}
 
-	a := &app{dataDir: dataDir, cwd: e.cwd, cfg: cfg, tools: toolsCfg, prompt: prompt, instr: instr, env: e, log: log, sel: sel, effort: effort}
+	a := &app{
+		dataDir: dataDir, cwd: e.cwd, cfg: cfg, tools: toolsCfg, mcpCfg: mcpCfg,
+		prompt: prompt, instr: instr, skills: skillList, env: e, log: log, sel: sel, effort: effort,
+	}
 	a.notices = append(a.notices, instrProblems...)
+	a.notices = append(a.notices, skillProblems...)
 	a.info = tui.Info{
 		Model: sel.ModelName, Provider: sel.ProviderName + "，" + sel.Provider.Protocol,
 		Cwd: e.cwd, DataDir: dataDir, Vision: sel.Model.SupportsVision(), Effort: effortLabel(sel, effort),
 		ContextWindow: sel.Model.ContextWindow, Price: tuiPrice(sel.Model.Price),
+		Skills: skillNames(skillList),
+	}
+	// 模型不支持工具时连 MCP 没有意义：那些工具注册了也发不下去。
+	if sel.Model.SupportsTools() {
+		a.mcp = connectMCP(context.Background(), mcpCfg, e, log)
+		if a.mcp != nil {
+			for _, s := range a.mcp.servers {
+				if s.Err != "" {
+					a.notices = append(a.notices, fmt.Sprintf("MCP 服务端 %s 连接失败：%s", s.Name, s.Err))
+				}
+			}
+			a.info.MCP = a.mcp.servers
+		}
 	}
 	reg, err := a.registerTools(cfg, e)
 	if err != nil {
@@ -247,6 +285,11 @@ func (a *app) registerTools(cfg *config.File, e env) (*tool.Registry, error) {
 			return nil, err
 		}
 	}
+
+	// MCP 工具排在内置与外部工具之后：名字都带 mcp__ 前缀，正常情况下不会撞名，
+	// 万一撞了（比如两个服务端都叫同一个名字）先注册的赢，冲突的那条记进 Unavailable。
+	a.info.Unavailable = append(a.info.Unavailable,
+		registerMCPTools(reg, a.mcp, a.mcpCfg, add, a.log)...)
 	return reg, nil
 }
 
@@ -264,6 +307,9 @@ func (a *app) buildAgent(sel config.Selection, key string, reg *tool.Registry, r
 		return nil, err
 	}
 	system = agent.AppendInstructions(system, a.instr)
+	// 技能目录追加在最后：和 AGENTS.md 一样，做成模板变量会让旧模板静默失效。
+	_, hasRead := reg.Get(config.ToolRead)
+	system = skills.AppendCatalog(system, a.skills, hasRead)
 	return agent.New(agent.Config{
 		Provider: prov, Model: sel.ModelName, Tools: reg, System: system,
 		MaxOutputTokens: sel.Model.MaxOutput, ContextWindow: sel.Model.ContextWindow,
