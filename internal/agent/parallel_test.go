@@ -275,9 +275,16 @@ func TestOneFailingToolDoesNotAffectOthers(t *testing.T) {
 
 func TestSystemPromptTellsModelAboutParallelCalls(t *testing.T) {
 	p := promptFor("bash")
-	for _, want := range []string{"并行执行", "彼此没有先后顺序", "合并成一条命令"} {
+	for _, want := range []string{"并行执行", "彼此没有先后顺序", "分到不同的回合"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("提示词缺少 %q", want)
 		}
+	}
+	// 有 shell 时给出“合并成一条命令”这个更省事的选择；没有 shell 时不该提它。
+	if !strings.Contains(p, "shell 命令") {
+		t.Error("有 shell 工具时应提示把有依赖的步骤合并成一条 shell 命令")
+	}
+	if q := promptFor("read", "edit"); strings.Contains(q, "合并成一条") || strings.Contains(q, "shell 命令") {
+		t.Errorf("没有 shell 工具时不应提合并命令:\n%s", q)
 	}
 }

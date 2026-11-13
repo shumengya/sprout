@@ -38,7 +38,7 @@
 | 内部状态 | JSON / JSONL | 用户很少直接编辑，保持严格、好解析 |
 | 会话 | JSONL 追加写，按工作目录分组 | 无 CGO、可恢复、可重放；目录形如 `<exeDir>/data/.sprout/sessions/<工作目录>/<session-id>.jsonl` |
 | 数据目录 | `<exeDir>/data/.sprout`（安装级/系统级） | 跟随二进制，不写用户 home 或项目目录；`--data-dir` / `SPROUT_DATA_DIR` 可覆盖 |
-| 工具 | `bash`、`powershell`、`read`、`write` | 由数据目录的 `tools.jsonc` 显式启用（`"enable": true`）才会交给模型，见 `docs/tools.md` |
+| 工具 | `bash`、`powershell`、`read`、`write`、`edit`、`delete` | 六个内置工具地位相同，都由数据目录的 `tools.jsonc` 显式启用（`"enable": true`）才会交给模型；只有 `bash` / `powershell` 额外要求本机装有可用的 shell，见 `docs/tools.md` |
 | 系统提示词 | 数据目录的 `SYSTEMPROMPT.md`（Go `text/template` 模板） | 缺失或为空时写入内置模板；环境、工具、识图等动态内容用 `{{.Cwd}}`、`{{if .Has "bash"}}` 等占位，见 `docs/system-prompt.md` |
 | 用户说明 | 数据目录与工作目录各级的 `AGENTS.md` | 全局说明 + 从上到下的项目说明，追加在系统提示词末尾，见 `docs/system-prompt.md` |
 | 权限 | 暂不实现 | 默认完全权限；后续做成独立模块，不混进内核 |
@@ -57,7 +57,7 @@ internal/
       shell/             bash / powershell 共用的进程执行器
       bash/
       powershell/
-      file/              read / write 文件工具
+      file/              read / write / edit / delete 文件工具
       external/          tools.jsonc 里用 exec 声明的外部命令工具
     skills/              Agent Skills 发现、frontmatter 解析与目录渲染
     mcp/                 MCP 客户端（stdio / Streamable HTTP）与工具适配
@@ -119,7 +119,7 @@ TUI、WebUI、CLI、JSON-RPC 都只是这套协议的适配器。
 
 ## 当前状态
 
-**M1（最小可用闭环）、M2（识图）与 M5 中的 MCP、skills 已实现。** 终端界面、单次运行、OpenAI Chat / Responses、Anthropic Messages、Gemini 四种协议、`bash` / `powershell` / `read` / `write` 与外部命令工具、图片输入、JSONL 会话与恢复、自动重试、上下文压缩、MCP 工具接入（`docs/mcp.md`）与 Agent Skills（`docs/skills.md`）均可用；JSON-RPC、WebUI、子代理等尚未开始。已实现与未实现的逐项清单见 `TODOS.md`；真实模型服务和真实终端的手工验证状态见 `docs/m1-implementation.md` §12、§15 与 `TODOS.md` 第二节。
+**M1（最小可用闭环）、M2（识图）与 M5 中的 MCP、skills 已实现。** 终端界面、单次运行、OpenAI Chat / Responses、Anthropic Messages、Gemini 四种协议、`bash` / `powershell` / `read` / `write` / `edit` / `delete` 与外部命令工具、图片输入、JSONL 会话与恢复、自动重试、上下文压缩、MCP 工具接入（`docs/mcp.md`）与 Agent Skills（`docs/skills.md`）均可用；JSON-RPC、WebUI、子代理等尚未开始。已实现与未实现的逐项清单见 `TODOS.md`；真实模型服务和真实终端的手工验证状态见 `docs/m1-implementation.md` §12、§15 与 `TODOS.md` 第二节。
 
 ## 路线图
 
@@ -130,7 +130,7 @@ TUI、WebUI、CLI、JSON-RPC 都只是这套协议的适配器。
 - **M4 WebUI**：独立前端模块，复用 JSON-RPC 事件。
 - **M5 扩展**：MCP、skills（均已实现，见 `docs/mcp.md`、`docs/skills.md`）、子代理、搜索与 web 等更多工具。
 
-M1 与 M2 之间还陆续补入了 Anthropic Messages、Gemini、`read` / `write`、外部命令工具、会话恢复与上下文压缩，它们不单独占里程碑编号。
+M1 与 M2 之间还陆续补入了 Anthropic Messages、Gemini、`read` / `write` / `edit` / `delete`、外部命令工具、会话恢复与上下文压缩，它们不单独占里程碑编号。
 
 ## 快速开始
 

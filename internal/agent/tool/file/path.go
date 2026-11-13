@@ -1,7 +1,8 @@
-// Package file 实现 read / write 两个文件工具。
+// Package file 实现 read / write / edit / delete 四个文件工具。
 //
-// 它们是 bash / powershell 之外的快捷方式：读写单个文件不必起进程，也能避免引号与转义的坑。
-// 路径语义与 shell 工具一致：相对路径相对启动时的工作目录，不是进程当前目录。
+// 它们是 bash / powershell 之外的快捷方式：读写删单个文件不必起进程，也能避免引号与转义的坑。
+// 四个工具地位相同，都只依赖文件系统，没有平台或外部程序的前提；路径语义与 shell 工具一致：
+// 相对路径相对启动时的工作目录，不是进程当前目录。
 package file
 
 import (

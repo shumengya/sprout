@@ -46,7 +46,7 @@ func ParsePromptTemplate(text string) (*PromptTemplate, error) {
 		return nil, fmt.Errorf("系统提示词模板语法错误: %w", err)
 	}
 	p := &PromptTemplate{t: t}
-	for _, tools := range [][]string{nil, {"bash", "powershell", "read", "write"}} {
+	for _, tools := range [][]string{nil, {"bash", "powershell", "read", "write"}, {"read", "write", "edit", "delete"}} {
 		for _, vision := range []bool{false, true} {
 			if _, err := p.Render(PromptInfo{OS: "Windows", Cwd: ".", Tools: tools, Vision: vision}); err != nil {
 				return nil, err
