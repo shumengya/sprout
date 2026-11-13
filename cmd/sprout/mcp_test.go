@@ -208,8 +208,8 @@ func TestLoadSkillsCreatesDataDirAndFindsInstalled(t *testing.T) {
 	if len(list) != 1 || list[0].Name != "demo" {
 		t.Fatalf("技能 = %+v", list)
 	}
-	if got := skillNames(list); len(got) != 1 || got[0] != "demo" {
-		t.Errorf("skillNames = %v", got)
+	if got := skillInfos(list); len(got) != 1 || got[0].Name != "demo" || got[0].Path != list[0].Path {
+		t.Errorf("skillInfos = %v", got)
 	}
 }
 

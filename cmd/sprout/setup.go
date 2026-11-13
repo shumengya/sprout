@@ -160,7 +160,7 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 		Model: sel.ModelName, Provider: sel.ProviderName + "，" + sel.Provider.Protocol,
 		Cwd: e.cwd, DataDir: dataDir, Vision: sel.Model.SupportsVision(), Effort: effortLabel(sel, effort),
 		ContextWindow: sel.Model.ContextWindow, Price: tuiPrice(sel.Model.Price),
-		Skills: skillNames(skillList),
+		Skills: skillInfos(skillList),
 	}
 	// 模型不支持工具时连 MCP 没有意义：那些工具注册了也发不下去。
 	// 连接放到后台：服务端在网络那头，等它们就绪要几秒，界面不该陪着等。

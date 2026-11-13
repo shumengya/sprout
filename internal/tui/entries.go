@@ -29,6 +29,7 @@ var (
 	styUser  = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
 	styImg   = lipgloss.NewStyle().Foreground(lipgloss.Color("2")) // 图片标记：[文件名]
 	styTool  = lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true)
+	stySkill = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Bold(true) // 技能被触发时的标记
 	styFaint = lipgloss.NewStyle().Faint(true)
 	styErr   = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
 	styWarn  = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
@@ -56,6 +57,8 @@ type entry struct {
 	command string
 	running bool
 	fin     event.ToolFinished
+	// skill 非空表示这次调用读的是某个技能的 SKILL.md 或其目录下的文件，值是技能名，卡片上会标出来。
+	skill string
 
 	// 思维链条目：live 表示还在流式输出，此时只预览最后几行。
 	live bool

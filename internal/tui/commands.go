@@ -141,7 +141,11 @@ func (m *Model) toolsReport() string {
 	if len(info.Skills) == 0 {
 		b.WriteString("无（放进数据目录的 skills/ 或项目里的 .agents/skills/）")
 	} else {
-		b.WriteString(strings.Join(info.Skills, "、"))
+		names := make([]string, len(info.Skills))
+		for i, sk := range info.Skills {
+			names[i] = sk.Name
+		}
+		b.WriteString(strings.Join(names, "、"))
 	}
 	return b.String()
 }

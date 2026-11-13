@@ -32,7 +32,7 @@ func TestSkillCatalogReachesModelRequest(t *testing.T) {
 		t.Fatalf("装配失败: %v / %s", err, a.disabled)
 	}
 	defer a.close()
-	if a.info.Skills == nil || a.info.Skills[0] != "demo-skill" {
+	if len(a.info.Skills) != 1 || a.info.Skills[0].Name != "demo-skill" {
 		t.Fatalf("技能应被列进 info: %v", a.info.Skills)
 	}
 	if err := a.ag.Run(t.Context(), agent.Input{Text: "你好"}, event.SinkFunc(func(event.Event) {})); err != nil {

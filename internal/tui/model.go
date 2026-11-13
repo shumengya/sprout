@@ -41,6 +41,12 @@ type MCPServerInfo struct {
 	Pending bool
 }
 
+// SkillInfo 是一个已安装的技能。Path 是 SKILL.md 的绝对路径，用来认出模型读到的是哪个技能。
+type SkillInfo struct {
+	Name string
+	Path string
+}
+
 // Info 是 header 与 /tools 展示的信息，由 main 装配好传入。
 type Info struct {
 	Model       string
@@ -51,8 +57,8 @@ type Info struct {
 	Unavailable []string   // 不可用的工具及原因，每项一行
 	// MCP 是已配置的 MCP 服务端；没有配置任何服务端时为空，状态栏显示占位符。
 	MCP []MCPServerInfo
-	// Skills 是发现到的技能名。为空表示没有安装技能，状态栏显示占位符。
-	Skills []string
+	// Skills 是已安装的技能。为空表示没有安装技能，状态栏显示占位符。
+	Skills []SkillInfo
 	// Vision 表示当前模型支持图片输入；为 false 时仍可附加图片，但会提示会被省略。
 	Vision bool
 	// Effort 是当前思考档位；为空表示当前模型没有声明 effort，信息栏不显示。

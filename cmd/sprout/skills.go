@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/shumengya/sprout/internal/agent/skills"
+	"github.com/shumengya/sprout/internal/tui"
 )
 
 // SkillRoots 返回要扫描的技能目录，按优先级从高到低排列：靠前的先被采用，
@@ -31,14 +32,15 @@ func skillRoots(dataDir, cwd, home string) []skills.Root {
 	return roots
 }
 
-// skillNames 取出技能名，给界面展示用。
-func skillNames(list []skills.Skill) []string {
+// skillInfos 把发现的技能转成界面用的形状：名字 + SKILL.md 路径。
+// 带上路径是为了让 TUI 认出“模型正在读某个技能的正文”，在对话区标出来。
+func skillInfos(list []skills.Skill) []tui.SkillInfo {
 	if len(list) == 0 {
 		return nil
 	}
-	out := make([]string, len(list))
+	out := make([]tui.SkillInfo, len(list))
 	for i, sk := range list {
-		out[i] = sk.Name
+		out[i] = tui.SkillInfo{Name: sk.Name, Path: sk.Path}
 	}
 	return out
 }

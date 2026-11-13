@@ -40,7 +40,14 @@ func (e *entry) drawTool(w int) string {
 	if multi && strings.TrimSpace(rest) != "" {
 		first += " …"
 	}
-	head := styTool.Render(e.name) + "  " + ansi.Truncate(first, max(w-ansi.StringWidth(e.name)-2, 1), "…")
+	// 触发技能时在最前面标出来，和普通工具调用一眼区分开。
+	lead, leadW := "", 0
+	if e.skill != "" {
+		lead = stySkill.Render("[技能] ") + stySkill.Render(e.skill) + "  "
+		leadW = ansi.StringWidth(lead)
+	}
+	room := max(w-leadW-ansi.StringWidth(e.name)-2, 1)
+	head := lead + styTool.Render(e.name) + "  " + ansi.Truncate(first, room, "…")
 
 	var b strings.Builder
 	b.WriteString(head)

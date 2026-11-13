@@ -123,6 +123,7 @@ func (m *Model) onEvent(e event.Event) {
 		m.cur = nil
 		m.tools[e.Call.ID] = m.add(&entry{
 			kind: kindTool, name: e.Call.Name, command: commandOf(e.Call.Arguments), running: true,
+			skill: m.skillFor(e.Call.Arguments),
 		})
 	case event.ToolFinished:
 		t := m.tools[e.ID]
