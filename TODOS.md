@@ -39,6 +39,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] 内置工具的描述与参数可由 `tools.jsonc` 覆盖（`tool.Decorator`）；`bash` / `powershell` 覆盖描述时仍追加当前环境与版本说明。
 - [x] `read`：按行号读文本文件，可指定 `offset` / `limit`，拒绝二进制与超大文件，输出超 50KB 自动截断并提示续读位置。
 - [x] `write`：创建或覆盖文本文件，自动建父目录，先写同目录临时文件再原子替换；覆盖时沿用原权限。
+- [x] `edit`：按 `old_string` → `new_string` 替换文件里的一段内容，省掉整份重写。默认要求唯一匹配，0 处或多处都报错并列出所在行号且不改文件，`replace_all` 才替换全部；匹配前把 CRLF 归一成 LF、写回时恢复，读出来抄的片段不会因为行尾对不上而失配；拒绝二进制、目录和超大文件，写回同样走临时文件原子替换并沿用原权限。
 - [x] 平台探测：按文档顺序查找；`System32\bash.exe`（WSL 启动器）判为不可用并提示安装 Git for Windows。开关已开但本机没有 shell 时，该工具不注册并在 `/tools` 里说明原因。
 - [x] 执行契约：每次新进程、工作目录固定、默认超时 120s（上限 600s，模型可传 `timeout_seconds`）、输出上限 50KB（头尾保留）、stdin 置空。
 - [x] 超时/取消终止整个进程树（Unix 进程组，Windows `taskkill /T`），`WaitDelay` 防止孙进程占管道。
@@ -121,7 +122,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
   - [x] MCP 客户端与工具接入（`internal/agent/mcp`）：stdio 与 Streamable HTTP 两种传输、无状态 `server/discover` 与旧版 `initialize` 双协议、配置 `mcp.jsonc`、工具注册为 `mcp__<服务端>__<工具>`；后台连接（启动不等服务端）与协议版本缓存（`mcp-versions.json`），见 `docs/mcp.md`；
   - [x] skills 发现与加载（`internal/agent/skills`）：扫描四个位置、解析 frontmatter、元数据追加进系统提示词、正文按需 `read`，见 `docs/skills.md`；
   - [ ] 子代理 / 多 agent 编排；
-  - [ ] 搜索、web 等更多工具（现有 `bash`、`powershell`、`read`、`write`，外加 `tools.jsonc` 里定义的外部命令工具）；
+  - [ ] 搜索、web 等更多工具（现有 `bash`、`powershell`、`read`、`write`、`edit`，外加 `tools.jsonc` 里定义的外部命令工具）；
   - [ ] 权限模块（审批流、allow/deny、沙箱）——目前默认完全权限，不要提前加。
 
 ### M1 范围内有意没做

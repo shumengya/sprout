@@ -19,7 +19,7 @@
 
 - 工具名：字母开头，后接字母、数字、`_`、`-`，最长 64 字符。模型把它当函数名用。
 - 没写出的工具视为**未注册**；`enable: false` 或省略 `enable` 同样不启用。
-- 内置工具（`bash`、`powershell`、`read`、`write`）由程序实现，`description` / `parameters`
+- 内置工具（`bash`、`powershell`、`read`、`write`、`edit`）由程序实现，`description` / `parameters`
   只覆盖默认值，省略即用内置值。`parameters` 同样要满足 `type: "object"`，写错启动即报错。
   `bash` / `powershell` 覆盖描述时，程序仍会在末尾追加
   当前环境的版本说明（如 PowerShell 5.1 不支持 `&&`），避免写死的描述误导模型。
@@ -62,6 +62,7 @@
 | `powershell` | `command`、`timeout_seconds` | 执行 PowerShell 命令；优先 `pwsh` 7+，回退 5.1 |
 | `read` | `path`、`offset`、`limit` | 按行读文本文件：默认从第 1 行读 2000 行，行号随内容返回 |
 | `write` | `path`、`content` | 创建或覆盖文本文件，自动建父目录，先写临时文件再原子替换 |
+| `edit` | `path`、`old_string`、`new_string`、`replace_all` | 把文件里的一段原文换成新内容：默认要求唯一匹配，匹配到多处或找不到都报错且不改文件；`replace_all` 替换全部。保留原换行符风格与权限 |
 
 ## 示例
 

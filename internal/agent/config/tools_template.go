@@ -57,6 +57,10 @@ const ToolsTemplate = `// Sprout 工具配置（JSONC：支持 // 和 /* */ 注�
     // write：写入（覆盖）文本文件，自动创建缺失的父目录。
     "write": { "enable": true },
 
+    // edit：把文件里的 old_string 替换成 new_string，只改这一段，其余内容原样保留。
+    // 改已有文件的局部内容时优先用它，比先 read 再整份 write 更省 token，也不会抄错别处。
+    "edit": { "enable": true },
+
     // 外部工具示例：把 ls 包装成一个工具。
     // 非内置名字必须给出 description 与 exec，否则启动时报错。
     // {{path}} 会替换成模型传入的 path；bash 下自动加引号，所以路径带空格也安全。

@@ -260,6 +260,10 @@ func (a *app) registerTools(cfg *config.File, e env) (*tool.Registry, error) {
 			if err := add(file.NewWrite(e.cwd), "内置  创建或覆盖文本文件"); err != nil {
 				return nil, err
 			}
+		case config.ToolEdit:
+			if err := add(file.NewEdit(e.cwd), "内置  按原文片段修改文件"); err != nil {
+				return nil, err
+			}
 		}
 	}
 

@@ -192,7 +192,7 @@ func TestToolsImplementToolContract(t *testing.T) {
 		Name() string
 		Description() string
 		Parameters() json.RawMessage
-	}{NewRead("."), NewWrite(".")} {
+	}{NewRead("."), NewWrite("."), NewEdit(".")} {
 		if tl.Name() == "" || tl.Description() == "" {
 			t.Errorf("工具 %T 的描述不完整", tl)
 		}
@@ -203,5 +203,97 @@ func TestToolsImplementToolContract(t *testing.T) {
 		if schema["type"] != "object" {
 			t.Errorf("%s 的 schema type = %v", tl.Name(), schema["type"])
 		}
+	}
+}
+
+func TestEditReplacesSingleMatch(t *testing.T) {
+	p := writeTemp(t, "a.go", "package a\n\nfunc Foo() {}\n")
+	e := NewEdit(filepath.Dir(p))
+	res, err := e.Run(context.Background(), json.RawMessage(`{"path":"a.go","old_string":"func Foo() {}","new_string":"func Foo() int { return 1 }"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Stdout, "替换 1 处") || !strings.Contains(res.Stdout, "第 3 行") {
+		t.Errorf("Stdout = %q", res.Stdout)
+	}
+	got, _ := os.ReadFile(p)
+	if string(got) != "package a\n\nfunc Foo() int { return 1 }\n" {
+		t.Errorf("内容 = %q", got)
+	}
+}
+
+func TestEditRejectsAmbiguousMatchUnlessReplaceAll(t *testing.T) {
+	p := writeTemp(t, "dup.txt", "x = 1\ny = 2\nx = 1\n")
+	e := NewEdit(filepath.Dir(p))
+	raw := json.RawMessage(`{"path":"dup.txt","old_string":"x = 1","new_string":"x = 9"}`)
+	_, err := e.Run(context.Background(), raw)
+	if err == nil || !strings.Contains(err.Error(), "出现了 2 处") {
+		t.Fatalf("重复匹配应报错并说明处数，得到 %v", err)
+	}
+	got, _ := os.ReadFile(p)
+	if strings.Contains(string(got), "x = 9") {
+		t.Error("报错时不应改动文件")
+	}
+
+	res, err := e.Run(context.Background(), json.RawMessage(`{"path":"dup.txt","old_string":"x = 1","new_string":"x = 9","replace_all":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Stdout, "替换 2 处") {
+		t.Errorf("Stdout = %q", res.Stdout)
+	}
+	got, _ = os.ReadFile(p)
+	if string(got) != "x = 9\ny = 2\nx = 9\n" {
+		t.Errorf("内容 = %q", got)
+	}
+}
+
+func TestEditReportsMissingMatch(t *testing.T) {
+	p := writeTemp(t, "a.txt", "hello\n")
+	e := NewEdit(filepath.Dir(p))
+	_, err := e.Run(context.Background(), json.RawMessage(`{"path":"a.txt","old_string":"nope","new_string":"x"}`))
+	if err == nil || !strings.Contains(err.Error(), "找不到 old_string") {
+		t.Fatalf("应提示找不到原文，得到 %v", err)
+	}
+}
+
+func TestEditRejectsBadArguments(t *testing.T) {
+	p := writeTemp(t, "a.txt", "hello\n")
+	e := NewEdit(filepath.Dir(p))
+	cases := map[string]string{
+		`{"path":"a.txt","old_string":"","new_string":"x"}`:          "不能为空",
+		`{"path":"a.txt","old_string":"hello","new_string":"hello"}`: "没有要改的内容",
+		`{"path":"missing.txt","old_string":"a","new_string":"b"}`:   "无法访问",
+		`{"path":".","old_string":"a","new_string":"b"}`:             "目录",
+	}
+	for raw, want := range cases {
+		if _, err := e.Run(context.Background(), json.RawMessage(raw)); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s 应报错含 %q，得到 %v", raw, want, err)
+		}
+	}
+}
+
+func TestEditKeepsCRLF(t *testing.T) {
+	p := writeTemp(t, "win.txt", "first\r\nsecond\r\n")
+	e := NewEdit(filepath.Dir(p))
+	// 模型从 read 的输出里抄片段时拿不到 \r，这里按 LF 提交也要能匹配上。
+	_, err := e.Run(context.Background(), json.RawMessage(`{"path":"win.txt","old_string":"first\nsecond","new_string":"first\nchanged\nsecond"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(p)
+	if string(got) != "first\r\nchanged\r\nsecond\r\n" {
+		t.Errorf("内容 = %q，换行风格应保持 CRLF", got)
+	}
+}
+
+func TestEditRejectsBinary(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "x.bin"), []byte{'a', 0, 'b'}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e := NewEdit(dir)
+	if _, err := e.Run(context.Background(), json.RawMessage(`{"path":"x.bin","old_string":"a","new_string":"c"}`)); err == nil || !strings.Contains(err.Error(), "二进制") {
+		t.Errorf("二进制文件应被拒绝，得到 %v", err)
 	}
 }
