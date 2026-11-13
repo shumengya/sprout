@@ -45,6 +45,26 @@ func TestParseArgs(t *testing.T) {
 	}
 }
 
+func TestParseModelsUpdate(t *testing.T) {
+	a, err := parseArgs([]string{"models", "update", "--data-dir", "D:/x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !a.modelsUpdate || a.dataDir != "D:/x" {
+		t.Fatalf("得到 %+v", a)
+	}
+	// --data-dir 写在前面也应生效。
+	a, err = parseArgs([]string{"--data-dir", "D:/y", "models", "update"})
+	if err != nil || !a.modelsUpdate || a.dataDir != "D:/y" {
+		t.Fatalf("前置选项应保留: %+v %v", a, err)
+	}
+	for _, argv := range [][]string{{"models"}, {"models", "list"}, {"models", "update", "多余"}} {
+		if _, err := parseArgs(argv); !errors.Is(err, errUsage) {
+			t.Errorf("%v 应是用法错误，得到 %v", argv, err)
+		}
+	}
+}
+
 func TestParseArgsErrors(t *testing.T) {
 	cases := map[string][]string{
 		"未知命令":    {"serve"},

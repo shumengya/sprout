@@ -46,7 +46,21 @@ type Model struct {
 	Vision *bool `json:"vision"`
 	// Effort 声明可调的思考档位；为 nil 表示不能调节（不发送任何思考参数）。
 	Effort *Effort `json:"effort"`
+	// Price 是单价（美元 / 百万 token），由 models.dev 补上，不从 models.jsonc 读。
+	// 全为 0 表示没有价格数据，状态栏的“花费”显示占位符。
+	Price ModelPrice `json:"-"`
 }
+
+// ModelPrice 是一个模型各项 token 的单价，单位美元 / 百万 token。
+type ModelPrice struct {
+	Input      float64 // 没命中缓存的输入
+	Output     float64
+	CacheRead  float64
+	CacheWrite float64
+}
+
+// Known 报告是否有可用的价格：输入和输出都为 0 时认为没有（缓存价单独为 0 是正常的，表示该模型不计缓存费）。
+func (p ModelPrice) Known() bool { return p.Input > 0 || p.Output > 0 }
 
 // SupportsTools 报告模型是否支持工具调用，缺省为 true。
 func (m Model) SupportsTools() bool { return m.Tools == nil || *m.Tools }

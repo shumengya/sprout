@@ -214,6 +214,7 @@ func TestNewSessionClearsTranscriptAndHistory(t *testing.T) {
 	begin(m, "之前的内容")
 	m.running = false
 	m.usage = usageTotals{Input: 500, Output: 7}
+	m.cost = costTotals{USD: 1.23, priced: true}
 	m.ctxTokens = 500
 
 	submit(m, "/new")
@@ -223,8 +224,8 @@ func TestNewSessionClearsTranscriptAndHistory(t *testing.T) {
 	s := plain(m)
 	mustContain(t, s, "已开始新会话", "可以用 /resume 找回")
 	mustNotContain(t, s, "之前的内容")
-	if m.usage != (usageTotals{}) || m.ctxTokens != 0 {
-		t.Errorf("用量和上下文占用应归零: %+v ctx=%d", m.usage, m.ctxTokens)
+	if m.usage != (usageTotals{}) || m.cost != (costTotals{}) || m.ctxTokens != 0 {
+		t.Errorf("用量、花费和上下文占用应归零: %+v cost=%+v ctx=%d", m.usage, m.cost, m.ctxTokens)
 	}
 	if countKind(m, kindUser) > 0 || countKind(m, kindAssistant) > 0 {
 		t.Error("对话区应已清空")

@@ -21,6 +21,8 @@ type args struct {
 	images []string
 	// effort 是启动时的思考档位，覆盖 models.jsonc 里的 default。
 	effort string
+	// modelsUpdate 表示 `sprout models update`：拉取 models.dev 目录后退出。
+	modelsUpdate bool
 }
 
 // stringList 收集可重复出现的字符串选项（--image a --image b）。
@@ -40,6 +42,7 @@ const usage = `用法:
                                                    启动终端界面
   sprout run [--data-dir DIR] [-c | --resume ID] [--effort 档位] [--image 文件]... "提问"
                                                    单次运行，答案写 stdout，进度写 stderr
+  sprout models update [--data-dir DIR]            从 models.dev 更新模型参数与价格的本地缓存
   sprout --version
 
 选项:
@@ -49,6 +52,10 @@ const usage = `用法:
   --effort 档位    思考程度，如 auto / low / high / max；可选档位由 models.jsonc 里该模型的 effort 声明决定
   --data-dir DIR   数据目录（配置、会话、日志）。优先级: --data-dir > SPROUT_DATA_DIR > <程序所在目录>/data/.sprout
                    用 go run 启动时必须显式指定，例如 --data-dir ./data/.sprout
+
+模型参数:
+  contextWindow 与 maxOutput 在 models.jsonc 里手写的值优先；没写的从 models.dev 的本地缓存补，
+  缓存里也没有时用默认值（上下文 400000、输出 16000）。缓存由 sprout models update 更新，启动时不联网。
 `
 
 var errUsage = errors.New("用法错误")
@@ -89,6 +96,9 @@ func parseArgs(argv []string) (args, error) {
 		finish()
 		return a, nil
 	}
+	if rest[0] == "models" {
+		return parseModelsArgs(&a, rest[1:])
+	}
 	if rest[0] != "run" {
 		return a, fmt.Errorf("%w: 未知命令 %q", errUsage, rest[0])
 	}
@@ -107,4 +117,26 @@ func parseArgs(argv []string) (args, error) {
 	}
 	a.runPrompt = &prompt
 	return a, nil
+}
+
+// parseModelsArgs 解析 `sprout models update`。目前只有 update 一个子命令，
+// 单独放这里，避免以后加子命令时把 parseArgs 撑得更长。
+func parseModelsArgs(a *args, argv []string) (args, error) {
+	if len(argv) == 0 {
+		return *a, fmt.Errorf("%w: sprout models 需要子命令，目前支持 update", errUsage)
+	}
+	if argv[0] != "update" {
+		return *a, fmt.Errorf("%w: sprout models 不支持 %q，目前支持 update", errUsage, argv[0])
+	}
+	fs := flag.NewFlagSet("sprout models update", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.StringVar(&a.dataDir, "data-dir", a.dataDir, "")
+	if err := fs.Parse(argv[1:]); err != nil {
+		return *a, fmt.Errorf("%w: %v", errUsage, err)
+	}
+	if len(fs.Args()) > 0 {
+		return *a, fmt.Errorf("%w: sprout models update 不接受额外参数 %q", errUsage, fs.Args()[0])
+	}
+	a.modelsUpdate = true
+	return *a, nil
 }

@@ -42,6 +42,18 @@ type Info struct {
 	Effort string
 	// ContextWindow 是当前模型的上下文窗口（token）；0 表示未知，状态栏只显示当前占用的 token 数。
 	ContextWindow int
+	// Price 是当前模型的单价（美元 / 百万 token）。Known 为 false 时状态栏的“花费”显示占位符。
+	Price Price
+}
+
+// Price 是一个模型各项 token 的单价，单位美元 / 百万 token。
+// 单独定义而不是复用 config.ModelPrice：tui 不能 import 内核的配置包。
+type Price struct {
+	Input      float64 // 没命中缓存的输入
+	Output     float64
+	CacheRead  float64
+	CacheWrite float64
+	Known      bool // 有价格数据；缓存价为 0 是正常的（该模型不计缓存费），不能拿来判断有没有价格
 }
 
 // Options 是构造 Model 所需的全部输入。
@@ -111,9 +123,11 @@ type Model struct {
 	busyTotal time.Duration
 	status    string // 状态行的临时提示，下次按键时清除
 	statusOK  bool   // status 是成功提示（如已复制），用绿色而不是警告色显示
-	// 状态栏的数据：本会话累计用量、最近一次请求的输入 token（上下文占用）、整机资源。
+	// 状态栏的数据：本会话累计用量、最近一次请求的输入 token（上下文占用）、按当时单价累计的花费、整机资源。
 	usage     usageTotals
+	cost      costTotals
 	ctxTokens int
+	costUSD   float64 // 美元；/new 与恢复会话时清零，切模型后历史花费按原价保留
 	res       Resources
 	// pending 是下一条消息待发送的图片（/image 附加），发送或 /image clear 后清空。
 	pending []agent.Image

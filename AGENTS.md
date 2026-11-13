@@ -37,7 +37,7 @@ go vet ./...
 | 主题 | 决策 |
 | --- | --- |
 | LLM 协议 | OpenAI Chat Completions → OpenAI Responses → Anthropic Messages → Google Gemini，四种均已实现；其他供应商通过 `models.jsonc` 配置，不写死在代码里 |
-| 配置格式 | 用户会编辑的文件一律 JSONC（`models.jsonc` 等）；`meta.json`、会话 JSONL、缓存用普通 JSON/JSONL |
+| 模型参数 | `contextWindow`、`maxOutput` 优先级：`models.jsonc` 手写 > models.dev 本地缓存 > 默认值（400000 / 16000）；价格只来自 models.dev，没有默认值。缓存由 `sprout models update` 更新，启动不联网 |
 | 会话 | JSONL 追加写，按 agent 工作目录分组：`<数据目录>/sessions/<工作目录 slug>/<session-id>.jsonl`，同目录放 `meta.json` |
 | 数据目录 | 默认 `<exeDir>/data/.sprout`（安装级/系统级，跟随二进制）；`--data-dir` / `SPROUT_DATA_DIR` 覆盖；默认不写 `~/.sprout` |
 | 工具 | 内置 `bash`、`powershell`、`read`、`write`，另可在 `tools.jsonc` 里用 `exec` 把外部命令包装成工具；条目必须 `"enable": true` 才注册给模型（见 `docs/tools.md`）；MCP、skills 等由用户后续决定 |

@@ -18,8 +18,8 @@ import (
 	"github.com/shumengya/sprout/internal/agent"
 	"github.com/shumengya/sprout/internal/agent/config"
 	"github.com/shumengya/sprout/internal/agent/platform"
-	"github.com/shumengya/sprout/internal/media"
 	"github.com/shumengya/sprout/internal/cli"
+	"github.com/shumengya/sprout/internal/media"
 	"github.com/shumengya/sprout/internal/tui"
 )
 
@@ -71,6 +71,11 @@ func realMain(argv []string, stdout, stderr io.Writer) (code int) {
 	logger, closer := openLogger(config.LogsDir(dataDir), time.Now())
 	log = logger
 	defer closer.Close()
+
+	// models update 只读配置、拉目录，不需要 API Key，也不该装配 agent、建会话文件。
+	if a.modelsUpdate {
+		return updateModels(dataDir, stdout, stderr)
+	}
 
 	cwd, err := os.Getwd()
 	if err != nil {

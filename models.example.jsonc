@@ -14,6 +14,8 @@
       "apiKeyEnv": "DEEPSEEK_API_KEY",
       "apiKey": "",
       "models": {
+        // contextWindow / maxOutput 可以不写：先查 sprout models update 下载的 models.dev 目录，
+        // 查不到再用默认值（上下文 400000、输出 16000）。手写的值优先。
         "deepseek-flash": {
           "contextWindow": 1000000,
           "maxOutput": 384000,

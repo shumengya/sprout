@@ -359,9 +359,9 @@ type Tool interface {
 - 底部布局紧凑（参考 Claude Code）：从上到下是可选的活动行、分隔线、输入框、分隔线、三行状态栏，空闲时占 6 行。
 - 状态栏（最底部三行），每项是「彩色标签 值」，标签和值用同一种颜色（每项一种、互不重复），项之间用淡色竖线隔开，整行放不下时从右边截断：
   - 第一行：`路径`（唯一可伸缩的一项，放不下时从左边截断，保留末尾几级）、`对话轮次`（用户提问的条数）、`耗时`（只累计 agent 实际干活的时间：每一轮回答和每一次 `/compact` 从开始到结束，空闲等用户输入时不涨；`/new` 清零，恢复会话不知道当初花了多久，从 0 开始）、`内存`、`CPU`（整机占用，每秒采样一次；读不到的项不显示，不显示成 0%）。
-  - 第二行：`输入`（累计，只算没命中缓存的部分，和缓存加起来才是全部输入）、`输出`、`缓存 读/写`、`花费`、`上下文`（最近一次请求的输入 token / 窗口，压缩后按压缩后的估算更新；窗口未知时只显示 token 数。到 70% 变黄、90% 变红）、`模型ID`、`思考强度`（模型没声明 effort 时不显示）。
+  - 第二行：`输入`（累计，只算没命中缓存的部分，和缓存加起来才是全部输入）、`输出`、`缓存 读/写`、`花费`（按每次用量到达时的单价累加，美元 / 百万 token；中途切换模型后历史花费按旧价格保留。不到 1 美元显示四位小数，否则两位。没有任何价格时显示 `—`；一部分用量没有价格时前面加 `≥`，表示只是下限。恢复会话时按当前模型的价格重算重放出来的用量）、`上下文`（最近一次请求的输入 token / 窗口，压缩后按压缩后的估算更新；窗口未知时只显示 token 数。到 70% 变黄、90% 变红）、`模型ID`、`思考强度`（模型没声明 effort 时不显示）。
   - 第三行：`状态`（空闲 / 生成中 / 思考中 / 执行某工具 / 并行执行 N 个工具 / 压缩上下文 / 恢复会话 / 切换模型）、`MCP`、`插件`、`技能`、`工具`（可用工具的个数，名字用 `/tools` 查看）。
-  - **占位**：MCP、插件、技能、花费对应的功能还没有实现，显示 `—`，不显示 0（0 会让人以为已经接上、只是没有内容）。接上之后只需要把 `statusbar.go` 里的值换掉。
+  - **占位**：MCP、插件、技能对应的功能还没有实现，显示 `—`，不显示 0（0 会让人以为已经接上、只是没有内容）。
   - 内存和 CPU 的采样在 `tea.Cmd` 里做（`Options.Resources`），不占 `Update`；采样函数很慢也不会卡住输入。平台实现见 `internal/agent/platform/sysusage*.go`：Windows 用 `GlobalMemoryStatusEx` / `GetSystemTimes`，Linux 与 Termux 读 `/proc`（Android 8+ 读不了 `/proc/stat`，没有 CPU），macOS 等其他平台两项都不显示。
   - 数据目录不在此显示，用 `/tools` 查看。
 - 活动行（输入框上方）：只在生成中或有临时提示（正在取消、已复制等）时出现，内容是 spinner、当前在做什么（生成中 / 思考中 / 执行某工具 / 并行执行 N 个工具）、超过 3 秒后的耗时，右端是“Ctrl+C 取消”。空闲时整行消失，不再显示“空闲”。
@@ -481,7 +481,8 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
 - Responses 的函数调用来自 `added` / `arguments.delta` / `arguments.done` / `output_item.done` / `completed.output` 多个来源，后到的覆盖先到的；文本已通过增量输出过就不再用完整 item 重复输出。
 - Responses 的 `function_call` 条目不带 `id`（`store:false` 时没有配对的 reasoning 条目）；依据文档推断。已用真实 DeepSeek 的 `/responses` 端点验证往返可用，但 **OpenAI 官方服务（尤其带 reasoning 的 gpt-5 / o 系列）尚未验证**。
 - Responses 的函数工具显式 `strict:false`，否则默认 `strict:true` 会要求 schema 满足严格模式。
-- 发送给服务端的输出上限直接取 `models.jsonc` 里的 `maxOutput`（Chat 为 `max_tokens`，Responses 为 `max_output_tokens`）。个别新模型（如 OpenAI 的 o 系列）在 Chat 协议下拒绝 `max_tokens`，这类模型请使用 Responses 协议。`contextWindow` 目前不参与任何逻辑（M1 没有上下文管理），仅作记录。
+- 发送给服务端的输出上限直接取 `models.jsonc` 里的 `maxOutput`（Chat 为 `max_tokens`，Responses 为 `max_output_tokens`）。个别新模型（如 OpenAI 的 o 系列）在 Chat 协议下拒绝 `max_tokens`，这类模型请使用 Responses 协议。`contextWindow` 决定自动压缩的触发线（见上下文管理一节）。
+- `contextWindow` 与 `maxOutput` 可以不写。优先级：`models.jsonc` 里手写的值 > models.dev 目录里查到的 > 默认值（上下文 400000、输出 16000）。目录由 `sprout models update` 下载到数据目录的 `models.dev.json`，启动时只读这份缓存、不联网；没有缓存或查不到该模型时直接用默认值。查找先按 `baseUrl` 匹配同一渠道，匹配不上再按模型 id 取第一条。价格只有 models.dev 一个来源，查不到就没有价格（状态栏显示 `—`）。
 
 **工具**
 

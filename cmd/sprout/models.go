@@ -84,6 +84,7 @@ func (s modelStore) Switch(ref string) (*tui.SwitchResult, error) {
 	a.info.Model, a.info.Provider = sel.ModelName, sel.ProviderName+"，"+sel.Provider.Protocol
 	a.info.Vision = sel.Model.SupportsVision()
 	a.info.ContextWindow = sel.Model.ContextWindow
+	a.info.Price = tuiPrice(sel.Model.Price)
 	a.info.Effort = effortLabel(sel, a.effort)
 	reg, err := a.registerTools(a.cfg, a.env)
 	if err != nil {

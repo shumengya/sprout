@@ -143,14 +143,54 @@ func TestCompactedUpdatesTheContextAndAFailureDoesNot(t *testing.T) {
 }
 
 func TestUnimplementedFeaturesShowAPlaceholderNotZero(t *testing.T) {
-	// MCP、插件、技能、花费还没有实现。显示 0 会让人以为它们已经接上、只是没有内容。
+	// MCP、插件、技能还没有实现。显示 0 会让人以为它们已经接上、只是没有内容。
 	m := newSized(t, Options{Runner: scriptRunner()}, 200, 24)
 	apply(m, event.Usage{InputTokens: 100, OutputTokens: 100})
 	if line := infoText(m, 2); !strings.Contains(line, "MCP —") || !strings.Contains(line, "插件 —") || !strings.Contains(line, "技能 —") {
 		t.Errorf("MCP / 插件 / 技能 应是占位符: %q", line)
 	}
+}
+
+func TestCostShowsAPlaceholderWithoutPrices(t *testing.T) {
+	// 没有价格数据时显示占位符，不能编一个 $0 出来——那会被理解成“免费”。
+	m := newSized(t, Options{Runner: scriptRunner()}, 200, 24)
+	apply(m, event.Usage{InputTokens: 100, OutputTokens: 100})
 	if line := infoText(m, 1); !strings.Contains(line, "花费 —") {
-		t.Errorf("花费应是占位符，不能算一个数出来: %q", line)
+		t.Errorf("没有价格时应是占位符: %q", line)
+	}
+}
+
+func TestCostAccumulatesAtThePriceInEffectAtTheTime(t *testing.T) {
+	// 单价是美元 / 百万 token。1000 输入 × $3 + 500 输出 × $15 = $0.0105。
+	info := testInfo
+	info.Price = Price{Input: 3, Output: 15, CacheRead: 0.3, CacheWrite: 3.75, Known: true}
+	m := newSized(t, Options{Runner: scriptRunner(), Info: info}, 200, 24)
+	apply(m, event.Usage{InputTokens: 1000, OutputTokens: 500})
+	apply(m, event.Usage{InputTokens: 1000, OutputTokens: 0, CacheReadTokens: 1000000}) // 缓存读 $0.3
+	if line := infoText(m, 1); !strings.Contains(line, "花费 $0.3105") {
+		t.Errorf("花费 = %q", line)
+	}
+
+	// 中途切到没有价格的模型：之前的花费按原价保留，之后的用量不再计价，显示 ≥ 表示这是下限。
+	m.opts.Info.Price = Price{}
+	apply(m, event.Usage{InputTokens: 1000000, OutputTokens: 1000000})
+	if line := infoText(m, 1); !strings.Contains(line, "花费 ≥$0.3105") {
+		t.Errorf("缺价格的用量应只标记下限，不重算已有花费: %q", line)
+	}
+}
+
+func TestCostFormatsSmallAmountsWithFourDecimals(t *testing.T) {
+	info := testInfo
+	info.Price = Price{Input: 0.15, Output: 0.6, Known: true}
+	m := newSized(t, Options{Runner: scriptRunner(), Info: info}, 200, 24)
+	apply(m, event.Usage{OutputTokens: 1000}) // 1000 × $0.6 / 百万 = $0.0006
+	if got := m.cost.String(); got != "$0.0006" {
+		t.Errorf("小额应四位小数，得到 %q", got)
+	}
+	// 满 1 美元后两位就够了，四位反而难读。
+	apply(m, event.Usage{InputTokens: 10000000}) // +$1.5
+	if got := m.cost.String(); got != "$1.50" {
+		t.Errorf("满 1 美元应两位小数，得到 %q", got)
 	}
 }
 
@@ -305,12 +345,13 @@ func TestNewSessionAndResumeRebuildTheStatusBar(t *testing.T) {
 	}, Notice: "已恢复"}}
 	m := sessionsModel(t, f)
 	m.usage = usageTotals{Input: 99999, Output: 99999}
+	m.cost = costTotals{USD: 9.99, priced: true}
 	m.ctxTokens = 99999
 	m.in.SetValue("/resume 1")
 	_, cmd := m.Update(keyEnter)
 	runCmd(m, cmd)
-	if m.usage != (usageTotals{Input: 100, Output: 40, CacheRead: 900}) || m.ctxTokens != 1000 {
-		t.Errorf("恢复后应只含重放出来的用量: %+v ctx=%d", m.usage, m.ctxTokens)
+	if m.usage != (usageTotals{Input: 100, Output: 40, CacheRead: 900}) || m.ctxTokens != 1000 || m.cost.USD != 0 || m.cost.String() != placeholder {
+		t.Errorf("恢复后应只含重放出来的用量，没有价格时花费归零: %+v cost=%+v ctx=%d", m.usage, m.cost, m.ctxTokens)
 	}
 	if line := infoText(m, 0); !strings.Contains(line, "对话轮次 1") {
 		t.Errorf("恢复后轮次应由重放出的提问算出: %q", line)
@@ -319,19 +360,30 @@ func TestNewSessionAndResumeRebuildTheStatusBar(t *testing.T) {
 
 func TestSwitchingModelUpdatesTheContextWindow(t *testing.T) {
 	models := testModels()
-	models.res = &SwitchResult{Info: Info{Model: "two", Provider: "b", ContextWindow: 200000}, Notice: "已切换"}
+	models.res = &SwitchResult{Info: Info{Model: "two", Provider: "b", ContextWindow: 200000,
+		Price: Price{Input: 1, Output: 2, Known: true}}, Notice: "已切换"}
 	info := testInfo
 	info.ContextWindow = 1000
+	info.Price = Price{Input: 10, Output: 10, Known: true}
 	m := newSized(t, Options{Runner: scriptRunner(), Models: models, Info: info}, 200, 30)
 	apply(m, event.Usage{InputTokens: 500})
 	if line := infoText(m, 1); !strings.Contains(line, "50.0%/1k") {
 		t.Fatalf("切换前: %q", line)
 	}
+	before := m.cost.USD
 	m.in.SetValue("/model b/two")
 	_, cmd := m.Update(keyEnter)
 	runCmd(m, cmd)
 	if line := infoText(m, 1); !strings.Contains(line, "0.2%/200k") || !strings.Contains(line, "模型ID two") {
 		t.Errorf("切换后百分比应按新窗口重算: %q", line)
+	}
+	// 已累计的花费按旧价格算过，切换不重算；之后的用量才用新价格。
+	if m.cost.USD != before {
+		t.Errorf("切换不应重算历史花费: 之前 %v 之后 %v", before, m.cost.USD)
+	}
+	apply(m, event.Usage{InputTokens: 1000000, OutputTokens: 1000000})
+	if got := m.cost.USD - before; got != 3 {
+		t.Errorf("切换后的用量应按新价格计 100万×$1 + 100万×$2 = $3，得到 %v", got)
 	}
 }
 

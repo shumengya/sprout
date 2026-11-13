@@ -172,7 +172,9 @@ func (m *Model) onEvent(e event.Event) {
 // 服务端报告的输入 token 含缓存读写，“输入”一项只算没命中缓存的部分，和“缓存”加起来才是全部输入。
 // 上下文占用取最近一次请求的输入：它就是下一次请求大致要带的历史长度；服务端没报告时保持原值。
 func (m *Model) addUsage(e event.Usage) {
-	m.usage.Input += max(e.InputTokens-e.CacheReadTokens-e.CacheWriteTokens, 0)
+	input := max(e.InputTokens-e.CacheReadTokens-e.CacheWriteTokens, 0)
+	m.cost.add(m.opts.Info.Price, input, e.OutputTokens, e.CacheReadTokens, e.CacheWriteTokens)
+	m.usage.Input += input
 	m.usage.Output += e.OutputTokens
 	m.usage.CacheRead += e.CacheReadTokens
 	m.usage.CacheWrite += e.CacheWriteTokens

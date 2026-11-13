@@ -102,7 +102,7 @@ func (m *Model) newSessionCmd() {
 		return
 	}
 	m.entries, m.tools = nil, map[string]*entry{}
-	m.usage, m.ctxTokens = usageTotals{}, 0 // 新会话从零开始计数
+	m.usage, m.cost, m.ctxTokens = usageTotals{}, costTotals{}, 0 // 新会话从零开始计数
 	m.resetBusy()
 	m.callThink, m.usageThink = nil, nil
 	m.clearSel()
@@ -121,7 +121,8 @@ func (m *Model) onResumed(msg resumeDoneMsg) {
 	m.entries, m.tools = nil, map[string]*entry{}
 	// 用量和上下文占用由重放的 usage / compacted 事件重新累计出来；
 	// 恢复的会话不知道当初花了多久，耗时从 0 开始。
-	m.usage, m.ctxTokens = usageTotals{}, 0
+	// 会话记录里没有存单价，重放出来的花费按当前模型的价格估算。
+	m.usage, m.cost, m.ctxTokens = usageTotals{}, costTotals{}, 0
 	m.resetBusy()
 	m.callThink, m.usageThink = nil, nil
 	m.replay(msg.res.Events)

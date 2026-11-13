@@ -99,6 +99,10 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 		log.Info("已加载 AGENTS.md", "scope", d.Scope, "path", d.Path, "bytes", len(d.Text))
 	}
 
+	// models.jsonc 里没写的窗口、输出上限和价格从 models.dev 的本地缓存补，查不到用默认值。
+	// 缓存由 `sprout models update` 维护；这里不联网，缺缓存不影响启动。
+	// 必须在 Selected 之前：Selection 拷贝的是 Model 值，之后再补全就补不到它身上。
+	applyModelsDev(cfg, config.LoadModelsDev(dataDir), log)
 	sel, err := cfg.Selected()
 	if err != nil {
 		return nil, err
@@ -114,7 +118,7 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 	a.info = tui.Info{
 		Model: sel.ModelName, Provider: sel.ProviderName + "，" + sel.Provider.Protocol,
 		Cwd: e.cwd, DataDir: dataDir, Vision: sel.Model.SupportsVision(), Effort: effortLabel(sel, effort),
-		ContextWindow: sel.Model.ContextWindow,
+		ContextWindow: sel.Model.ContextWindow, Price: tuiPrice(sel.Model.Price),
 	}
 	reg, err := a.registerTools(cfg, e)
 	if err != nil {

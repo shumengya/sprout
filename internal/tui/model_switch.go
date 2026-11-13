@@ -128,6 +128,7 @@ func (m *Model) onSwitched(msg switchDoneMsg) {
 	m.opts.Info.Vision = msg.res.Info.Vision
 	m.opts.Info.Effort = msg.res.Info.Effort
 	m.opts.Info.ContextWindow = msg.res.Info.ContextWindow
+	m.opts.Info.Price = msg.res.Info.Price // 只影响之后的用量；已累计的花费按当时的价格算过了
 	m.add(&entry{kind: kindNotice, text: msg.res.Notice})
 }
 

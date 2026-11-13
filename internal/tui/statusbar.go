@@ -16,7 +16,8 @@ import (
 //	输入 … | 输出 … | 缓存 读/写 | 花费 — | 上下文 N%/窗口 | 模型ID … | 思考强度 …
 //	状态 … | MCP — | 插件 — | 技能 — | 工具 N
 //
-// MCP、插件、技能、花费对应的功能还没有实现，先占位显示 placeholder，接上之后只需要把值换掉。
+// MCP、插件、技能对应的功能还没有实现，先占位显示 placeholder，接上之后只需要把值换掉。
+// 花费已接上：按 models.dev 的单价累计，见 costTotals。
 
 // infoRows 是状态栏占的行数。
 const infoRows = 3
@@ -36,6 +37,45 @@ type usageTotals struct {
 	Output     int
 	CacheRead  int
 	CacheWrite int
+}
+
+// costTotals 是本会话的累计花费。每次用量到达时按当时模型的单价累加，
+// 中途切换模型后，之前的部分仍按旧模型的价格算，不会被新价格重算。
+type costTotals struct {
+	USD     float64
+	priced  bool // 至少有一次用量带价格
+	partial bool // 至少有一次用量没有价格，USD 只是下限
+}
+
+// add 按单价累加一次用量的花费；单价是美元 / 百万 token。
+func (c *costTotals) add(p Price, input, output, cacheRead, cacheWrite int) {
+	if !p.Known {
+		c.partial = true
+		return
+	}
+	c.priced = true
+	c.USD += (float64(input)*p.Input + float64(output)*p.Output +
+		float64(cacheRead)*p.CacheRead + float64(cacheWrite)*p.CacheWrite) / 1e6
+}
+
+// String 是“花费”一项的值：没有任何价格时是占位符；有一部分用量没价格时前面加 ≥，表示只是下限。
+func (c costTotals) String() string {
+	if !c.priced {
+		return placeholder
+	}
+	s := fmtUSD(c.USD)
+	if c.partial {
+		s = "≥" + s
+	}
+	return s
+}
+
+// fmtUSD：不到 1 美元保留四位小数，否则两位。单轮花费常常只有零点几美分，两位小数会一直显示 $0.00。
+func fmtUSD(v float64) string {
+	if v < 1 {
+		return fmt.Sprintf("$%.4f", v)
+	}
+	return fmt.Sprintf("$%.2f", v)
 }
 
 // resourceMsg 携带一次采样结果。收到后再约定一秒后的下一次采样，同时也让耗时每秒刷新。
@@ -200,7 +240,7 @@ func (m *Model) infoUsageLine() string {
 		{"输入", fmtTokens(u.Input), nil},
 		{"输出", fmtTokens(u.Output), nil},
 		{"缓存", fmtTokens(u.CacheRead) + "/" + fmtTokens(u.CacheWrite), nil},
-		{"花费", placeholder, nil},
+		{"花费", m.cost.String(), nil},
 		m.contextSeg(),
 		{"模型ID", m.opts.Info.Model, nil},
 	}
