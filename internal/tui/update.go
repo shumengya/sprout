@@ -165,6 +165,14 @@ func (m *Model) onKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, tea.Quit
+	case "esc":
+		// Esc 取消生成，和多数终端 agent 一致；Ctrl+C 保留为习惯用法。
+		// 候选列表或选择器打开时 Esc 已被它们接管，到这里说明没有面板占用。
+		if m.running || m.compacting {
+			m.cancel()
+			m.status = "正在取消…"
+		}
+		return m, nil
 	case "ctrl+d":
 		return m, tea.Quit
 	case "enter":
@@ -190,7 +198,7 @@ func (m *Model) submit() (tea.Model, tea.Cmd) {
 	}
 	switch {
 	case m.running:
-		m.status = "上一轮还在生成，请等它结束，或按 Ctrl+C 取消"
+		m.status = "上一轮还在生成，请等它结束，或按 Esc 取消"
 		return m, nil
 	case m.resuming:
 		m.status = "正在恢复会话，请稍候"
@@ -199,7 +207,7 @@ func (m *Model) submit() (tea.Model, tea.Cmd) {
 		m.status = "正在切换模型，请稍候"
 		return m, nil
 	case m.compacting:
-		m.status = "正在压缩上下文，请稍候，或按 Ctrl+C 取消"
+		m.status = "正在压缩上下文，请稍候，或按 Esc 取消"
 		return m, nil
 	case m.opts.Disabled != "":
 		m.status = "无法发送：" + firstLine(m.opts.Disabled)

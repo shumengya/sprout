@@ -46,6 +46,48 @@ func TestCtrlCWhileRunningCancelsInsteadOfQuitting(t *testing.T) {
 	mustContain(t, plain(m), "正在取消")
 }
 
+func TestEscWhileRunningCancelsInsteadOfQuitting(t *testing.T) {
+	m := newSized(t, Options{Runner: scriptRunner()}, 80, 24)
+	cancelled := false
+	m.running = true
+	m.cancel = func() { cancelled = true }
+
+	_, cmd := m.Update(keyEsc)
+	if isQuit(cmd) || !cancelled {
+		t.Fatalf("生成中 Esc 应取消本轮而不是退出：cancelled=%v", cancelled)
+	}
+	mustContain(t, plain(m), "正在取消")
+}
+
+func TestEscWhenIdleDoesNothing(t *testing.T) {
+	// 空闲时 Esc 不退出程序，也不留下状态提示：它常常是取消选区、关掉面板留下的多余按键。
+	m := newSized(t, Options{Runner: scriptRunner()}, 80, 24)
+	if _, cmd := m.Update(keyEsc); isQuit(cmd) {
+		t.Fatal("空闲时 Esc 不应退出")
+	}
+	if m.status != "" {
+		t.Fatalf("空闲时 Esc 不应留下提示，得到 %q", m.status)
+	}
+}
+
+func TestEscClosesSuggestionInsteadOfCancelling(t *testing.T) {
+	// 候选列表打开时 Esc 归候选列表，不能顺手把正在跑的一轮也取消掉。
+	m := newSized(t, Options{Runner: scriptRunner()}, 80, 24)
+	cancelled := false
+	m.running = true
+	m.cancel = func() { cancelled = true }
+	m.in.SetValue("/th")
+	m.syncSuggest()
+
+	m.Update(keyEsc)
+	if cancelled {
+		t.Fatal("候选列表打开时 Esc 只应关闭候选")
+	}
+	if len(m.sug.items) != 0 {
+		t.Fatalf("Esc 后候选应关闭，仍有 %d 项", len(m.sug.items))
+	}
+}
+
 func TestTypingAndNewline(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 80, 24)
 	for _, k := range []tea.KeyPressMsg{typed("你"), typed("好"), press('j', tea.ModCtrl), typed("x")} {

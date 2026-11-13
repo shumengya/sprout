@@ -95,7 +95,7 @@ func (m *Model) activityLine() string {
 	if !m.running && !m.compacting {
 		return ansi.Truncate(left, m.w, "…")
 	}
-	right := styFaint.Render("Ctrl+C 取消")
+	right := styFaint.Render("Esc 取消")
 	left = ansi.Truncate(left, max(m.w-ansi.StringWidth(right)-1, 1), "…")
 	return left + strings.Repeat(" ", max(m.w-ansi.StringWidth(left)-ansi.StringWidth(right), 1)) + right
 }

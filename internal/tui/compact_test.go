@@ -96,7 +96,7 @@ func TestCompactRunsAndReportsTheResult(t *testing.T) {
 	if !m.compacting || m.running {
 		t.Fatalf("应进入压缩中而不是生成中: compacting=%v running=%v", m.compacting, m.running)
 	}
-	mustContain(t, plain(m), "压缩上下文", "Ctrl+C 取消")
+	mustContain(t, plain(m), "压缩上下文", "Esc 取消")
 
 	m.Update(run())
 	if m.compacting {
@@ -104,7 +104,7 @@ func TestCompactRunsAndReportsTheResult(t *testing.T) {
 	}
 	s := plain(m)
 	mustContain(t, s, "已把前面 12 条消息总结成摘要", "约 9k → 1.2k token")
-	mustNotContain(t, s, "上下文接近上限", "Ctrl+C 取消")
+	mustNotContain(t, s, "上下文接近上限", "Esc 取消")
 
 	// 压缩也算进耗时：压缩期间随时钟走，结束后定格，空闲时不再涨。
 	if line := infoText(m, 0); !strings.Contains(line, "耗时 7s") {

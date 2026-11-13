@@ -89,7 +89,7 @@ func TestActivityLineAppearsOnlyWhileRunning(t *testing.T) {
 	}
 	lines := strings.Split(plain(m), "\n")
 	// 活动行在 分隔线 / 输入框 / 分隔线 / 三行状态栏 的上面。
-	if act := lines[len(lines)-(4+infoRows)]; !strings.Contains(act, "生成中") || !strings.Contains(act, "Ctrl+C 取消") {
+	if act := lines[len(lines)-(4+infoRows)]; !strings.Contains(act, "生成中") || !strings.Contains(act, "Esc 取消") {
 		t.Fatalf("输入框上方应是活动行: %q", act)
 	}
 	apply(m, event.TurnFinished{Reason: event.ReasonStop})
@@ -247,7 +247,7 @@ func TestCancelHintClearsWhenTurnEnds(t *testing.T) {
 	m.Update(keyCtrlC)
 	mustContain(t, plain(m), "正在取消")
 	apply(m, event.TurnFinished{Reason: event.ReasonCancelled})
-	mustNotContain(t, plain(m), "正在取消", "Ctrl+C 取消")
+	mustNotContain(t, plain(m), "正在取消", "Esc 取消")
 	if m.running {
 		t.Fatal("本轮结束后应不在运行")
 	}
