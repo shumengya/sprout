@@ -173,6 +173,9 @@ func runTUI(ap *app, resume string, stderr io.Writer) int {
 		opts.Models = modelStore{ap}
 		opts.Efforts = effortStore{ap}
 		opts.Compactor = compactor{ap}
+		opts.MCP = mcpStore{ap}
+		// 面板改了开关后要重建注册表与 agent；没配置 MCP 服务端时 ApplyMCP 只刷展示，无害。
+		opts.ApplyMCP = ap.applyMCP
 		if resume != "" {
 			if st, notice, err := ap.resume(resume); err != nil {
 				opts.Notices = append(opts.Notices, "恢复会话失败，已开启新会话："+err.Error())

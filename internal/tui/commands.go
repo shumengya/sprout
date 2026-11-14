@@ -37,6 +37,7 @@ const helpText = `快捷键
   /think              展开 / 折叠全部思考过程；点击单条思考过程或工具调用可以单独展开或收起
   /mouse              开关鼠标上报（滚轮、对话区与输入框的拖选复制；关闭后改用终端自带的选中）
   /tools              查看检测到的终端工具、MCP 服务端与已安装的技能
+  /mcp                打开 MCP 面板，启用 / 停用服务端与单个工具，r 刷新重连
   /install-sprout     把当前程序注册成全局 sprout 命令（新开的终端里生效）
   /uninstall-sprout   卸载全局 sprout 命令（程序文件不动）
   /help               显示本帮助
@@ -69,6 +70,8 @@ func (m *Model) slash(text string) (handled bool, cmd tea.Cmd) {
 		m.add(&entry{kind: kindNotice, text: helpText})
 	case "/tools":
 		m.add(&entry{kind: kindNotice, text: m.toolsReport()})
+	case "/mcp":
+		m.mcpCmd()
 	case "/think":
 		m.showThink = !m.showThink
 		for _, e := range m.entries {
@@ -125,12 +128,14 @@ func (m *Model) toolsReport() string {
 			target = s.Command
 		}
 		switch {
+		case !s.Enabled:
+			fmt.Fprintf(&b, "\n  %s  已停用  %s", s.Name, target)
 		case s.Pending:
 			fmt.Fprintf(&b, "\n  %s  连接中…  %s", s.Name, target)
 		case s.Err != "":
 			fmt.Fprintf(&b, "\n  %s  连接失败：%s", s.Name, s.Err)
 		default:
-			fmt.Fprintf(&b, "\n  %s  %d 个工具  %s", s.Name, s.Tools, target)
+			fmt.Fprintf(&b, "\n  %s  %d 个工具  %s", s.Name, s.ToolCount(), target)
 			if s.Version != "" {
 				fmt.Fprintf(&b, "  （协议 %s）", s.Version)
 			}

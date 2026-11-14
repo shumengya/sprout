@@ -284,23 +284,30 @@ func (m *Model) infoStatusLine() string {
 	})
 }
 
-// mcpSegValue 是状态栏“MCP”一项：显示 已连接/已配置 的服务端数。
-// 没配置任何服务端时才是占位符——配置了但全部连接失败要显示 0/N，那是真实状态。
+// mcpSegValue 是状态栏“MCP”一项：显示 已连接/已启用 的服务端数。
+// 分母只算启用的：在 /mcp 里停用的服务端不该让这一项看起来永远差几个。
+// 一个都没启用（或没配置）时才是占位符——启用了但全部连接失败要显示 0/N，那是真实状态。
 func (m *Model) mcpSegValue() string {
-	list := m.opts.Info.MCP
-	if len(list) == 0 {
-		return placeholder
-	}
-	ok := 0
-	for _, s := range list {
-		if s.Pending {
-			return "连接中"
+	enabled, ok, pending := 0, 0, false
+	for _, s := range m.opts.Info.MCP {
+		if !s.Enabled {
+			continue
 		}
-		if s.Err == "" {
+		enabled++
+		switch {
+		case s.Pending:
+			pending = true
+		case s.Err == "":
 			ok++
 		}
 	}
-	return fmt.Sprintf("%d/%d", ok, len(list))
+	switch {
+	case enabled == 0:
+		return placeholder
+	case pending:
+		return "连接中"
+	}
+	return fmt.Sprintf("%d/%d", ok, enabled)
 }
 
 // skillsSegValue 是状态栏“技能”一项：没有安装技能时显示占位符。

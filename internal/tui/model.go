@@ -28,17 +28,31 @@ type ToolInfo struct {
 	Detail string // 如 "PowerShell 7+  C:\Program Files\PowerShell\7\pwsh.exe"
 }
 
-// MCPServerInfo 是一个已连接的 MCP 服务端，供状态栏与 /tools 展示。
+// MCPServerInfo 是一个已配置的 MCP 服务端，供状态栏、/tools 与 /mcp 面板展示。
 type MCPServerInfo struct {
 	Name    string
 	URL     string // 远程服务端的地址；stdio 服务端为空
 	Command string // stdio 服务端的启动命令；远程服务端为空
 	Version string // 协商出的协议版本；连接失败或还没连上时为空
 	Server  string // 服务端自报的名字；可以没有
-	Tools   int    // 服务端提供的工具数（不含被 excludeTools 屏蔽的）
-	Err     string // 非空表示连接失败
+	// Enabled 是 mcp.jsonc 里的开关。没启用的服务端不会去连接，Tools 为空。
+	Enabled bool
+	// Tools 是服务端提供的工具；没连接上时为空。TUI 只看 Enabled，不关心 excludeTools 的原始形态。
+	Tools []MCPToolInfo
+	Err   string // 非空表示连接失败
 	// Pending 表示还在连接中。启动时连接在后台进行，界面先显示这一状态。
 	Pending bool
+}
+
+// ToolCount 是服务端提供且未被屏蔽的工具数。
+func (s MCPServerInfo) ToolCount() int {
+	n := 0
+	for _, t := range s.Tools {
+		if t.Enabled {
+			n++
+		}
+	}
+	return n
 }
 
 // SkillInfo 是一个已安装的技能。Path 是 SKILL.md 的绝对路径，用来认出模型读到的是哪个技能。
@@ -108,6 +122,8 @@ type Options struct {
 	// ApplyMCP 在 MCP 连接完成后调用，返回刷新后的 Info 与要显示的提示（连接失败等）。
 	// 它会重建 agent 并保留对话历史，因此只能在空闲时调用；TUI 会等到一轮结束再调。
 	ApplyMCP func() (Info, []string)
+	// MCP 提供 /mcp 面板的读写操作；为 nil 时 /mcp 不可用。
+	MCP MCPPanel
 }
 
 // 输入框按内容增高：空时一行，最多显示这么多行，再多就在输入框内部滚动。
@@ -138,6 +154,7 @@ type Model struct {
 	picker    *picker         // /model 选择器；非 nil 时替换输入框，接管按键
 	effort    *effortPicker   // /effort 档位条；同上
 	browser   *sessionBrowser // /resume 会话浏览器；同上
+	mcpPicker *mcpPicker      // /mcp 服务端面板；同上
 	sug       suggestState    // 输入 / 开头时输入框上方的命令候选
 
 	running    bool
@@ -269,6 +286,7 @@ func (m *Model) applyMCP() {
 	m.mcpDone = false
 	info, notices := m.opts.ApplyMCP()
 	m.opts.Info = info
+	m.syncMCPServers()
 	for _, n := range notices {
 		m.add(&entry{kind: kindNotice, text: n})
 	}
@@ -329,6 +347,8 @@ func (m *Model) overlay() (string, bool) {
 		return m.effortView(max(m.w, 1)), true
 	case m.browser != nil:
 		return m.browserView(max(m.w, 1)), true
+	case m.mcpPicker != nil:
+		return m.mcpView(max(m.w, 1)), true
 	}
 	return "", false
 }

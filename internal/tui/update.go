@@ -110,6 +110,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh()
 		return m, nil
 
+	case mcpDoneMsg:
+		m.onMCPDone(msg)
+		m.refresh()
+		return m, nil
+
 	case mcpReadyMsg:
 		m.mcpDone = m.opts.ApplyMCP != nil
 		return m, nil
@@ -149,6 +154,10 @@ func (m *Model) onKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if handled, cmd := m.sessionKey(k); handled { // 会话浏览器同上
+		m.refresh()
+		return m, cmd
+	}
+	if handled, cmd := m.mcpKey(k); handled { // MCP 面板同上
 		m.refresh()
 		return m, cmd
 	}

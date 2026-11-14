@@ -26,6 +26,7 @@ var slashCommands = []slashCommand{
 	{"/resume", "", "浏览并恢复历史会话（可搜索、重命名、删除）"},
 	{"/image", "[路径|clear]", "附加图片到下一条消息"},
 	{"/tools", "", "查看检测到的终端工具"},
+	{"/mcp", "", "管理 MCP 服务端与工具开关"},
 	{"/mouse", "", "开关鼠标上报"},
 	{"/install-sprout", "", "把当前程序注册成全局 sprout 命令"},
 	{"/uninstall-sprout", "", "卸载全局 sprout 命令"},
@@ -63,7 +64,7 @@ func (m *Model) syncSuggest() {
 		s.forValue, s.sel, s.moved = v, 0, false
 	}
 	s.items, s.token = nil, ""
-	if m.picker != nil || m.effort != nil || m.browser != nil || v == s.off {
+	if m.picker != nil || m.effort != nil || m.browser != nil || m.mcpPicker != nil || v == s.off {
 		return
 	}
 	s.items, s.token = m.suggestionsFor(v)

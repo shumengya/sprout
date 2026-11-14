@@ -116,15 +116,16 @@ func TestMCPToolsAreRegisteredWithPrefixAndExclusions(t *testing.T) {
 		"fake": {Enable: true, URL: srv.URL + "/mcp", ExcludeTools: []string{"secret"}},
 	}}
 	e := testEnv(nil, shellSet(true, true))
-	set := connectMCP(context.Background(), f, e, slog.New(slog.DiscardHandler), mcp.LoadVersions(filepath.Join(t.TempDir(), "v.json")))
-	if set == nil || len(set.servers) != 1 {
+	set := newMCPSet(f)
+	connectMCP(context.Background(), set, f, e, slog.New(slog.DiscardHandler), mcp.LoadVersions(filepath.Join(t.TempDir(), "v.json")))
+	if len(set.servers) != 1 {
 		t.Fatalf("应连接一个服务端: %+v", set)
 	}
 	if set.servers[0].Err != "" {
 		t.Fatalf("连接失败: %s", set.servers[0].Err)
 	}
-	if set.servers[0].Tools != 1 {
-		t.Errorf("被屏蔽的工具不该计入: Tools = %d", set.servers[0].Tools)
+	if set.servers[0].ToolCount() != 1 {
+		t.Errorf("被屏蔽的工具不该计入: ToolCount = %d", set.servers[0].ToolCount())
 	}
 
 	reg, notes := registerMCPInto(t, set, f)
@@ -150,8 +151,9 @@ func TestMCPConnectionFailureIsRecordedNotFatal(t *testing.T) {
 	f := &config.MCPFile{Servers: map[string]config.MCPServer{
 		"dead": {Enable: true, Command: "definitely-not-a-real-binary-xyz"},
 	}}
-	set := connectMCP(context.Background(), f, testEnv(nil, shellSet(true, true)), slog.New(slog.DiscardHandler), mcp.LoadVersions(filepath.Join(t.TempDir(), "v.json")))
-	if set == nil || len(set.servers) != 1 || set.servers[0].Err == "" {
+	set := newMCPSet(f)
+	connectMCP(context.Background(), set, f, testEnv(nil, shellSet(true, true)), slog.New(slog.DiscardHandler), mcp.LoadVersions(filepath.Join(t.TempDir(), "v.json")))
+	if len(set.servers) != 1 || set.servers[0].Err == "" {
 		t.Fatalf("失败应记录在 servers 里: %+v", set)
 	}
 	if len(set.clients) != 0 {
@@ -271,7 +273,7 @@ func TestBackgroundMCPIsAppliedAndKeepsHistory(t *testing.T) {
 	if len(notices) != 0 {
 		t.Fatalf("不应有提示: %v", notices)
 	}
-	if len(info.MCP) != 1 || info.MCP[0].Pending || info.MCP[0].Err != "" || info.MCP[0].Tools != 1 {
+	if len(info.MCP) != 1 || info.MCP[0].Pending || info.MCP[0].Err != "" || info.MCP[0].ToolCount() != 1 {
 		t.Fatalf("连好后的状态 = %+v", info.MCP)
 	}
 	if _, ok := a.reg.Get("mcp__fake__echo"); !ok {
@@ -286,5 +288,117 @@ func TestBackgroundMCPIsAppliedAndKeepsHistory(t *testing.T) {
 	// 版本缓存写下来了，下次启动可以跳过 server/discover。
 	if _, err := os.Stat(config.MCPVersionsPath(dir)); err != nil {
 		t.Errorf("应写出版本缓存: %v", err)
+	}
+}
+
+// mcpApp 装配一个带 fake 服务端的 app，返回它和配置目录。
+func mcpApp(t *testing.T, cfg string) (*app, string) {
+	t.Helper()
+	model := newModelServer(t, "bash")
+	dir := t.TempDir()
+	writeServerConfig(t, dir, model.URL)
+	if err := os.WriteFile(config.MCPPath(dir), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a, err := buildApp(dir, testEnv(nil, shellSet(true, true)), nil)
+	if err != nil || a.ag == nil {
+		t.Fatalf("装配失败: %v / %s", err, a.disabled)
+	}
+	t.Cleanup(a.close)
+	a.waitMCP()
+	a.applyMCP()
+	return a, dir
+}
+
+// 面板停用服务端：写回 mcp.jsonc 的 enable，工具随之从 agent 的注册表里消失。
+func TestMCPSetServerToggleWritesConfigAndRebuilds(t *testing.T) {
+	srv := fakeMCPServer(t)
+	defer srv.Close()
+	a, dir := mcpApp(t, `{"servers": {"fake": {"enable": true, "url": "`+srv.URL+`/mcp", "excludeTools": ["secret"]}}}`)
+
+	if _, ok := a.reg.Get("mcp__fake__echo"); !ok {
+		t.Fatalf("启用时应有工具: %v", a.reg.Names())
+	}
+	store := mcpStore{a}
+	notice, err := store.SetServer("fake", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.applyMCP() // TUI 会在空闲时做这一步，这里手动模拟
+	if !strings.Contains(notice, "已停用") {
+		t.Errorf("提示 = %q", notice)
+	}
+	b, _ := os.ReadFile(config.MCPPath(dir))
+	if !strings.Contains(string(b), `"enable": false`) {
+		t.Errorf("应写回 enable=false:\n%s", b)
+	}
+	if _, ok := a.reg.Get("mcp__fake__echo"); ok {
+		t.Errorf("停用后 agent 里不该再有它的工具: %v", a.reg.Names())
+	}
+	if info, _ := a.applyMCP(); len(info.MCP) != 1 || info.MCP[0].Enabled {
+		t.Errorf("停用后的状态 = %+v", info.MCP)
+	}
+
+	// 再启用：重新连上，工具回来。
+	if _, err := store.SetServer("fake", true); err != nil {
+		t.Fatal(err)
+	}
+	a.applyMCP()
+	if _, ok := a.reg.Get("mcp__fake__echo"); !ok {
+		t.Errorf("重新启用后应恢复工具: %v", a.reg.Names())
+	}
+}
+
+// 面板停用单个工具：写进 excludeTools，仅重建注册表，不重连。
+func TestMCPSetToolWritesExcludeTools(t *testing.T) {
+	srv := fakeMCPServer(t)
+	defer srv.Close()
+	a, dir := mcpApp(t, `{"servers": {"fake": {"enable": true, "url": "`+srv.URL+`/mcp", "excludeTools": ["secret"]}}}`)
+	store := mcpStore{a}
+
+	if _, err := store.SetTool("fake", "echo", false); err != nil {
+		t.Fatal(err)
+	}
+	a.applyMCP()
+	if _, ok := a.reg.Get("mcp__fake__echo"); ok {
+		t.Errorf("停用的工具不该注册: %v", a.reg.Names())
+	}
+	b, _ := os.ReadFile(config.MCPPath(dir))
+	if !strings.Contains(string(b), `"echo"`) {
+		t.Errorf("应写进 excludeTools:\n%s", b)
+	}
+
+	// 面板也能解除配置里原有的屏蔽。
+	if _, err := store.SetTool("fake", "secret", true); err != nil {
+		t.Fatal(err)
+	}
+	a.applyMCP()
+	if _, ok := a.reg.Get("mcp__fake__secret"); !ok {
+		t.Errorf("解除屏蔽后应注册: %v", a.reg.Names())
+	}
+}
+
+// 刷新：重读 mcp.jsonc 并重连，用户手工改过的地址也能生效。
+func TestMCPRefreshPicksUpEditedConfig(t *testing.T) {
+	first := fakeMCPServer(t)
+	defer first.Close()
+	a, dir := mcpApp(t, `{"servers": {"fake": {"enable": true, "url": "`+first.URL+`/mcp"}}}`)
+	store := mcpStore{a}
+
+	// 把一个不存在的地址写进配置再刷新：连接失败但不应让程序起不来。
+	cfg := `{"servers": {"fake": {"enable": true, "url": "http://127.0.0.1:1/mcp", "timeoutSeconds": 1}}}`
+	if err := os.WriteFile(config.MCPPath(dir), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	notice, err := store.Refresh()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.applyMCP()
+	if !strings.Contains(notice, "连接失败") {
+		t.Errorf("提示应说明失败: %q", notice)
+	}
+	if _, ok := a.reg.Get("mcp__fake__echo"); ok {
+		t.Error("连不上时不该注册工具")
 	}
 }

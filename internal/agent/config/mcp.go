@@ -113,6 +113,16 @@ func mapKeys[V any](m map[string]V) func(func(string) bool) {
 	}
 }
 
+// ServerNames 返回全部服务端名（含未启用的），按名字排序。
+func (f *MCPFile) ServerNames() []string {
+	names := make([]string, 0, len(f.Servers))
+	for name := range f.Servers {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
+}
+
 // EnabledServers 返回已启用的服务端名，按名字排序。
 func (f *MCPFile) EnabledServers() []string {
 	var out []string

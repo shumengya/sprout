@@ -83,7 +83,7 @@ stdio 的读循环按 id 分发响应到等待者，所以同一批工具调用�
 - 这期间提问也能用，只是暂时没有 MCP 工具；内置工具照常工作。
 - 所有服务端并行连接，整体上限 20 秒；单个服务端按自己的 `timeoutSeconds` 超时。任一个失败都不阻止 sprout 启动，失败原因出现在对话区顶部提示、`/tools` 与状态栏。
 - `sprout run` 是单次提问，会先等连接结束再问，保证这一次能用上 MCP 工具。
-- 连接只发生在启动时；改完 `mcp.jsonc` 需要重启 sprout。
+- 启动后改 `mcp.jsonc`（地址、命令、开关）在 TUI 里按 `/mcp` 面板的 `r` 重连即可生效，不必重启；`sprout run` 每次启动都会重新读配置，同样不必手动重启。
 - 退出时关闭全部连接（stdio 终止子进程，HTTP 尽力 DELETE）。
 
 ### 协议版本缓存
@@ -92,9 +92,46 @@ stdio 的读循环按 id 分发响应到等待者，所以同一批工具调用�
 
 ## 界面
 
-- 状态栏第三行“MCP”显示 `已连接/已配置`，例如 `2/3`；连接进行中显示 `连接中`；没有配置任何服务端时显示 `—`。
-- `/tools` 列出每个服务端：工具数、地址或命令、协商出的协议版本、连接失败原因。
+- 状态栏第三行“MCP”显示 `已连接/已启用`，例如 `2/3`（分母只算启用的服务端）；连接进行中显示 `连接中`；一个都没启用时显示 `—`。
+- `/tools` 列出每个服务端：工具数、地址或命令、协商出的协议版本、连接失败原因、是否停用。
+- `/mcp` 打开服务端面板，见下一节。
 - `sprout run` 把连接失败写到 stderr。
+
+## `/mcp` 面板
+
+在 TUI 里输入 `/mcp` 打开。面板替换输入框，列出全部已配置的服务端（含停用的）以及展开后的工具：
+
+```
+MCP 服务端                                                    已启用 1/2
+↑↓ 选择 · 空格 / Enter 开关 · → 展开 · ← 收起 · r 刷新 · Esc 关闭
+❯ ▾ ● github                                                      1/2 个工具
+    ●   search  搜索仓库
+    ○   write_file  写文件
+  ▾ − fs  已停用
+(1/4)
+```
+
+| 按键 | 作用 |
+| --- | --- |
+| `↑` `↓`（或 `Ctrl+P` / `Ctrl+N` / `j` / `k`） | 在服务端行与工具行之间移动 |
+| `PgUp` `PgDn` `Home` `End` | 快速翻页 / 跳到首尾 |
+| `→` / `l` | 展开当前位置的服务端 |
+| `←` / `h` | 收起；在工具行上按会连同服务端一起收起并回到服务端行 |
+| `空格` 或 `Enter` | 开关当前位置：服务端切换 `enable`，工具切换是否交给模型 |
+| `r` | 重读 `mcp.jsonc`、断开并重连全部已启用的服务端 |
+| `Esc` | 关闭面板 |
+
+行首标记：`●` 已连接 / 工具已启用，`○` 工具已屏蔽，`−` 服务端已停用，`◌` 连接中，`✗` 连接失败。
+
+行为：
+
+- **开关直接写回 `mcp.jsonc`**：服务端写 `enable`，工具写 `excludeTools`。写入保留原有的注释、缩进和字段顺序（只替换那个值，缺键时按同层缩进插一行），不重新序列化整个文件。改完会重新解析并跑一次校验；改动让配置不合法时（例如启用一个既没写 `url` 也没写 `command` 的服务端）回滚并报错，不留下坏配置。
+- **工具开关与 `excludeTools` 是同一份数据**：在面板里打开曾被 `excludeTools` 屏蔽的工具，就是把名字从列表里删掉；列表清空后写回 `[]`，键保留。因此面板和手改配置不会各说各话。
+- **服务端开关**：停用会断开连接并从 agent 的注册表里移除它的工具；启用会连接该服务端，失败时 `enable: true` 仍留在配置里（状态记为“连接失败”），修好网络后按 `r` 重试即可。
+- **工具开关不重连**：服务端的工具列表没变，只按新的 `excludeTools` 重新注册。
+- **重建 agent**：任何开关生效后都要重建 agent 才能让模型看到新的工具集，这一步由 TUI 在**空闲时**的收尾执行（和后台连接完成时一样），保留对话历史与摘要。所以面板只能在空闲时打开；生成、压缩、恢复会话期间 `/mcp` 会被拒绝。一次面板操作进行中（连接可能要几秒）再按开关会被忽略，避免并发改同一份配置。
+- 当前模型 `tools=false` 时不能启用服务端（注册了也发不出去）。
+- 停在工具行上按空格时，会同时写入配置并重建注册表，不需要再点一次服务端。
 
 ## 已知限制
 
@@ -103,7 +140,7 @@ stdio 的读循环按 id 分发响应到等待者，所以同一批工具调用�
 - 多轮请求（`resultType: "input_required"`，MRTR）不处理：服务端要求中途补充输入时会返回错误文本。
 - 没有工具列表缓存：每次启动重新发现。`tools/list` 的 `ttlMs` / `cacheScope` 目前忽略。协议版本本身有缓存（见上文），跳过的是探测，不是 `tools/list`。
 - 没有 OAuth：远程服务端需要令牌时，自己用 `headers` 配。
-- 工具级开关只有 `excludeTools`，没有 WebUI 管理面板（WebUI 是 M4）。
+- 开关只有 TUI 的 `/mcp` 面板；没有 WebUI 管理面板（WebUI 是 M4）。面板不做配置编辑（加服务端、改地址），这些仍要手改 `mcp.jsonc`。
 - 没有 `resources/subscribe`、`notifications/tools/list_changed` 的处理：服务端工具列表变化要重启才发现。
 
 ## 代码位置
@@ -113,9 +150,9 @@ stdio 的读循环按 id 分发响应到等待者，所以同一批工具调用�
 - `internal/agent/mcp/stdio.go`、`http.go`：两种传输
 - `internal/agent/mcp/jsonrpc.go`：JSON-RPC 消息结构
 - `internal/agent/mcp/tool.go`：把 MCP 工具适配成 `tool.Tool`
-- `internal/agent/config/mcp.go`、`mcp_template.go`：`mcp.jsonc` 的解析、校验与模板；`paths.go` 的 `MCPVersionsPath` 是缓存文件位置
-- `cmd/sprout/mcp.go`：后台连接（`startMCP` / `waitMCP` / `applyMCP`）、环境变量展开、工具注册
-- `internal/tui/model.go`：`Options.MCPReady` / `Options.ApplyMCP` 与“连接中”状态；`update.go` 在空闲时接入
+- `internal/agent/config/mcp.go`、`mcp_template.go`：`mcp.jsonc` 的解析、校验与模板；`mcp_edit.go` 是保留注释的单键写回（`SetMCPServerEnabled` / `SetMCPToolExcluded`）；`paths.go` 的 `MCPVersionsPath` 是缓存文件位置
+- `cmd/sprout/mcp.go`：后台连接（`startMCP` / `waitMCP` / `applyMCP`）、环境变量展开、工具注册，以及 `/mcp` 面板的实现（`mcpStore`）
+- `internal/tui/mcp.go`：`/mcp` 面板的交互与渲染；`model.go` 的 `Options.MCP` / `Options.ApplyMCP` 与“连接中”状态，`update.go` 在空闲时接入
 
 ## 测试
 
@@ -123,4 +160,6 @@ stdio 的读循环按 id 分发响应到等待者，所以同一批工具调用�
 - `internal/agent/mcp/versions_test.go`：版本缓存往返、目标变化失效、令牌不落盘、坏文件容错、按缓存版本跳过探测、过期缓存回退。
 - `internal/agent/mcp/stdio_test.go`：真实子进程充当服务端（测试二进制自举），验证握手、分页外的调用、`isError`、命令不存在、超时。
 - `internal/agent/config/mcp_test.go`：模板合法、示例与模板一致、缺文件不报错、校验一次报全、按 enable 过滤。
-- `cmd/sprout/mcp_test.go`：`${VAR}` 展开、`excludeTools` 生效、注册名前缀、连接失败只记录不致命、后台连接后工具接入且保留历史。
+- `internal/agent/config/mcp_edit_test.go`：写回保留注释/BOM/权限、非法改动回滚、工具开关与 `excludeTools` 的双向切换、单行与空对象的插入排版。
+- `internal/tui/mcp_test.go`：面板列出服务端与工具、开关服务端与工具、展开/收起、刷新、失败提示、忙时忽略按键、生成中拒绝打开。
+- `cmd/sprout/mcp_test.go`：`${VAR}` 展开、`excludeTools` 生效、注册名前缀、连接失败只记录不致命、后台连接后工具接入且保留历史、面板开关写回配置并重建注册表、刷新重读配置。

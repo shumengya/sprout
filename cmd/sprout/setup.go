@@ -164,7 +164,8 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 	}
 	// 模型不支持工具时连 MCP 没有意义：那些工具注册了也发不下去。
 	// 连接放到后台：服务端在网络那头，等它们就绪要几秒，界面不该陪着等。
-	if sel.Model.SupportsTools() && len(mcpCfg.EnabledServers()) > 0 {
+	// 只要配置里有服务端就建集合，哪怕一个都没启用——/mcp 面板要把它们列出来供用户打开。
+	if sel.Model.SupportsTools() && len(mcpCfg.Servers) > 0 {
 		a.startMCP(mcpCfg)
 	}
 	reg, err := a.registerTools(cfg, e)
@@ -313,17 +314,10 @@ func (a *app) registerTools(cfg *config.File, e env) (*tool.Registry, error) {
 
 	// MCP 工具排在内置与外部工具之后：名字都带 mcp__ 前缀，正常情况下不会撞名，
 	// 万一撞了（比如两个服务端都叫同一个名字）先注册的赢，冲突的那条记进 Unavailable。
-	a.info.Unavailable = append(a.info.Unavailable,
-		registerMCPTools(reg, a.connectedMCP(), a.mcpCfg, add, a.log)...)
+	// 集合与配置成对取：/mcp 面板会在另一个 goroutine 里换掉它们，分开取会配错版本。
+	set, f := a.mcpSnapshot()
+	a.info.Unavailable = append(a.info.Unavailable, registerMCPTools(reg, set, f, add, a.log)...)
 	return reg, nil
-}
-
-// connectedMCP 返回后台已连好的服务端；仍在连接或没有启用时为 nil。
-// 后台 goroutine 会写 a.mcp，所以读取要加锁。
-func (a *app) connectedMCP() *mcpSet {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.mcp
 }
 
 // buildAgent 用选定的模型与工具构造 agent。渲染模型切换时也走这里，保证两条路径的装配完全一致。
