@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -103,14 +105,34 @@ func (d ModelsDev) Lookup(modelID, baseURL string) (ModelSpec, bool) {
 	return s, ok
 }
 
-// normBaseURL 去掉末尾斜杠并小写，让 "https://api.deepseek.com" 与 "https://api.deepseek.com/" 对得上。
+// normBaseURL 小写、去掉末尾斜杠和末尾的接口版本段，让
+// "https://api.deepseek.com"、".../"、".../v1" 都与 models.dev 的 api 字段对得上。
+// 用户常在 models.jsonc 里写带 /v1 的地址，models.dev 只记到域名。
 func normBaseURL(u string) string {
-	return strings.TrimRight(strings.ToLower(strings.TrimSpace(u)), "/")
+	u = strings.TrimRight(strings.ToLower(strings.TrimSpace(u)), "/")
+	if i := strings.LastIndexByte(u, '/'); i > len("https://") {
+		last := u[i+1:]
+		if versionSegment.MatchString(last) {
+			return u[:i]
+		}
+	}
+	return u
 }
+
+// versionSegment 匹配 v1、v1beta、v2 这类接口版本段。
+var versionSegment = regexp.MustCompile(`^v[0-9][0-9a-z]*$`)
 
 func indexModelsDev(f modelsDevFile) ModelsDev {
 	d := ModelsDev{byID: map[string]ModelSpec{}, byAPI: map[string]ModelSpec{}}
-	for _, p := range f.Providers {
+	// 按渠道名排序再遍历：byID 保留“先见到的”，map 顺序随机会让同名模型的
+	// 回退结果每次不同，配置补全出来的窗口也跟着跳。
+	names := make([]string, 0, len(f.Providers))
+	for name := range f.Providers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		p := f.Providers[name]
 		for id, m := range p.Models {
 			s := m.spec()
 			if _, seen := d.byID[id]; !seen {
