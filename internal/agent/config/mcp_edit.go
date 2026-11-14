@@ -156,11 +156,20 @@ func insertMember(text []byte, obj *hujson.Value, key, value string) []byte {
 	member := strconv.Quote(key) + ": " + value
 
 	if len(o.Members) == 0 {
-		if inline {
+		interior := text[obj.StartOffset+1 : closeAt]
+		switch {
+		case inline && len(bytes.TrimSpace(interior)) == 0:
 			return splice(text, obj.StartOffset+1, closeAt, member)
+		case !inline:
+			// 对象里可能已经有注释（比如模板里的注册示例）：插在闭合括号那行之前，
+			// 而不是替换整个内部，否则用户的注释会被抹掉。
+			indent := lineIndent(text, closeAt) + "  "
+			lineAt := lineFrom(text, closeAt)
+			return splice(text, lineAt, lineAt, indent+member+"\n")
+		default:
+			// 单行且对象里有注释：追加在 '{' 之后，原注释留在原处。
+			return splice(text, obj.StartOffset+1, obj.StartOffset+1, " "+member+",")
 		}
-		indent := lineIndent(text, closeAt) + "  "
-		return splice(text, obj.StartOffset+1, closeAt, "\n"+indent+member+"\n"+lineIndent(text, closeAt))
 	}
 
 	last := o.Members[len(o.Members)-1]

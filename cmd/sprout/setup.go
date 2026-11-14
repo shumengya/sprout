@@ -47,9 +47,9 @@ type app struct {
 	mcpCfg  *config.MCPFile
 	prompt  *agent.PromptTemplate // SYSTEMPROMPT.md；切模型、/new 时按同一份模板重新渲染
 	instr   []agent.Instruction   // AGENTS.md：启动时读一次，切模型时按同一份重新拼接
-	skills  []skills.Skill        // 发现到的技能，启动时扫一次；/skills 重新扫描时整体替换
-	// skillState 是 skills.jsonc 里的开关；skillsDirty 表示改过、等待空闲时重建 agent。
-	skillState  *config.SkillState
+	skills  []skills.Skill        // 注册表里已加载的技能；/skills 重新扫描时整体替换
+	// skillCfg 是 skills.jsonc 的注册表；skillsDirty 表示改过、等待空闲时重建 agent。
+	skillCfg    *config.SkillsFile
 	skillsDirty bool
 	env         env
 	log         *slog.Logger
@@ -128,12 +128,14 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 	}
 
 	// 技能是“用到才翻的手册”：启动时只扫元数据，正文由模型自己按需 read。
-	skillList, skillProblems := loadSkills(dataDir, e.cwd, e.home)
+	// skills.jsonc 是注册表：扫描到的新技能在这里自动登记，只有注册的才交给模型。
+	skillCfg, skillList, skillProblems, err := skillCatalog(dataDir, e.cwd, e.home)
+	if err != nil {
+		return nil, err
+	}
 	for _, sk := range skillList {
 		log.Info("已加载技能", "name", sk.Name, "source", string(sk.Source), "path", sk.Path)
 	}
-	// skills.jsonc 记着 /skills 面板停用过的技能；读不了就按全开处理，不让技能整体消失。
-	skillState, stateProblems := loadSkillState(dataDir)
 
 	// mcp.jsonc 里的服务端是可选扩展：缺文件视为没有，单个服务端连不上只记提示。
 	mcpCfg, err := loadMCPConfig(dataDir)
@@ -157,16 +159,15 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 
 	a := &app{
 		dataDir: dataDir, cwd: e.cwd, cfg: cfg, tools: toolsCfg, mcpCfg: mcpCfg,
-		prompt: prompt, instr: instr, skills: skillList, skillState: skillState, env: e, log: log, sel: sel, effort: effort,
+		prompt: prompt, instr: instr, skills: skillList, skillCfg: skillCfg, env: e, log: log, sel: sel, effort: effort,
 	}
 	a.notices = append(a.notices, instrProblems...)
 	a.notices = append(a.notices, skillProblems...)
-	a.notices = append(a.notices, stateProblems...)
 	a.info = tui.Info{
 		Model: sel.ModelName, Provider: sel.ProviderName + "，" + sel.Provider.Protocol,
 		Cwd: e.cwd, DataDir: dataDir, Vision: sel.Model.SupportsVision(), Effort: effortLabel(sel, effort),
 		ContextWindow: sel.Model.ContextWindow, Price: tuiPrice(sel.Model.Price),
-		Skills: skillInfos(skillList, skillState),
+		Skills: skillInfos(skillList, skillCfg),
 	}
 	// 模型不支持工具时连 MCP 没有意义：那些工具注册了也发不下去。
 	// 连接放到后台：服务端在网络那头，等它们就绪要几秒，界面不该陪着等。

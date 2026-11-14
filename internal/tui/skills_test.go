@@ -10,10 +10,11 @@ import (
 
 // fakeSkills 记录面板发来的操作，返回固定的技能列表。
 type fakeSkills struct {
-	skills []SkillInfo
-	calls  []string
-	err    error
-	notice string
+	skills     []SkillInfo
+	scanAgents bool
+	calls      []string
+	err        error
+	notice     string
 }
 
 func (f *fakeSkills) Skills() []SkillInfo { return f.skills }
@@ -25,6 +26,14 @@ func (f *fakeSkills) SetSkill(name string, enable bool) (string, error) {
 
 func (f *fakeSkills) Rescan() (string, error) {
 	f.calls = append(f.calls, "rescan")
+	return f.notice, f.err
+}
+
+func (f *fakeSkills) ScanAgents() bool { return f.scanAgents }
+
+func (f *fakeSkills) SetScanAgents(on bool) (string, error) {
+	f.scanAgents = on
+	f.calls = append(f.calls, "agents:"+boolTag(on))
 	return f.notice, f.err
 }
 
@@ -156,4 +165,24 @@ func TestSkillsPanelEmptyList(t *testing.T) {
 			runCmd(m, cmd)
 		}
 	}
+}
+
+// a 键切换 .agents/skills 的自动加载，面板上的状态跟着变。
+func TestSkillsPanelTogglesScanAgents(t *testing.T) {
+	f := &fakeSkills{skills: skillList(), scanAgents: true}
+	m := openSkills(t, f)
+	mustContain(t, plain(m), ".agents 自动加载：开")
+
+	_, cmd := m.Update(typed("a"))
+	runCmd(m, cmd)
+	if len(f.calls) != 1 || f.calls[0] != "agents:off" {
+		t.Fatalf("a 应关闭自动加载，得到 %v", f.calls)
+	}
+	mustContain(t, plain(m), ".agents 自动加载：关")
+
+	// 面板关掉再打开，状态从实现里重新取。
+	m.Update(keyEsc)
+	m.in.SetValue("/skills")
+	m.Update(keyEnter)
+	mustContain(t, plain(m), ".agents 自动加载：关")
 }

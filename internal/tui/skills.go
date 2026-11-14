@@ -20,16 +20,21 @@ type SkillPanel interface {
 	SetSkill(name string, enable bool) (string, error)
 	// Rescan 重新扫描技能目录，返回给用户看的提示（含扫描到的问题）。
 	Rescan() (string, error)
+	// ScanAgents 报告是否加载 .agents/skills 下的技能。
+	ScanAgents() bool
+	// SetScanAgents 打开或关闭 .agents/skills 的自动加载。
+	SetScanAgents(on bool) (string, error)
 }
 
 // skillPicker 是 /skills 的技能面板：替换输入框，↑↓ 选择，空格开关，r 重新扫描。
 type skillPicker struct {
-	skills []SkillInfo
-	cursor int
-	offset int
-	busy   string // 非空表示正在执行某个操作，期间不再接受新操作
-	note   string // 最近一次操作的结果
-	noteOK bool
+	skills     []SkillInfo
+	scanAgents bool
+	cursor     int
+	offset     int
+	busy       string // 非空表示正在执行某个操作，期间不再接受新操作
+	note       string // 最近一次操作的结果
+	noteOK     bool
 }
 
 // selected 返回当前高亮的技能；列表为空时 ok 为 false。
@@ -66,7 +71,7 @@ func (m *Model) skillsCmd() {
 	case m.busy():
 		m.status = "正在生成、恢复或压缩中，暂时不能管理技能"
 	default:
-		m.skillPick = &skillPicker{skills: s.Skills()}
+		m.skillPick = &skillPicker{skills: s.Skills(), scanAgents: s.ScanAgents()}
 		m.status = ""
 	}
 }
@@ -121,6 +126,15 @@ func (m *Model) skillKey(k tea.KeyPressMsg) (bool, tea.Cmd) {
 		})
 	case "r":
 		return true, m.skillDo("正在重新扫描技能目录…", func(s SkillPanel) (string, error) { return s.Rescan() })
+	case "a":
+		on := !p.scanAgents
+		label := "开启"
+		if !on {
+			label = "关闭"
+		}
+		return true, m.skillDo("正在"+label+" .agents/skills 的自动加载…", func(s SkillPanel) (string, error) {
+			return s.SetScanAgents(on)
+		})
 	}
 	p.cursor = min(max(p.cursor, 0), max(len(p.skills)-1, 0))
 	return true, nil
@@ -148,6 +162,11 @@ func (m *Model) onSkillDone(msg skillDoneMsg) {
 		return // 面板已经关了，结果只影响 Info（由 applyMCP 刷新）
 	}
 	p.busy = ""
+	// 操作可能在后台改了技能列表与开关本身（重扫、切 .agents 开关），
+	// 先就地同步一次，等 applyMCP 刷新 Info 前面板也不会停在旧状态。
+	p.skills = m.opts.Skills.Skills()
+	p.scanAgents = m.opts.Skills.ScanAgents()
+	p.cursor = min(max(p.cursor, 0), max(len(p.skills)-1, 0))
 	if msg.err != nil {
 		p.note, p.noteOK = msg.err.Error(), false
 		return
@@ -162,6 +181,9 @@ func (m *Model) syncSkills() {
 	}
 	m.skillPick.skills = m.opts.Info.Skills
 	m.skillPick.cursor = min(max(m.skillPick.cursor, 0), max(len(m.skillPick.skills)-1, 0))
+	if m.opts.Skills != nil {
+		m.skillPick.scanAgents = m.opts.Skills.ScanAgents()
+	}
 }
 
 // skillRows 是面板列表最多显示的行数：屏幕越高显示越多，3 到 14 行。
@@ -175,7 +197,11 @@ func (m *Model) skillView(w int) string {
 	lines = append(lines, spread(
 		styBrowseTitle.Render("技能"),
 		styFaint.Render(fmt.Sprintf("已启用 %d/%d", p.enabledCount(), len(p.skills))), w))
-	lines = append(lines, styFaint.Render("↑↓ 选择 · 空格 / Enter 开关 · r 重新扫描 · Esc 关闭"))
+	agents := ".agents 自动加载：关"
+	if p.scanAgents {
+		agents = ".agents 自动加载：开"
+	}
+	lines = append(lines, styFaint.Render("↑↓ 选择 · 空格 / Enter 开关 · a "+agents+"（按 a 切换）· r 重新扫描 · Esc 关闭"))
 
 	if len(p.skills) == 0 {
 		lines = append(lines, styFaint.Render("  没有发现技能，放进数据目录的 skills/ 或项目里的 .agents/skills/ 后按 r。"))

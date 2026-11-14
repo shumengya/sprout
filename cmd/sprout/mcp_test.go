@@ -161,57 +161,94 @@ func TestMCPConnectionFailureIsRecordedNotFatal(t *testing.T) {
 	}
 }
 
-func TestSkillRootsOrderAndHomeOmitted(t *testing.T) {
+func TestSkillRootsOrderAndAgentsToggle(t *testing.T) {
 	root := t.TempDir()
 	dataDir, cwd, home := filepath.Join(root, "data", ".sprout"), filepath.Join(root, "work", "proj"), filepath.Join(root, "home")
 
-	roots := skillRoots(dataDir, cwd, home)
-	var dirs []string
-	for _, r := range roots {
-		dirs = append(dirs, r.Dir)
+	dirsOf := func(roots []skills.Root) []string {
+		var dirs []string
+		for _, r := range roots {
+			dirs = append(dirs, r.Dir)
+		}
+		return dirs
 	}
+	roots := skillRoots(dataDir, cwd, home, true)
 	want := []string{
 		filepath.Join(cwd, ".sprout", "skills"),
-		filepath.Join(cwd, ".agents", "skills"),
 		filepath.Join(dataDir, "skills"),
+		filepath.Join(cwd, ".agents", "skills"),
 		filepath.Join(home, ".agents", "skills"),
 	}
-	if strings.Join(dirs, "|") != strings.Join(want, "|") {
-		t.Errorf("技能目录顺序 = %v，期望 %v", dirs, want)
+	if got := dirsOf(roots); strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("技能目录顺序 = %v，期望 %v", got, want)
 	}
 	// 项目级排在用户级前面，冲突时项目级赢。
-	if roots[0].Source != skills.SourceProject || roots[2].Source != skills.SourceUser {
+	if roots[0].Source != skills.SourceProject || roots[1].Source != skills.SourceUser {
 		t.Errorf("来源 = %+v", roots)
 	}
-	if got := skillRoots(dataDir, cwd, ""); len(got) != 3 {
+	// scanAgents 关闭时 .agents 下的目录一律不扫。
+	if got := dirsOf(skillRoots(dataDir, cwd, home, false)); strings.Join(got, "|") != strings.Join(want[:2], "|") {
+		t.Errorf("关掉 scanAgents 后 = %v", got)
+	}
+	if got := skillRoots(dataDir, cwd, "", true); len(got) != 3 {
 		t.Errorf("没有 home 时不该扫 ~/.agents/skills: %+v", got)
 	}
 	// cwd 不是绝对路径时不往上找项目技能（测试里的 cwd 常是相对路径）。
-	if got := skillRoots(dataDir, "work/dir", home); len(got) != 2 {
+	if got := skillRoots(dataDir, "work/dir", home, true); len(got) != 2 {
 		t.Errorf("相对 cwd 不扫项目级: %+v", got)
 	}
 }
 
-func TestLoadSkillsCreatesDataDirAndFindsInstalled(t *testing.T) {
+// 数据目录下的技能首次扫描时自动登记进 skills.jsonc；注册表里的开关决定是否交给模型。
+func TestSkillCatalogAutoRegistersDataDirSkills(t *testing.T) {
 	dataDir := t.TempDir()
-	dir := filepath.Join(dataDir, "skills", "demo")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	content := "---\nname: demo\ndescription: 演示技能。\n---\n正文\n"
-	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o644); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"demo", "other"} {
+		dir := filepath.Join(dataDir, "skills", name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		body := "---\nname: " + name + "\ndescription: 演示技能。\n---\n正文\n"
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	list, problems := loadSkills(dataDir, "", "")
+	cfg, list, problems, err := skillCatalog(dataDir, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(problems) != 0 {
 		t.Fatalf("不应有问题: %v", problems)
 	}
-	if len(list) != 1 || list[0].Name != "demo" {
-		t.Fatalf("技能 = %+v", list)
+	if len(list) != 2 || len(cfg.Skills) != 2 {
+		t.Fatalf("技能 = %+v，注册表 = %+v", list, cfg)
 	}
-	if got := skillInfos(list, nil); len(got) != 1 || got[0].Name != "demo" || got[0].Path != list[0].Path || !got[0].Enabled {
-		t.Errorf("skillInfos = %v", got)
+	if !cfg.ScansAgents() {
+		t.Error("模板默认开启 scanAgents")
+	}
+	for name, e := range cfg.Skills {
+		if e.Path == "" || !e.Enable {
+			t.Errorf("自动注册应写路径并启用: %s = %+v", name, e)
+		}
+	}
+	infos := skillInfos(list, cfg)
+	if len(infos) != 2 || !infos[0].Enabled || infos[0].Path == "" {
+		t.Errorf("skillInfos = %+v", infos)
+	}
+
+	// 第二次扫描不会重复写入，也不会把用户改过的开关覆盖掉。
+	if err := config.SetSkillEnabled(config.SkillsPath(dataDir), "demo", false); err != nil {
+		t.Fatal(err)
+	}
+	cfg, list, _, err = skillCatalog(dataDir, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := cfg.Skills["demo"]; e.Enable {
+		t.Error("重扫不该把停用的技能改回启用")
+	}
+	if len(list) != 2 || len(cfg.Skills) != 2 {
+		t.Errorf("重扫后技能 = %+v，注册表 = %+v", list, cfg)
 	}
 }
 

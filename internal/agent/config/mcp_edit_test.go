@@ -187,3 +187,23 @@ func TestInsertMemberIntoEmptyObject(t *testing.T) {
 		t.Errorf("没插进去:\n%s", out)
 	}
 }
+
+// 空对象里有注释（模板里的示例）时，插入第一个成员不能把注释抹掉。
+func TestInsertMemberKeepsInnerComments(t *testing.T) {
+	const src = "{\n  \"skills\": {\n    // 示例：\n    // \"pdf\": {\"path\": \"D:/pdf\", \"enable\": true}\n  }\n}\n"
+	v, err := hujson.Parse([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(insertMember([]byte(src), v.Find("/skills"), "demo", `{"path": "D:/demo", "enable": true}`))
+	if !strings.Contains(out, "// 示例：") {
+		t.Errorf("注释应保留:\n%s", out)
+	}
+	got, err := hujson.Parse([]byte(out))
+	if err != nil {
+		t.Fatalf("插入后不是合法 JSONC: %v\n%s", err, out)
+	}
+	if got.Find("/skills/demo") == nil {
+		t.Errorf("没插进去:\n%s", out)
+	}
+}

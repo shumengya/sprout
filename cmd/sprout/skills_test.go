@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -95,8 +97,8 @@ func TestSkillBodyIsReadableWithReadTool(t *testing.T) {
 		[]byte("---\nname: demo\ndescription: 演示。\n---\n# 步骤\n1. 做点什么\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	list, problems := loadSkills(dir, "", "")
-	if len(problems) != 0 || len(list) != 1 {
+	_, list, problems, err := skillCatalog(dir, "", "")
+	if err != nil || len(problems) != 0 || len(list) != 1 {
 		t.Fatalf("技能 = %+v / %v", list, problems)
 	}
 	if !strings.HasSuffix(list[0].Path, filepath.Join("demo", skills.FileName)) {
@@ -128,7 +130,7 @@ func TestSkillStoreToggleRebuildsPrompt(t *testing.T) {
 	}
 	defer a.close()
 
-	store := skillStore{a}
+	store := skillStore{a: a}
 	if list := store.Skills(); len(list) != 1 || !list[0].Enabled {
 		t.Fatalf("初始技能 = %+v", list)
 	}
@@ -139,7 +141,7 @@ func TestSkillStoreToggleRebuildsPrompt(t *testing.T) {
 	if !strings.Contains(notice, "已停用技能 demo") {
 		t.Errorf("提示 = %q", notice)
 	}
-	b, _ := os.ReadFile(config.SkillsStatePath(dir))
+	b, _ := os.ReadFile(config.SkillsPath(dir))
 	if !strings.Contains(string(b), `"demo"`) {
 		t.Errorf("应写回 skills.jsonc:\n%s", b)
 	}
@@ -175,14 +177,11 @@ func TestSkillStoreToggleRebuildsPrompt(t *testing.T) {
 	}
 }
 
-// 重新扫描会发现新放进目录的技能，并保留已有的开关状态。
+// 重新扫描会发现新放进目录的技能并自动注册，已有的开关状态不受影响。
 func TestSkillRescanPicksUpNewSkill(t *testing.T) {
 	dir := t.TempDir()
 	a := &app{dataDir: dir, cwd: "", env: testEnv(nil, shellSet(true, true))}
-	if err := config.SetSkillDisabled(config.SkillsStatePath(dir), "keep-off", true); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"keep-off", "fresh"} {
+	writeSkill := func(name string) {
 		d := filepath.Join(dir, "skills", name)
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
@@ -192,20 +191,24 @@ func TestSkillRescanPicksUpNewSkill(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	writeSkill("keep-off")
+	if _, err := (skillStore{a: a}).Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (skillStore{a: a}).SetSkill("keep-off", false); err != nil {
+		t.Fatal(err)
+	}
 
-	notice, err := skillStore{a}.Rescan()
+	writeSkill("fresh")
+	notice, err := (skillStore{a: a}).Rescan()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(notice, "共 2 个，启用 1 个") {
 		t.Errorf("提示 = %q", notice)
 	}
-	list := skillStore{a}.Skills()
-	if len(list) != 2 {
-		t.Fatalf("技能 = %+v", list)
-	}
 	byName := map[string]bool{}
-	for _, sk := range list {
+	for _, sk := range (skillStore{a: a}).Skills() {
 		byName[sk.Name] = sk.Enabled
 	}
 	if byName["keep-off"] || !byName["fresh"] {
@@ -214,16 +217,168 @@ func TestSkillRescanPicksUpNewSkill(t *testing.T) {
 	if !a.skillsDirty {
 		t.Error("重新扫描后应标记待重建")
 	}
-}
-
-// 开关文件写坏了不该让技能消失，只提示一句。
-func TestSkillStateReadErrorKeepsSkillsEnabled(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(config.SkillsStatePath(dir), []byte(`{"disabled": `), 0o600); err != nil {
+	// 自动注册写进了注册表，不是每次重扫都当作新技能。
+	cfg, err := config.LoadSkills(config.SkillsPath(dir))
+	if err != nil {
 		t.Fatal(err)
 	}
-	st, problems := loadSkillState(dir)
-	if len(problems) != 1 || st.IsDisabled("demo") {
-		t.Errorf("应回退为全开: %+v / %v", st, problems)
+	if len(cfg.Skills) != 2 {
+		t.Errorf("注册表 = %+v", cfg.Skills)
+	}
+}
+
+// 注册表写坏了在启动时就报错：静默当成空表会让所有技能一起消失。
+func TestBrokenSkillsConfigFailsLoudly(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(config.SkillsPath(dir), []byte(`{"skills": `), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := skillCatalog(dir, "", ""); err == nil {
+		t.Fatal("坏的 skills.jsonc 应该报错")
+	}
+}
+
+// .agents/skills 下的技能受 scanAgents 控制：关掉后不加载，打开后回来。
+func TestScanAgentsToggleControlsAgentsSkills(t *testing.T) {
+	root := t.TempDir()
+	dataDir, cwd := filepath.Join(root, "data"), filepath.Join(root, "proj")
+	dir := filepath.Join(cwd, ".agents", "skills", "from-agents")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\nname: from-agents\ndescription: 演示。\n---\n正文\n"
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, list, problems, err := skillCatalog(dataDir, cwd, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || len(problems) != 0 {
+		t.Fatalf("默认应加载 .agents 下的技能: %+v / %v", list, problems)
+	}
+	if list[0].Source != skills.SourceProject {
+		t.Errorf("来源 = %q", list[0].Source)
+	}
+
+	a := &app{dataDir: dataDir, cwd: cwd, env: testEnv(nil, shellSet(true, true))}
+	a.commitSkills(cfg, list)
+	notice, err := (skillStore{a: a}).SetScanAgents(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(notice, "已关闭") {
+		t.Errorf("提示 = %q", notice)
+	}
+	if n := len((skillStore{a: a}).Skills()); n != 0 {
+		t.Errorf("关掉后不该再有技能，得到 %d", n)
+	}
+	if n := len(a.activeSkills()); n != 0 {
+		t.Errorf("关掉后不该有启用技能，得到 %d", n)
+	}
+	// 注册条目保留着，重新打开就恢复。
+	if cfg, _ := config.LoadSkills(config.SkillsPath(dataDir)); len(cfg.Skills) != 1 {
+		t.Errorf("注册表不该被清掉: %+v", cfg.Skills)
+	}
+
+	if _, err := (skillStore{a: a}).SetScanAgents(true); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(a.activeSkills()); n != 1 {
+		t.Errorf("重新打开后应有 1 个技能，得到 %d", n)
+	}
+}
+
+// 手动注册任意位置的技能：路径不必在扫描目录里。
+func TestManualRegistrationLoadsArbitraryPath(t *testing.T) {
+	root := t.TempDir()
+	dataDir, elsewhere := filepath.Join(root, "data"), filepath.Join(root, "somewhere", "my-skill")
+	if err := os.MkdirAll(elsewhere, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(elsewhere, "SKILL.md"),
+		[]byte("---\nname: my-skill\ndescription: 手动注册的技能。\n---\n正文\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `{"skills": {"my-skill": {"path": ` + strconv.Quote(filepath.ToSlash(elsewhere)) + `, "enable": true}}}`
+	if err := os.WriteFile(config.SkillsPath(dataDir), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, list, problems, err := skillCatalog(dataDir, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(problems) != 0 || len(list) != 1 {
+		t.Fatalf("技能 = %+v / %v", list, problems)
+	}
+	if list[0].Name != "my-skill" || list[0].Source != skills.SourceExtra {
+		t.Errorf("技能 = %+v", list[0])
+	}
+}
+
+// 注册表的键就是交给模型的名字：和 SKILL.md 里的 name 不一致时以注册名为准。
+func TestRegistrationKeyWinsOverFrontmatterName(t *testing.T) {
+	root := t.TempDir()
+	dataDir, dir := filepath.Join(root, "data"), filepath.Join(root, "s", "demo")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"),
+		[]byte("---\nname: demo\ndescription: 演示。\n---\n正文\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `{"skills": {"renamed": {"path": ` + strconv.Quote(filepath.ToSlash(dir)) + `, "enable": true}}}`
+	if err := os.WriteFile(config.SkillsPath(dataDir), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, list, problems, err := skillCatalog(dataDir, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].Name != "renamed" {
+		t.Fatalf("技能 = %+v（%v）", list, problems)
+	}
+	if !slices.ContainsFunc(problems, func(p string) bool { return strings.Contains(p, "不一致") }) {
+		t.Errorf("应提示名字不一致: %v", problems)
+	}
+}
+
+// 旧版的 disabled 列表迁移成注册表，禁用状态保留。
+func TestLegacyDisabledListMigrates(t *testing.T) {
+	dataDir := t.TempDir()
+	dir := filepath.Join(dataDir, "skills", "demo")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"),
+		[]byte("---\nname: demo\ndescription: 演示。\n---\n正文\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.SkillsPath(dataDir), []byte(`{"disabled": ["demo"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, list, _, err := skillCatalog(dataDir, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := cfg.Skills["demo"]; e.Enable || e.Path == "" {
+		t.Errorf("迁移后应保留禁用状态: %+v", e)
+	}
+	if len(list) != 1 {
+		t.Errorf("技能 = %+v", list)
+	}
+	b, _ := os.ReadFile(config.SkillsPath(dataDir))
+	if strings.Contains(string(b), `"disabled"`) {
+		t.Errorf("迁移后不该留旧字段:\n%s", b)
 	}
 }

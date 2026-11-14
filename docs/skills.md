@@ -14,18 +14,50 @@ Sprout 从 M1 之后支持 Agent Skills：一份目录 + 一个 `SKILL.md`，启
 | 技能 | 目录 + `SKILL.md` | 元数据常驻，正文按需 `read` |
 | MCP | JSON-RPC 服务端 | 工具调用时（见 `docs/mcp.md`） |
 
-## 扫描位置
+## 注册表：skills.jsonc
+
+**技能必须注册到 `<数据目录>/skills.jsonc` 才会生效**，和 `mcp.jsonc` 一样。扫描目录只是“发现”技能，发现后要登记进注册表，否则不会交给模型。
+
+```jsonc
+{
+  // 技能注册表：只有注册在这里的技能才会交给模型。
+  "skills": {
+    // 手动注册示例（去掉注释即可，path 指向含 SKILL.md 的目录，相对路径按数据目录解析）：
+    // "pdf": {"path": "D:/work/my-skills/pdf", "enable": true}
+  },
+
+  // 是否自动加载 .agents/skills（项目里与用户主目录下的）并登记到上面的注册表。
+  // 数据目录 skills/ 下的技能总是自动登记，不受这一项影响。
+  "scanAgents": true
+}
+```
+
+| 字段 | 含义 |
+| --- | --- |
+| `skills.<名字>.path` | 技能目录（含 `SKILL.md` 的那一层）。可以是任意位置，不必在扫描目录里；相对路径按数据目录解析。 |
+| `skills.<名字>.enable` | 是否把技能交给模型。`false` 时注册信息保留，`/skills` 面板里还能重新打开。 |
+| `scanAgents` | 是否加载 `.agents/skills` 下的技能，缺省为 `true`。设为 `false` 后这些目录下的技能一律不加载，注册表里的条目保留。 |
+
+- 注册表的键就是交给模型的名字。和 `SKILL.md` 里的 `name` 不一致时以注册名为准，并给一条提示。
+- `path` 指向的目录不存在或 `SKILL.md` 解析失败时，只跳过这一个技能并提示，不影响其他技能。
+- 文件写坏了（JSONC 语法错误）会在启动时报错，而不是悄悄当成空表——注册表是唯一入口，静默清空会让所有技能一起消失。
+- 旧版只有 `"disabled": [...]` 的配置在启动时自动迁移成注册表格式，禁用状态保留。
+
+## 扫描位置与自动注册
 
 按优先级从高到低（靠前的先被采用）：
 
-| 顺序 | 路径 | 范围 |
-| --- | --- | --- |
-| 1 | `<工作目录>/.sprout/skills/` | 项目 |
-| 2 | `<工作目录>/.agents/skills/` | 项目（跨客户端约定） |
-| 3 | `<数据目录>/skills/` | 用户（安装级） |
-| 4 | `~/.agents/skills/` | 用户（跨客户端约定） |
+| 顺序 | 路径 | 范围 | 自动注册 |
+| --- | --- | --- | --- |
+| 1 | `<工作目录>/.sprout/skills/` | 项目 | 是 |
+| 2 | `<数据目录>/skills/` | 用户（安装级） | 是 |
+| 3 | `<工作目录>/.agents/skills/` | 项目（跨客户端约定） | 是，受 `scanAgents` 控制 |
+| 4 | `~/.agents/skills/` | 用户（跨客户端约定） | 是，受 `scanAgents` 控制 |
 
 - 数据目录默认是 `<exeDir>/data/.sprout`；启动时会确保 `<数据目录>/skills/` 存在，方便用户知道往哪放。
+- 扫描到的新技能会被**自动登记**进 `skills.jsonc`（`path` + `enable: true`），下次扫描不会重复写入。已有的条目不会被覆盖，用户改过的 `path` 和 `enable` 一直有效。
+- 想放在别处、又不想挪进扫描目录的技能：直接在 `skills.jsonc` 里手动写一条 `path`，它会以“自定义”来源加载。
+- `.agents/skills` 是别的 agent 客户端的目录，可以在 `/skills` 面板里按 `a` 或改 `scanAgents` 整体关掉；关掉后那里的技能不加载，注册表条目保留，改回 `true` 即恢复。
 - 只认“子目录里存在 `SKILL.md`”的目录；同级散落的 `README.md` 不算技能。
 - 扫描跳过 `.git/`、`node_modules/`、以 `.` 开头的目录；最深 4 层、最多 2000 个目录。
 - 找到含 `SKILL.md` 的目录后不再向下深入：技能自带的 `scripts/`、`references/` 不会被当成另一个技能。
@@ -75,7 +107,7 @@ TUI 里输入 `/skills` 打开技能面板，替换输入框：
 
 ```
 技能                                                   已启用 2/3
-↑↓ 选择 · 空格 / Enter 开关 · r 重新扫描 · Esc 关闭
+↑↓ 选择 · 空格 / Enter 开关 · a .agents 自动加载：开（按 a 切换）· r 重新扫描 · Esc 关闭
 ● lark  项目  飞书文档读写
 ● paper 用户  论文检索与摘要
 ○ pdf   用户  PDF 提取文本
@@ -86,11 +118,12 @@ TUI 里输入 `/skills` 打开技能面板，替换输入框：
 | --- | --- |
 | `↑` `↓` / `k` `j` | 移动光标 |
 | `PgUp` `PgDn` / `Home` `End` | 翻页、跳到首尾 |
-| `空格` / `Enter` | 启用 / 停用当前技能 |
-| `r` | 重新扫描技能目录，并重读开关文件 |
+| `空格` / `Enter` | 启用 / 停用当前技能（写回该条的 `enable`） |
+| `a` | 打开 / 关闭 `.agents/skills` 的自动加载（写回 `scanAgents`），立即重新扫描 |
+| `r` | 重新扫描技能目录：新技能自动注册，已有开关保留 |
 | `Esc` / `Ctrl+C` | 关闭面板 |
 
-- 开关写在数据目录的 `skills.jsonc`，文件首次停用某个技能时自动生成，形如 `{"disabled": ["pdf"]}`；注释与其余字段原样保留。
+- 面板列出的是**注册表里的技能**。改开关只改 `skills.jsonc` 里对应条目的 `enable`，注释与其余条目原样保留。
 - **停用只影响“是否把技能的 name / description / location 告诉模型”**：`SKILL.md` 和技能目录下的文件都不动，重新启用后下一轮对话即可用。
 - 改完会重建 agent（技能目录在系统提示词里），对话历史与摘要保留；面板操作期间不接受新的开关，避免并发改同一份状态。
 - 生成、压缩、恢复会话期间不能打开面板。
@@ -111,15 +144,15 @@ TUI 里 `/tools` 的最后一段列出技能名，停用的带“（已停用）
 ## 代码位置
 
 - `internal/agent/skills/`：发现、frontmatter 解析、目录渲染（`skills.go`）
-- `internal/agent/config/skills_state.go`：`skills.jsonc` 的读写（复用 `mcp_edit.go` 里的 JSONC 就地改写）
+- `internal/agent/config/skills.go`：`skills.jsonc` 注册表的读写（复用 `mcp_edit.go` 里的 JSONC 就地改写）
 - `internal/tui/skills.go`：`/skills` 面板（`skillPicker`）与 `SkillPanel` 接口
-- `cmd/sprout/skills.go`：扫描路径、开关状态、启动装配与面板实现（`skillStore`）
+- `cmd/sprout/skills.go`：扫描、自动注册、按注册表加载，以及面板实现（`skillStore`）
 - `cmd/sprout/setup.go`：`buildAgent` 里调用 `skills.AppendCatalog`，只传启用的技能
 
 ## 测试
 
 - `internal/agent/skills/skills_test.go`：发现规则、跳过目录、优先级与遮蔽、宽松解析、块标量、截断、目录渲染。
 - `internal/tui/skill_test.go`：技能标记在 `read` 与 shell 命令下都出现、路径大小写与分隔符不影响识别、普通文件不误标、没装技能时不标。
-- `internal/agent/config/skills_state_test.go`：开关文件新建、读写、大小写合并、坏文件不覆盖。
-- `internal/tui/skills_test.go`：列表与状态、开关、重新扫描、失败提示、忙时忽略按键、生成中拒绝打开、空列表。
-- `cmd/sprout/skills_test.go`：路径顺序、目录实际进入请求体、正文可用 `read` 读取；面板停用后系统提示词里不再有该技能、重新扫描发现新技能并保留开关。
+- `internal/agent/config/skills_test.go`：模板可解析、`enable` / `scanAgents` 就地改写并保留注释、未注册技能报错、自动注册只写一次、缺 `skills` 对象时补建。
+- `internal/tui/skills_test.go`：列表与状态、开关、重新扫描、`a` 切换 `.agents` 自动加载、失败提示、忙时忽略按键、生成中拒绝打开、空列表。
+- `cmd/sprout/skills_test.go`：目录顺序与 `scanAgents` 开关；自动注册与重扫保留开关；手动注册任意路径；注册名优先于 frontmatter 名字；`.agents` 开关控制加载；旧 `disabled` 列表迁移；坏配置启动报错；停用后系统提示词里不再有该技能。
