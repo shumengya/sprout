@@ -63,6 +63,11 @@ func realMain(argv []string, stdout, stderr io.Writer) (code int) {
 		return 0
 	}
 
+	// update 只查网络上的发布信息，不需要数据目录，也不写日志。
+	if a.selfUpdate {
+		return runUpdate(version, a.updateRepo, nil, stdout, stderr)
+	}
+
 	dataDir, err := config.ResolveDataDir(a.dataDir)
 	if err != nil {
 		fmt.Fprintln(stderr, "错误:", err)

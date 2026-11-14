@@ -142,6 +142,7 @@ sprout run "..."       # 单次非交互，答案写 stdout，进度写 stderr
 sprout -c              # 恢复当前目录最近的会话（也可 sprout run -c "..."；TUI 里用 /resume 选择）
 sprout --effort high   # 指定思考程度（TUI 里用 /effort 切换），档位由 models.jsonc 按模型声明
 sprout models update   # 从 models.dev 更新模型窗口、输出上限和价格的本地缓存（启动时不联网）
+sprout update          # 检查 GitHub Releases 上有没有新版本，有就给下载地址
 ```
 
 在 TUI 里输入 `/install-sprout` 可以把当前程序注册成全局 `sprout` 命令（Windows 改用户 PATH，Linux / macOS 在 `~/.local/bin` 建符号链接），`/uninstall-sprout` 卸载。注册是原地调用，配置和会话仍在程序所在目录。
