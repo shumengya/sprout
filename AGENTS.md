@@ -6,7 +6,7 @@
 
 Sprout 是 Go 编写的跨平台通用型 agent runtime：内核是 ReAct 循环，TUI / WebUI / CLI / JSON-RPC 四种入口共用同一套会话与工具。模块路径 `github.com/shumengya/sprout`，Go 1.27+。
 
-M1（最小可用闭环）、M2（识图）已实现，M5 中的 MCP 与 Agent Skills 也已实现：ReAct 循环、OpenAI Chat Completions + Responses、Anthropic Messages、Gemini、`bash` + `powershell` + `read` + `write` 与外部命令工具、Bubble Tea v2 TUI、`sprout run`、JSONL 会话与恢复、自动重试与上下文压缩、MCP 客户端（`mcp.jsonc`）、技能发现（`SKILL.md`）。M1 范围与实现差异见 `docs/m1-minimal.md`、`docs/m1-implementation.md`（§15 列出了与原计划的差异和尚未验证的部分），识图设计见 `docs/m2-vision.md`，MCP 与技能见 `docs/mcp.md`、`docs/skills.md`，逐项的完成与待办状态见 `TODOS.md`。未经用户确认，不要提前实现后续里程碑（JSON-RPC、WebUI、子代理）。
+M1（最小可用闭环）、M2（识图）已实现，M5 中的 MCP 与 Agent Skills 也已实现：ReAct 循环、OpenAI Chat Completions + Responses、Anthropic Messages、Gemini、`bash` + `powershell` + `read` + `write` + `edit` + `delete` 与外部命令工具、Bubble Tea v2 TUI（含 `/mcp`、`/skills` 面板）、`sprout run`、`sprout update`、JSONL 会话与恢复、自动重试与上下文压缩、MCP 客户端（`mcp.jsonc`）、技能注册表（`skills.jsonc`）与手动触发（`/技能名 任务`）。M1 范围与实现差异见 `docs/m1-minimal.md`、`docs/m1-implementation.md`（§15 列出了与原计划的差异和尚未验证的部分），识图设计见 `docs/m2-vision.md`，MCP 与技能见 `docs/mcp.md`、`docs/skills.md`，逐项的完成与待办状态见 `TODOS.md`。未经用户确认，不要提前实现后续里程碑（JSON-RPC、WebUI、子代理）。
 
 ## 常用命令
 
@@ -40,9 +40,9 @@ go vet ./...
 | 模型参数 | `contextWindow`、`maxOutput` 优先级：`models.jsonc` 手写 > models.dev 本地缓存 > 默认值（400000 / 16000）；价格只来自 models.dev，没有默认值。缓存由 `sprout models update` 更新，启动不联网 |
 | 会话 | JSONL 追加写，按 agent 工作目录分组：`<数据目录>/sessions/<工作目录 slug>/<session-id>.jsonl`，同目录放 `meta.json` |
 | 数据目录 | 默认 `<exeDir>/data/.sprout`（安装级/系统级，跟随二进制）；`--data-dir` / `SPROUT_DATA_DIR` 覆盖；默认不写 `~/.sprout` |
-| 工具 | 内置 `bash`、`powershell`、`read`、`write`，另可在 `tools.jsonc` 里用 `exec` 把外部命令包装成工具；条目必须 `"enable": true` 才注册给模型（见 `docs/tools.md`） |
+| 工具 | 内置 `bash`、`powershell`、`read`、`write`、`edit`、`delete`，另可在 `tools.jsonc` 里用 `exec` 把外部命令包装成工具；条目必须 `"enable": true` 才注册给模型（见 `docs/tools.md`） |
 | MCP | 自带最小客户端（`internal/agent/mcp`，stdio + Streamable HTTP），配置在数据目录 `mcp.jsonc`；工具注册为 `mcp__<服务端>__<工具>`；启动时**后台**连接（界面不等服务端），连好后重建 agent 接入工具；协商版本缓存在 `<数据目录>/mcp-versions.json`；不引官方 SDK，避免 OAuth / JSON Schema / JWT 依赖（见 `docs/mcp.md`） |
-| Skills | 扫描 `<工作目录>/.sprout/skills`、`<工作目录>/.agents/skills`、`<数据目录>/skills`、`~/.agents/skills`；只把元数据追加进系统提示词，正文由模型用 `read` 按需读取（见 `docs/skills.md`） |
+| Skills | 注册表 `<数据目录>/skills.jsonc`：只有注册的技能才生效，每条含 `path` 与 `enable`；扫描 `<工作目录>/.sprout/skills`、`<工作目录>/.agents/skills`、`<数据目录>/skills`、`~/.agents/skills` 发现的技能自动登记，已有条目不覆盖；`scanAgents` 为 false 时不加载 `.agents` 下的技能。只把元数据追加进系统提示词，正文由模型用 `read` 按需读取；`/技能名 任务` 手动触发时由 TUI 读出正文交给模型（见 `docs/skills.md`） |
 | 权限 | 暂不实现权限模块，默认完全权限；不要提前加审批流或 allow/deny 配置 |
 | TUI | Bubble Tea v2 + lipgloss + bubbles；不用 tview |
 | 平台 | Windows 优先开发，目标 Linux / macOS / Android Termux |
@@ -65,6 +65,9 @@ go vet ./...
 - `mcp-versions.json` 只存目标指纹的 SHA-256，不存 URL 原文：URL / args 里可能有 `${VAR}` 展开出的令牌。缓存只能用来跳过 `server/discover` 试探，任何握手失败都必须能退回完整协商。
 - 技能的目录段是追加在系统提示词末尾的（`skills.AppendCatalog`），不要改成模板变量：用户的 `SYSTEMPROMPT.md` 可能是旧版本，没有那个变量的模板会让技能静默失效。
 - `mcp.jsonc` 的模板（`config.MCPTemplate`）与仓库根的 `mcp.example.jsonc` 由测试保证一致，改一处要同步另一处。
+- `mcp.jsonc` 与 `skills.jsonc` 的开关由面板写回，必须走 `config` 包的 `editJSONC`（按字节偏移拼接，保留注释、BOM、缩进，写完重新校验，失败回滚）；不要读出结构体再整份 `json.Marshal` 写回，会丢掉用户的注释。唯一的例外是旧版 `{"disabled": [...]}` 的一次性迁移（`WriteSkills`）。
+- 技能的注册表键名优先于 `SKILL.md` 里的 `name`；`/技能名` 触发时内置命令优先，名字不是技能（`ErrUnknownSkill`）就当普通提问，所以 `/etc/hosts` 这类输入仍能原样发送。
+- `sprout update` 依赖 tag 与产物文件名同 `tools/release` 生成的一致（`sprout_<版本>_<平台>.<后缀>`）；改发布命名或平台名时要同步 `cmd/sprout/update.go` 的 `platformName`。它只检查、不下载，也不需要数据目录。
 - 数据目录用 `os.Executable()` 定位，`go run` 时二进制在临时目录；开发时显式传 `--data-dir ./data/.sprout`，不要用 cwd 当默认。目录不可写时明确报错，不要静默回退到 `~/.sprout`。
 - 所有路径处理用 `filepath`，不要手拼 `/` 或 `\`。
 
@@ -78,7 +81,7 @@ go vet ./...
 
 ## 不要做
 
-- 不要越过里程碑提前实现 MCP 的 Resources / Prompts / Sampling / OAuth、技能管理界面、权限模块、WebUI 或子代理。
+- 不要越过里程碑提前实现 MCP 的 Resources / Prompts / Sampling / OAuth、权限模块、WebUI 或子代理。`sprout update` 目前只提示，未经用户确认不要做成自动下载替换。
 - 不要为 TUI 或演示引入假模型、假工具、回显模式；测试替身只允许放在 `_test.go`。
 - 不要复制 Crush / Codex / Claude Code 的代码；参考设计可以，注意 Crush 是 FSL-1.1-MIT。
 - 不要提交 `.env`、API key、`auth.json`、构建产物。
@@ -92,6 +95,8 @@ go vet ./...
 - M1 详细实现与落地后的差异：`docs/m1-implementation.md`
 - 识图（图片输入）：`docs/m2-vision.md`
 - 工具注册与外部命令工具：`docs/tools.md`
+- MCP 客户端与 `/mcp` 面板：`docs/mcp.md`
+- 技能注册表、`/skills` 面板与手动触发：`docs/skills.md`
 - 系统提示词与 `AGENTS.md` 读取：`docs/system-prompt.md`
 - 思考程度（effort）：`docs/effort.md`
 - 命令行、斜杠命令、快捷键参考：`docs/CLI命令.md`、`docs/斜杠命令.md`、`docs/快捷键.md`

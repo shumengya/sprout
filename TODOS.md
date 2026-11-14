@@ -62,7 +62,10 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] 历史滚动：鼠标滚轮、PgUp/PgDn、Ctrl+↑↓、Ctrl+Home/End；输入框为空时 ↑↓ Home End 同样滚动；状态行显示位置与“有新内容”。
 - [x] Markdown（CommonMark + GFM）：标题、嵌套列表与任务列表、多级引用、分隔线、围栏代码块（chroma 语法高亮）、粗体/斜体/删除线/行内代码、链接与图片、表格（按显示宽度对齐、列对齐标记、过宽时缩列折行、极窄时逐行展开）。流式输出中途未闭合的语法原样显示。
 - [x] 思维链淡色显示：流式预览最后 3 行；结束后折叠成一行“已思考 N秒 N token：内容…”，点击单条展开或收起，`/think` 一次切换全部。思维链 token 取服务端报告值（未报告时显示内核估算并标“约”）。token 数缩写为 2.9k、12k 这样。
-- [x] `/help` `/tools` `/think` `/mouse` `/model` `/effort` `/new` `/compact` `/image` `/resume` `/install-sprout` `/uninstall-sprout` `/quit`；缺 API Key 时禁止发送并显示配置提示。
+- [x] `/help` `/tools` `/think` `/mouse` `/model` `/effort` `/new` `/compact` `/image` `/resume` `/install-sprout` `/uninstall-sprout` `/mcp` `/skills` `/quit`；缺 API Key 时禁止发送并显示配置提示。
+- [x] `/mcp` 面板：替换输入框，列出全部 MCP 服务端与展开后的工具，空格开关、→ / ← 展开收起、`r` 重读配置并重连；开关直接写回 `mcp.jsonc`，保留注释与排版（`internal/tui/mcp.go`、`internal/agent/config/mcp_edit.go`）。
+- [x] `/skills` 面板：列出注册的技能与来源，空格 / Enter 开关单个技能，`a` 切换 `.agents` 自动加载，`r` 重新扫描并自动注册新技能；开关写回 `skills.jsonc`，保留注释（`internal/tui/skills.go`）。
+- [x] 技能手动触发：`/技能名 任务` 把技能正文直接交给模型；内置命令优先，名字不是技能时整段按普通提问发送；输入 `/` 的候选列表包含可触发的技能。设计见 `docs/skills.md`。
 - [x] `/compact [说明]` 手动压缩：把前面的全部对话总结成摘要（分层摘要，说明可以让摘要特别保留某些内容），压缩期间禁止发送与切换，Esc 取消；会话落盘后恢复得到同样的结果。设计见 `docs/m1-implementation.md` §15。
 - [x] 斜杠命令补全：输入 `/` 列出候选，Tab 填入、↑↓/Ctrl+P/N 选择、Esc 关闭；`/effort` 与 `/model` 的参数也参与补全。命令与快捷键说明见 `docs/斜杠命令.md`、`docs/快捷键.md`。
 - [x] `/model` 模型选择器：↑↓ 或直接输入过滤，Enter 切换；保留对话历史、清空旧模型思维链；生成中或恢复/切换中拒绝。
@@ -82,6 +85,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 ### CLI 与入口（`internal/cli`、`cmd/sprout`）
 - [x] `sprout`（TUI）、`sprout run "..."`（答案写 stdout，进度/错误写 stderr；退出码 0 / 1 / 2 / 130）。
 - [x] `--effort`、`--image`（可重复）、`-c` / `--resume`；完整说明见 `docs/CLI命令.md`。
+- [x] `sprout update [--repo OWNER/NAME]`：查询 GitHub Releases 最新发布并与当前版本比较，不一致时打印发布页与本平台压缩包下载地址；只提示、不自动替换程序。开发构建（`dev`）只报告最新发布；本地比最新发布还新时不劝降级；网络失败、限流、仓库无发布以退出码 1 结束（`cmd/sprout/update.go`）。**未做**：自动下载与替换、校验 `SHA256SUMS.txt`。
 - [x] 模型输出与命令内容写终端前去除控制字符（含 ESC）。
 - [x] Windows：控制台 UTF-8 并在退出时恢复；双击启动出错时等待回车；日志写 `logs/sprout-YYYYMMDD.log`（不记录 Key、请求体、用户输入）。
 
@@ -108,6 +112,8 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [ ] **识图（M2）的真实服务商往返**：四种协议的图片请求形状只有 `httptest` 验证，没有对真实服务商手工发过图；Gemini 协议整体也只用测试替身验证过。
 - [ ] **`/model` 切换与恢复后的历史重放**：换模型时丢弃旧思维链、保留正文的逻辑有单元测试，但没有在真实多模型服务上跑过。
 - [ ] **双击 `sprout.exe` 启动**（含出错后等待回车）。
+- [ ] **`sprout update` 的真实网络往返**：已对线上 `v2026.11.14` 发布实测过一次（`dev` 构建只报告最新版本）；旧版二进制没有 `update` 命令，“有新版本可用”这条分支只有 `httptest` 测试；Termux / macOS 产物的平台匹配没在真机上确认。
+- [ ] **`/mcp`、`/skills` 面板的真实终端操作**：只有模型级渲染与按键测试；`mcp.jsonc` / `skills.jsonc` 保留注释的写回用临时文件验证过，没有对用户手写的复杂配置做过大量实测。
 - [ ] **`/install-sprout` / `/uninstall-sprout` 的真实效果**：Windows 的流程用注册表替身和临时目录测试过，读取真实用户 / 系统 PATH 只做过只读演练，没有真正写过注册表、没有确认新开的终端能直接敲 `sprout`；Linux / macOS / Termux 的符号链接逻辑只用文件系统替身测试过，真实系统上没跑过。
 - [ ] `go test -race`：本机没有 gcc，未跑过。
 
@@ -122,6 +128,8 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
   - [x] Google Gemini 协议（`internal/provider/google`，已实现并测试）；
   - [x] MCP 客户端与工具接入（`internal/agent/mcp`）：stdio 与 Streamable HTTP 两种传输、无状态 `server/discover` 与旧版 `initialize` 双协议、配置 `mcp.jsonc`、工具注册为 `mcp__<服务端>__<工具>`；后台连接（启动不等服务端）与协议版本缓存（`mcp-versions.json`），见 `docs/mcp.md`；
   - [x] skills 发现与加载（`internal/agent/skills`）：扫描四个位置、解析 frontmatter、元数据追加进系统提示词、正文按需 `read`，见 `docs/skills.md`；
+  - [x] skills 注册表（`skills.jsonc`）：只有注册的技能才生效，每条含 `path` 与 `enable`，`path` 可指向任意位置；扫描到的技能自动登记，已有条目不被覆盖；`scanAgents` 控制是否加载 `.agents/skills`；旧版 `{"disabled": [...]}` 启动时自动迁移；
+  - [x] 技能管理界面：`/skills` 面板开关技能、切换 `scanAgents`、重新扫描；`/技能名 任务` 手动触发；
   - [ ] 子代理 / 多 agent 编排；
   - [ ] 搜索、web 等更多工具（现有 `bash`、`powershell`、`read`、`write`、`edit`、`delete`，外加 `tools.jsonc` 里定义的外部命令工具）；
   - [ ] 权限模块（审批流、allow/deny、沙箱）——目前默认完全权限，不要提前加。

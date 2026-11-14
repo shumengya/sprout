@@ -119,7 +119,7 @@ TUI、WebUI、CLI、JSON-RPC 都只是这套协议的适配器。
 
 ## 当前状态
 
-**M1（最小可用闭环）、M2（识图）与 M5 中的 MCP、skills 已实现。** 终端界面、单次运行、OpenAI Chat / Responses、Anthropic Messages、Gemini 四种协议、`bash` / `powershell` / `read` / `write` / `edit` / `delete` 与外部命令工具、图片输入、JSONL 会话与恢复、自动重试、上下文压缩、MCP 工具接入（`docs/mcp.md`）与 Agent Skills（`docs/skills.md`）均可用；JSON-RPC、WebUI、子代理等尚未开始。已实现与未实现的逐项清单见 `TODOS.md`；真实模型服务和真实终端的手工验证状态见 `docs/m1-implementation.md` §12、§15 与 `TODOS.md` 第二节。
+**M1（最小可用闭环）、M2（识图）与 M5 中的 MCP、skills 已实现。** 终端界面、单次运行、OpenAI Chat / Responses、Anthropic Messages、Gemini 四种协议、`bash` / `powershell` / `read` / `write` / `edit` / `delete` 与外部命令工具、图片输入、JSONL 会话与恢复、自动重试、上下文压缩、MCP 工具接入（`docs/mcp.md`）、Agent Skills（`docs/skills.md`，含 `skills.jsonc` 注册表、`/skills` 面板与 `/技能名` 手动触发）、`/mcp` 面板和 `sprout update` 检查新版本均可用；JSON-RPC、WebUI、子代理等尚未开始。已实现与未实现的逐项清单见 `TODOS.md`；真实模型服务和真实终端的手工验证状态见 `docs/m1-implementation.md` §12、§15 与 `TODOS.md` 第二节。
 
 ## 路线图
 
