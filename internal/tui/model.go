@@ -57,8 +57,11 @@ func (s MCPServerInfo) ToolCount() int {
 
 // SkillInfo 是一个已安装的技能。Path 是 SKILL.md 的绝对路径，用来认出模型读到的是哪个技能。
 type SkillInfo struct {
-	Name string
-	Path string
+	Name    string
+	Path    string
+	Desc    string // SKILL.md 里的 description，面板里截断显示
+	Source  string // 项目 / 用户 / 自定义
+	Enabled bool   // 是否把它的元数据交给模型
 }
 
 // Info 是 header 与 /tools 展示的信息，由 main 装配好传入。
@@ -124,6 +127,8 @@ type Options struct {
 	ApplyMCP func() (Info, []string)
 	// MCP 提供 /mcp 面板的读写操作；为 nil 时 /mcp 不可用。
 	MCP MCPPanel
+	// Skills 提供 /skills 面板的读写操作；为 nil 时 /skills 不可用。
+	Skills SkillPanel
 }
 
 // 输入框按内容增高：空时一行，最多显示这么多行，再多就在输入框内部滚动。
@@ -155,13 +160,14 @@ type Model struct {
 	effort    *effortPicker   // /effort 档位条；同上
 	browser   *sessionBrowser // /resume 会话浏览器；同上
 	mcpPicker *mcpPicker      // /mcp 服务端面板；同上
+	skillPick *skillPicker    // /skills 技能面板；同上
 	sug       suggestState    // 输入 / 开头时输入框上方的命令候选
 
 	running    bool
 	resuming   bool      // 正在恢复会话：此时不能发送，否则新提问会和恢复的历史交错
 	switching  bool      // 正在切换模型：同上，禁止发送
 	compacting bool      // 正在手动压缩上下文（/compact）：同上，且可用 Ctrl+C 取消
-	mcpDone    bool      // 后台 MCP 连接已结束、等待接入工具；忙时推迟到本轮结束
+	mcpDone    bool      // 等待重建 agent（MCP 连好、/mcp 或 /skills 改了开关）；忙时推迟到本轮结束
 	started    time.Time // 本轮开始时间，状态行显示已耗时
 	// busySince、busyTotal 是状态栏“耗时”的数据：只累计 agent 干活的时间（一轮回答或一次 /compact，
 	// 从开始到结束），空闲时不涨。busySince 为零表示当前空闲。
@@ -279,6 +285,7 @@ func (m *Model) mcpReadyCmd() tea.Cmd {
 
 // applyMCP 把后台连上的 MCP 工具接进 agent，刷新信息栏。
 // 只在空闲时调用：重建 agent 会搬移历史，进行中的一轮会丢掉它已经产生的消息。
+// /skills 改了开关也走这里（mcpDone 只是“待重建”的标记）。
 func (m *Model) applyMCP() {
 	if !m.mcpDone || m.busy() {
 		return
@@ -287,6 +294,7 @@ func (m *Model) applyMCP() {
 	info, notices := m.opts.ApplyMCP()
 	m.opts.Info = info
 	m.syncMCPServers()
+	m.syncSkills()
 	for _, n := range notices {
 		m.add(&entry{kind: kindNotice, text: n})
 	}
@@ -349,6 +357,8 @@ func (m *Model) overlay() (string, bool) {
 		return m.browserView(max(m.w, 1)), true
 	case m.mcpPicker != nil:
 		return m.mcpView(max(m.w, 1)), true
+	case m.skillPick != nil:
+		return m.skillView(max(m.w, 1)), true
 	}
 	return "", false
 }

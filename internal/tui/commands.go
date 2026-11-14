@@ -38,6 +38,7 @@ const helpText = `快捷键
   /mouse              开关鼠标上报（滚轮、对话区与输入框的拖选复制；关闭后改用终端自带的选中）
   /tools              查看检测到的终端工具、MCP 服务端与已安装的技能
   /mcp                打开 MCP 面板，启用 / 停用服务端与单个工具，r 刷新重连
+  /skills             打开技能面板，启用 / 停用单个技能，r 重新扫描技能目录
   /install-sprout     把当前程序注册成全局 sprout 命令（新开的终端里生效）
   /uninstall-sprout   卸载全局 sprout 命令（程序文件不动）
   /help               显示本帮助
@@ -72,6 +73,8 @@ func (m *Model) slash(text string) (handled bool, cmd tea.Cmd) {
 		m.add(&entry{kind: kindNotice, text: m.toolsReport()})
 	case "/mcp":
 		m.mcpCmd()
+	case "/skills":
+		m.skillsCmd()
 	case "/think":
 		m.showThink = !m.showThink
 		for _, e := range m.entries {
@@ -149,6 +152,9 @@ func (m *Model) toolsReport() string {
 		names := make([]string, len(info.Skills))
 		for i, sk := range info.Skills {
 			names[i] = sk.Name
+			if !sk.Enabled {
+				names[i] += "（已停用）"
+			}
 		}
 		b.WriteString(strings.Join(names, "、"))
 	}

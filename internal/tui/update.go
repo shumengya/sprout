@@ -115,6 +115,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh()
 		return m, nil
 
+	case skillDoneMsg:
+		m.onSkillDone(msg)
+		m.refresh()
+		return m, nil
+
 	case mcpReadyMsg:
 		m.mcpDone = m.opts.ApplyMCP != nil
 		return m, nil
@@ -158,6 +163,10 @@ func (m *Model) onKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	if handled, cmd := m.mcpKey(k); handled { // MCP 面板同上
+		m.refresh()
+		return m, cmd
+	}
+	if handled, cmd := m.skillKey(k); handled { // 技能面板同上
 		m.refresh()
 		return m, cmd
 	}

@@ -310,12 +310,23 @@ func (m *Model) mcpSegValue() string {
 	return fmt.Sprintf("%d/%d", ok, enabled)
 }
 
-// skillsSegValue 是状态栏“技能”一项：没有安装技能时显示占位符。
+// skillsSegValue 是状态栏“技能”一项：没有安装技能时显示占位符；
+// 有技能在 /skills 里被停用时显示 启用/全部，否则只显示总数。
 func (m *Model) skillsSegValue() string {
-	if n := len(m.opts.Info.Skills); n > 0 {
+	n := len(m.opts.Info.Skills)
+	if n == 0 {
+		return placeholder
+	}
+	on := 0
+	for _, sk := range m.opts.Info.Skills {
+		if sk.Enabled {
+			on++
+		}
+	}
+	if on == n {
 		return fmt.Sprint(n)
 	}
-	return placeholder
+	return fmt.Sprintf("%d/%d", on, n)
 }
 
 // statusName 是“状态”一项的值。

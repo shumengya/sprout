@@ -47,12 +47,15 @@ type app struct {
 	mcpCfg  *config.MCPFile
 	prompt  *agent.PromptTemplate // SYSTEMPROMPT.md；切模型、/new 时按同一份模板重新渲染
 	instr   []agent.Instruction   // AGENTS.md：启动时读一次，切模型时按同一份重新拼接
-	skills  []skills.Skill        // 发现到的技能，启动时扫一次
-	env     env
-	log     *slog.Logger
-	sel     config.Selection
-	reg     *tool.Registry
-	mcp     *mcpSet // 已连接的 MCP 服务端；没有启用任何服务端时为 nil
+	skills  []skills.Skill        // 发现到的技能，启动时扫一次；/skills 重新扫描时整体替换
+	// skillState 是 skills.jsonc 里的开关；skillsDirty 表示改过、等待空闲时重建 agent。
+	skillState  *config.SkillState
+	skillsDirty bool
+	env         env
+	log         *slog.Logger
+	sel         config.Selection
+	reg         *tool.Registry
+	mcp         *mcpSet // 已连接的 MCP 服务端；没有启用任何服务端时为 nil
 	// MCP 在后台连接：mcpReady 在连接流程结束时关闭，mcpCancel 在退出时中止它。
 	// mu 保护后台 goroutine 与界面线程共用的字段（mcp、info），避免数据竞争。
 	mu          sync.Mutex
@@ -129,6 +132,8 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 	for _, sk := range skillList {
 		log.Info("已加载技能", "name", sk.Name, "source", string(sk.Source), "path", sk.Path)
 	}
+	// skills.jsonc 记着 /skills 面板停用过的技能；读不了就按全开处理，不让技能整体消失。
+	skillState, stateProblems := loadSkillState(dataDir)
 
 	// mcp.jsonc 里的服务端是可选扩展：缺文件视为没有，单个服务端连不上只记提示。
 	mcpCfg, err := loadMCPConfig(dataDir)
@@ -152,15 +157,16 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 
 	a := &app{
 		dataDir: dataDir, cwd: e.cwd, cfg: cfg, tools: toolsCfg, mcpCfg: mcpCfg,
-		prompt: prompt, instr: instr, skills: skillList, env: e, log: log, sel: sel, effort: effort,
+		prompt: prompt, instr: instr, skills: skillList, skillState: skillState, env: e, log: log, sel: sel, effort: effort,
 	}
 	a.notices = append(a.notices, instrProblems...)
 	a.notices = append(a.notices, skillProblems...)
+	a.notices = append(a.notices, stateProblems...)
 	a.info = tui.Info{
 		Model: sel.ModelName, Provider: sel.ProviderName + "，" + sel.Provider.Protocol,
 		Cwd: e.cwd, DataDir: dataDir, Vision: sel.Model.SupportsVision(), Effort: effortLabel(sel, effort),
 		ContextWindow: sel.Model.ContextWindow, Price: tuiPrice(sel.Model.Price),
-		Skills: skillInfos(skillList),
+		Skills: skillInfos(skillList, skillState),
 	}
 	// 模型不支持工具时连 MCP 没有意义：那些工具注册了也发不下去。
 	// 连接放到后台：服务端在网络那头，等它们就绪要几秒，界面不该陪着等。
@@ -335,8 +341,9 @@ func (a *app) buildAgent(sel config.Selection, key string, reg *tool.Registry, r
 	}
 	system = agent.AppendInstructions(system, a.instr)
 	// 技能目录追加在最后：和 AGENTS.md 一样，做成模板变量会让旧模板静默失效。
+	// 只列启用的：/skills 里停用的技能不该再出现在提示词里。
 	_, hasRead := reg.Get(config.ToolRead)
-	system = skills.AppendCatalog(system, a.skills, hasRead)
+	system = skills.AppendCatalog(system, a.activeSkills(), hasRead)
 	return agent.New(agent.Config{
 		Provider: prov, Model: sel.ModelName, Tools: reg, System: system,
 		MaxOutputTokens: sel.Model.MaxOutput, ContextWindow: sel.Model.ContextWindow,

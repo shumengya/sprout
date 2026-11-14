@@ -116,22 +116,29 @@ func (a *app) mcpSnapshot() (*mcpSet, *config.MCPFile) {
 
 // applyMCP 把已连上的 MCP 工具注册进当前 agent，并保留对话历史，返回新的 info 与要告知用户的提示。
 //
-// agent 构造时就把工具 schema 烘进了请求模板，所以增删工具必须重建 agent；历史与摘要原样搬过去。
-// 调用方必须保证此时没有 Run 在进行（TUI 空闲时才调用，run 模式在第一次提问前调用），
-// 否则重建出来的 agent 会漏掉进行中那一轮的消息。
+// agent 构造时就把工具 schema 和系统提示词烘进了请求，所以增删工具、改技能开关都必须重建 agent；
+// 历史与摘要原样搬过去。调用方必须保证此时没有 Run 在进行（TUI 空闲时才调用，
+// run 模式在第一次提问前调用），否则重建出来的 agent 会漏掉进行中那一轮的消息。
 func (a *app) applyMCP() (tui.Info, []string) {
+	// 技能开关改了也要走到重建这一步，所以不能因为没配置 MCP 就提前返回。
+	a.mu.Lock()
+	dirty := a.skillsDirty
+	a.mu.Unlock()
 	set, _ := a.mcpSnapshot()
-	if set == nil {
+	if set == nil && !dirty {
 		return a.info, nil
 	}
 
 	var notices []string
-	a.info.MCP = append([]tui.MCPServerInfo(nil), set.servers...)
-	for _, s := range a.info.MCP {
-		if s.Err != "" {
-			notices = append(notices, fmt.Sprintf("MCP 服务端 %s 连接失败：%s", s.Name, s.Err))
+	if set != nil {
+		a.info.MCP = append([]tui.MCPServerInfo(nil), set.servers...)
+		for _, s := range a.info.MCP {
+			if s.Err != "" {
+				notices = append(notices, fmt.Sprintf("MCP 服务端 %s 连接失败：%s", s.Name, s.Err))
+			}
 		}
 	}
+	a.info.Skills = a.skillInfosLocked()
 	// 没有可用 agent（缺 Key 等）时只刷新展示；registerTools 会改 info.Tools，无 agent 时不必动它。
 	if a.ag == nil || a.rec == nil {
 		return a.info, notices
@@ -145,7 +152,10 @@ func (a *app) applyMCP() (tui.Info, []string) {
 		if ag, err = a.buildAgent(a.sel, a.key, reg, a.rec, a.env, a.log); err == nil {
 			ag.Restore(a.ag.History(), a.ag.Summary())
 			a.ag, a.reg = ag, reg
-			a.log.Info("MCP 工具已接入", "tools", len(reg.Names()))
+			a.mu.Lock()
+			a.skillsDirty = false
+			a.mu.Unlock()
+			a.log.Info("agent 已重建", "tools", len(reg.Names()), "skills", len(a.info.Skills))
 			return a.info, notices
 		}
 	}

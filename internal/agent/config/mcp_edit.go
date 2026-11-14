@@ -3,7 +3,9 @@ package config
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"strconv"
 	"strings"
@@ -55,36 +57,59 @@ func SetMCPToolExcluded(path, name, tool string, excluded bool) error {
 // editMCP 读取 path，定位服务端 name 的对象交给 edit 改文本，再写回并校验。
 // 任何一步失败都不会留下改坏的配置：写回后 LoadMCP 报错时把原文恢复。
 func editMCP(path, name string, edit func(text []byte, obj *hujson.Value) ([]byte, error)) error {
+	return editJSONC(path, "mcp.jsonc", nil, func(text []byte, v *hujson.Value) ([]byte, error) {
+		obj := v.Find("/servers/" + jsonPointerEscape(name))
+		if obj == nil || !isJSONObject(obj) {
+			return nil, fmt.Errorf("mcp.jsonc 里没有服务端 %q", name)
+		}
+		return edit(text, obj)
+	}, func(path string) error {
+		_, err := LoadMCP(path)
+		return err
+	})
+}
+
+// editJSONC 就地改写一个 JSONC 文件：edit 拿到去掉 BOM 的全文与解析结果，
+// 返回改好的全文。注释、缩进和未改动的字段因此原样保留。
+//
+// 文件不存在时用 seed 建一份再改（seed 为空则报错）。写完先确认仍是合法 JSONC，
+// 再用 check 做语义校验；check 失败时把原文写回去。本地失败路径都有对应测试覆盖。
+func editJSONC(path, what string, seed []byte, edit func(text []byte, v *hujson.Value) ([]byte, error), check func(path string) error) error {
 	raw, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("读取 mcp.jsonc 失败: %w", err)
+	missing := errors.Is(err, fs.ErrNotExist)
+	switch {
+	case missing && len(seed) == 0:
+		return fmt.Errorf("读取 %s 失败: %w", what, err)
+	case missing:
+		raw = seed
+	case err != nil:
+		return fmt.Errorf("读取 %s 失败: %w", what, err)
 	}
 	// 记事本等编辑器可能写入 BOM；偏移量与编辑器里的位置对齐前先分开，写回时原样带上。
 	bom, body := splitBOM(raw)
 	v, err := hujson.Parse(body)
 	if err != nil {
-		return fmt.Errorf("解析 mcp.jsonc 失败: %w", err)
+		return fmt.Errorf("解析 %s 失败: %w", what, err)
 	}
-	obj := v.Find("/servers/" + jsonPointerEscape(name))
-	if obj == nil || !isJSONObject(obj) {
-		return fmt.Errorf("mcp.jsonc 里没有服务端 %q", name)
-	}
-	out, err := edit(body, obj)
+	out, err := edit(body, &v)
 	if err != nil {
 		return err
 	}
 	if _, err := hujson.Parse(out); err != nil {
 		// 理论上不该发生；真发生了就放弃写入，别把用户的配置搞坏。
-		return fmt.Errorf("改写后的 mcp.jsonc 不是合法 JSONC，已放弃写入: %w", err)
+		return fmt.Errorf("改写后的 %s 不是合法 JSONC，已放弃写入: %w", what, err)
 	}
 	mode := os.FileMode(0o600)
 	if info, err := os.Stat(path); err == nil {
 		mode = info.Mode().Perm()
 	}
 	if err := os.WriteFile(path, append(bom, out...), mode); err != nil {
-		return fmt.Errorf("写回 mcp.jsonc 失败: %w", err)
+		return fmt.Errorf("写回 %s 失败: %w", what, err)
 	}
-	if _, err := LoadMCP(path); err != nil {
+	if check == nil {
+		return nil
+	}
+	if err := check(path); err != nil {
 		if werr := os.WriteFile(path, raw, mode); werr != nil {
 			return fmt.Errorf("改动后的配置不合法（%v），且回滚失败: %w", err, werr)
 		}

@@ -69,9 +69,36 @@ allowed-tools: Bash(git:*) Read
 
 不注册额外的“激活技能”工具：`read` 已经能做这件事，多一个工具只是多一份 schema 常驻上下文。
 
+## /skills 面板
+
+TUI 里输入 `/skills` 打开技能面板，替换输入框：
+
+```
+技能                                                   已启用 2/3
+↑↓ 选择 · 空格 / Enter 开关 · r 重新扫描 · Esc 关闭
+● lark  项目  飞书文档读写
+● paper 用户  论文检索与摘要
+○ pdf   用户  PDF 提取文本
+(2/3)
+```
+
+| 按键 | 作用 |
+| --- | --- |
+| `↑` `↓` / `k` `j` | 移动光标 |
+| `PgUp` `PgDn` / `Home` `End` | 翻页、跳到首尾 |
+| `空格` / `Enter` | 启用 / 停用当前技能 |
+| `r` | 重新扫描技能目录，并重读开关文件 |
+| `Esc` / `Ctrl+C` | 关闭面板 |
+
+- 开关写在数据目录的 `skills.jsonc`，文件首次停用某个技能时自动生成，形如 `{"disabled": ["pdf"]}`；注释与其余字段原样保留。
+- **停用只影响“是否把技能的 name / description / location 告诉模型”**：`SKILL.md` 和技能目录下的文件都不动，重新启用后下一轮对话即可用。
+- 改完会重建 agent（技能目录在系统提示词里），对话历史与摘要保留；面板操作期间不接受新的开关，避免并发改同一份状态。
+- 生成、压缩、恢复会话期间不能打开面板。
+- `sprout run` 同样遵守 `skills.jsonc`，脚本里的单次提问也不会看到被停用的技能。
+
 ## 查看已加载的技能
 
-TUI 里 `/tools` 的最后一段列出技能名；状态栏第三行的“技能”显示数量，没装技能时显示 `—`。启动日志里有每个技能的名字、来源和路径。
+TUI 里 `/tools` 的最后一段列出技能名，停用的带“（已停用）”；状态栏第三行的“技能”平时显示总数，有技能被停用时显示 `启用/全部`，没装技能时显示 `—`。启动日志里有每个技能的名字、来源和路径。
 
 **技能被触发时对话区会标出来**：模型读到某个技能的 `SKILL.md`（或它目录下的 `references/`、`scripts/`）时，那张工具卡片最前面显示绿色的 `[技能] 名字`，一眼能看出这次是在按技能办事，而不是普通读文件。识别只看参数里的路径是否落在已安装技能的目录里，`read`、`bash`、`powershell` 都覆盖；路径比较忽略大小写，`\` 与 `/` 等价（Windows 上同一个文件常有两种写法）。标记纯属展示，不影响工具执行。
 
@@ -84,11 +111,15 @@ TUI 里 `/tools` 的最后一段列出技能名；状态栏第三行的“技能
 ## 代码位置
 
 - `internal/agent/skills/`：发现、frontmatter 解析、目录渲染（`skills.go`）
-- `cmd/sprout/skills.go`：扫描路径与启动装配
-- `cmd/sprout/setup.go`：`buildAgent` 里调用 `skills.AppendCatalog`
+- `internal/agent/config/skills_state.go`：`skills.jsonc` 的读写（复用 `mcp_edit.go` 里的 JSONC 就地改写）
+- `internal/tui/skills.go`：`/skills` 面板（`skillPicker`）与 `SkillPanel` 接口
+- `cmd/sprout/skills.go`：扫描路径、开关状态、启动装配与面板实现（`skillStore`）
+- `cmd/sprout/setup.go`：`buildAgent` 里调用 `skills.AppendCatalog`，只传启用的技能
 
 ## 测试
 
 - `internal/agent/skills/skills_test.go`：发现规则、跳过目录、优先级与遮蔽、宽松解析、块标量、截断、目录渲染。
 - `internal/tui/skill_test.go`：技能标记在 `read` 与 shell 命令下都出现、路径大小写与分隔符不影响识别、普通文件不误标、没装技能时不标。
-- `cmd/sprout/skills_test.go`：路径顺序、目录实际进入请求体、正文可用 `read` 读取。
+- `internal/agent/config/skills_state_test.go`：开关文件新建、读写、大小写合并、坏文件不覆盖。
+- `internal/tui/skills_test.go`：列表与状态、开关、重新扫描、失败提示、忙时忽略按键、生成中拒绝打开、空列表。
+- `cmd/sprout/skills_test.go`：路径顺序、目录实际进入请求体、正文可用 `read` 读取；面板停用后系统提示词里不再有该技能、重新扫描发现新技能并保留开关。
