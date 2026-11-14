@@ -1,11 +1,15 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/shumengya/sprout/internal/agent"
+	"github.com/shumengya/sprout/internal/agent/event"
 )
 
 // fakeSkills 记录面板发来的操作，返回固定的技能列表。
@@ -35,6 +39,23 @@ func (f *fakeSkills) SetScanAgents(on bool) (string, error) {
 	f.scanAgents = on
 	f.calls = append(f.calls, "agents:"+boolTag(on))
 	return f.notice, f.err
+}
+
+// Trigger 记录调用，返回一段可辨认的正文；名字不在列表里时按“不是技能”处理。
+func (f *fakeSkills) Trigger(name, task string) (string, error) {
+	f.calls = append(f.calls, "trigger:"+name+":"+task)
+	if f.err != nil {
+		return "", f.err
+	}
+	for _, sk := range f.skills {
+		if sk.Name == name {
+			if !sk.Enabled {
+				return "", errors.New("技能 " + name + " 已停用")
+			}
+			return "SKILL BODY of " + name + "\n任务：" + task, nil
+		}
+	}
+	return "", ErrUnknownSkill
 }
 
 func skillList() []SkillInfo {
@@ -185,4 +206,100 @@ func TestSkillsPanelTogglesScanAgents(t *testing.T) {
 	m.in.SetValue("/skills")
 	m.Update(keyEnter)
 	mustContain(t, plain(m), ".agents 自动加载：关")
+}
+
+// /技能名 任务 手动触发：发出去的是技能正文 + 任务，对话区保留用户的原始输入。
+func TestSkillTriggerSendsInvocation(t *testing.T) {
+	got := make(chan agent.Input, 1)
+	r := fakeRunner{run: func(_ context.Context, in agent.Input, sink event.Sink) error {
+		got <- in
+		sink.Emit(event.TurnFinished{Reason: event.ReasonStop})
+		return nil
+	}}
+	f := &fakeSkills{skills: skillList()}
+	m := newSized(t, Options{Runner: r, Info: Info{Skills: f.Skills()}, Skills: f}, 120, 40)
+	m.in.SetValue("/lark 整理这份会议记录")
+	runProgram(t, m, func(send func(tea.Msg)) { send(keyEnter) }, finishedOneTurn)
+
+	select {
+	case in := <-got:
+		if !strings.Contains(in.Text, "SKILL BODY of lark") || !strings.Contains(in.Text, "整理这份会议记录") {
+			t.Errorf("发出的正文 = %q", in.Text)
+		}
+	default:
+		t.Fatal("应发起一轮请求")
+	}
+	if len(f.calls) != 1 || f.calls[0] != "trigger:lark:整理这份会议记录" {
+		t.Errorf("calls = %v", f.calls)
+	}
+	// 对话区显示用户原来的 /lark ...，而不是展开后的整段正文。
+	var userText string
+	for _, e := range m.entries {
+		if e.kind == kindUser {
+			userText = e.text
+		}
+	}
+	if userText != "/lark 整理这份会议记录" {
+		t.Errorf("对话区 = %q", userText)
+	}
+	mustContain(t, plain(m), "已手动触发技能 lark")
+}
+
+// 名字对不上技能时整段当作普通提问，/etc/hosts 这类输入不受影响。
+func TestUnknownSlashFallsThroughToPrompt(t *testing.T) {
+	got := make(chan agent.Input, 1)
+	r := fakeRunner{run: func(_ context.Context, in agent.Input, sink event.Sink) error {
+		got <- in
+		sink.Emit(event.TurnFinished{Reason: event.ReasonStop})
+		return nil
+	}}
+	f := &fakeSkills{skills: skillList()}
+	m := newSized(t, Options{Runner: r, Info: Info{Skills: f.Skills()}, Skills: f}, 120, 40)
+	m.in.SetValue("/etc/hosts 是什么")
+	runProgram(t, m, func(send func(tea.Msg)) { send(keyEnter) }, finishedOneTurn)
+
+	select {
+	case in := <-got:
+		if in.Text != "/etc/hosts 是什么" {
+			t.Errorf("正文 = %q", in.Text)
+		}
+	default:
+		t.Fatal("应发起一轮请求")
+	}
+	mustNotContain(t, plain(m), "已手动触发技能")
+}
+
+// 停用的技能不能手动触发，说明原因且不发起请求。
+func TestTriggerDisabledSkillRefuses(t *testing.T) {
+	r := fakeRunner{run: func(context.Context, agent.Input, event.Sink) error {
+		t.Error("不该发起请求")
+		return nil
+	}}
+	f := &fakeSkills{skills: skillList()}
+	m := newSized(t, Options{Runner: r, Info: Info{Skills: f.Skills()}, Skills: f}, 120, 40)
+	submit(m, "/pdf 提取文本")
+	if m.running {
+		t.Error("不该进入生成状态")
+	}
+	mustContain(t, plain(m), "已停用")
+}
+
+// 候选列表里列出启用的技能，排在内置命令之后。
+func TestSkillSuggestions(t *testing.T) {
+	f := &fakeSkills{skills: skillList()}
+	m := newSized(t, Options{Runner: scriptRunner(), Info: Info{Skills: f.Skills()}, Skills: f}, 120, 40)
+	m.in.SetValue("/la")
+	m.syncSuggest()
+	if len(m.sug.items) != 1 {
+		t.Fatalf("候选 = %+v", m.sug.items)
+	}
+	if it := m.sug.items[0]; it.value != "/lark " || it.label != "/lark" {
+		t.Errorf("候选 = %+v", it)
+	}
+	// 停用的技能不出现在候选里。
+	m.in.SetValue("/pd")
+	m.syncSuggest()
+	if len(m.sug.items) != 0 {
+		t.Errorf("停用技能不该出现: %+v", m.sug.items)
+	}
 }

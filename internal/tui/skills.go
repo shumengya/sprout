@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -24,7 +25,14 @@ type SkillPanel interface {
 	ScanAgents() bool
 	// SetScanAgents 打开或关闭 .agents/skills 的自动加载。
 	SetScanAgents(on bool) (string, error)
+	// Trigger 手动触发一个技能：读出它的 SKILL.md 正文，连同用户给的任务组成
+	// 一条发给模型的提问。技能不存在时返回 ErrUnknownSkill。
+	Trigger(name, task string) (string, error)
 }
+
+// ErrUnknownSkill 表示输入里那个 /名字 既不是内置命令也不是已注册的技能。
+// TUI 据此把整段输入当作普通提问交给模型，而不是报错。
+var ErrUnknownSkill = errors.New("没有这个技能")
 
 // skillPicker 是 /skills 的技能面板：替换输入框，↑↓ 选择，空格开关，r 重新扫描。
 type skillPicker struct {

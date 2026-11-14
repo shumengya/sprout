@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -13,6 +14,7 @@ import (
 	"github.com/shumengya/sprout/internal/agent/config"
 	"github.com/shumengya/sprout/internal/agent/event"
 	"github.com/shumengya/sprout/internal/agent/skills"
+	"github.com/shumengya/sprout/internal/tui"
 )
 
 // 技能目录真的出现在发给模型的系统提示词里，带 location，让模型能自己 read。
@@ -380,5 +382,56 @@ func TestLegacyDisabledListMigrates(t *testing.T) {
 	b, _ := os.ReadFile(config.SkillsPath(dataDir))
 	if strings.Contains(string(b), `"disabled"`) {
 		t.Errorf("迁移后不该留旧字段:\n%s", b)
+	}
+}
+
+// 手动触发：读的是 SKILL.md 正文，不含 frontmatter；停用与不存在的名字分别报错。
+func TestSkillStoreTrigger(t *testing.T) {
+	dataDir := t.TempDir()
+	dir := filepath.Join(dataDir, "skills", "demo")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\nname: demo\ndescription: 演示。\n---\n# 步骤\n1. 先做这个\n"
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, list, _, err := skillCatalog(dataDir, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &app{dataDir: dataDir, cwd: "", env: testEnv(nil, shellSet(true, true))}
+	a.commitSkills(cfg, list)
+	store := skillStore{a: a}
+
+	out, err := store.Trigger("demo", "整理会议记录")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"技能 demo", "# 步骤", "1. 先做这个", "整理会议记录", dir} {
+		if !strings.Contains(out, want) {
+			t.Errorf("触发内容缺少 %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "description: 演示。") {
+		t.Errorf("正文不该带 frontmatter:\n%s", out)
+	}
+
+	// 大小写不同也能认出来。
+	if _, err := store.Trigger("DEMO", ""); err != nil {
+		t.Errorf("应忽略大小写: %v", err)
+	}
+
+	// 不存在的名字：交给 TUI 按普通提问处理。
+	if _, err := store.Trigger("nope", ""); !errors.Is(err, tui.ErrUnknownSkill) {
+		t.Errorf("未知技能应返回 ErrUnknownSkill，得到 %v", err)
+	}
+
+	// 停用的技能不能触发。
+	if _, err := store.SetSkill("demo", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Trigger("demo", ""); err == nil || !strings.Contains(err.Error(), "已停用") {
+		t.Errorf("停用后应报错，得到 %v", err)
 	}
 }

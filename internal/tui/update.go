@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 	"time"
 
@@ -237,11 +238,30 @@ func (m *Model) submit() (tea.Model, tea.Cmd) {
 	// 消息里直接写图片路径（贴一条截图路径、从资源管理器拖进来）也要当图片发出去，
 	// 否则模型只看到一段路径文字，只能自己猜或去找 OCR。
 	in, _, skipped := media.AutoAttach(agent.Input{Text: text, Images: pending})
+	// 手动触发技能：/技能名 [任务]。名字对不上任何技能时按普通提问处理，
+	// 这样 "/etc/hosts 是什么" 这类输入不会被打断。
+	invocation, skillName, skillErr := m.skillInvocation(text)
+	if skillErr != nil {
+		// 技能存在但用不了（已停用、读不出正文）：说明原因，不发起这一轮。
+		m.add(&entry{kind: kindNotice, text: skillErr.Error()})
+		m.refresh()
+		return m, nil
+	}
+	if invocation != "" {
+		in.Text = invocation
+	}
+	var notes []string
 	marks := imageListMarks(in.Images)
 	m.pending = nil
 	m.add(&entry{kind: kindUser, text: text, images: marks})
+	if skillName != "" {
+		notes = append(notes, "已手动触发技能 "+skillName)
+	}
 	if len(skipped) > 0 {
-		m.add(&entry{kind: kindNotice, text: "有图片没能附加：\n  " + strings.Join(skipped, "\n  ")})
+		notes = append(notes, "有图片没能附加：\n  "+strings.Join(skipped, "\n  "))
+	}
+	for _, n := range notes {
+		m.add(&entry{kind: kindNotice, text: n})
 	}
 	if len(in.Images) > 0 && !m.opts.Info.Vision {
 		m.status = "当前模型没有标注 vision，图片会被省略（models.jsonc 里加 \"vision\": true 才不会）"
@@ -249,6 +269,28 @@ func (m *Model) submit() (tea.Model, tea.Cmd) {
 	m.running, m.follow = true, true
 	m.refresh()
 	return m, m.startTurn(in)
+}
+
+// skillInvocation 把 "/技能名 任务" 展开成发给模型的提问，返回展开后的正文与技能名。
+// 不是手动触发时返回空串与 nil；技能存在但已停用等真正的错误才返回 err。
+func (m *Model) skillInvocation(text string) (invocation, name string, err error) {
+	if m.opts.Skills == nil {
+		return "", "", nil
+	}
+	cmd, task, _ := strings.Cut(text, " ")
+	// 多行输入不当作触发：技能名后面跟一大段粘贴内容时，更可能是在提问。
+	if !strings.HasPrefix(cmd, "/") || len(cmd) < 2 || strings.ContainsAny(text, "\r\n") {
+		return "", "", nil
+	}
+	name = strings.TrimPrefix(cmd, "/")
+	out, err := m.opts.Skills.Trigger(name, task)
+	if errors.Is(err, ErrUnknownSkill) {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", err
+	}
+	return out, name, nil
 }
 
 func firstLine(s string) string {

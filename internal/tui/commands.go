@@ -39,6 +39,7 @@ const helpText = `快捷键
   /tools              查看检测到的终端工具、MCP 服务端与已安装的技能
   /mcp                打开 MCP 面板，启用 / 停用服务端与单个工具，r 刷新重连
   /skills             打开技能面板，启用 / 停用单个技能，r 重新扫描技能目录
+  /技能名 任务         直接触发一个技能（输入 / 会列出可触发的技能）；名字不是技能时按普通提问发送
   /install-sprout     把当前程序注册成全局 sprout 命令（新开的终端里生效）
   /uninstall-sprout   卸载全局 sprout 命令（程序文件不动）
   /help               显示本帮助

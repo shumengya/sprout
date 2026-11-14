@@ -377,3 +377,39 @@ func AppendCatalog(system string, list []Skill, hasRead bool) string {
 	b.WriteString("</available_skills>\n")
 	return b.String()
 }
+
+// Body 读出技能 SKILL.md 去掉 frontmatter 后的正文，供用户手动触发技能时直接交给模型。
+func Body(s Skill) (string, error) {
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		return "", fmt.Errorf("读取技能 %s 失败: %w", s.Name, err)
+	}
+	text := strings.ReplaceAll(strings.TrimPrefix(string(data), "\uFEFF"), "\r\n", "\n")
+	lines := strings.Split(text, "\n")
+	if len(lines) == 0 || lines[0] != "---" {
+		return "", fmt.Errorf("技能 %s 的 SKILL.md 缺少 frontmatter", s.Name)
+	}
+	for i := 1; i < len(lines); i++ {
+		if lines[i] == "---" || lines[i] == "..." {
+			return strings.TrimSpace(strings.Join(lines[i+1:], "\n")), nil
+		}
+	}
+	return "", fmt.Errorf("技能 %s 的 frontmatter 没有结束的 ---", s.Name)
+}
+
+// Invocation 把手动触发的技能组成一条提问。
+//
+// 正文直接放进消息，模型不用再调 read；目录路径一并给出，因为正文里引用的
+// scripts/、references/ 是相对技能目录的。task 为空时让模型按技能说明开始并按需追问。
+func Invocation(s Skill, body, task string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "用户手动触发了技能 %s，请按下面的技能说明完成任务。\n", s.Name)
+	fmt.Fprintf(&b, "技能目录：%s（正文里的相对路径都相对这个目录）\n\n", s.Dir)
+	fmt.Fprintf(&b, "<skill name=%q>\n%s\n</skill>\n\n", s.Name, body)
+	if task = strings.TrimSpace(task); task != "" {
+		b.WriteString("任务：" + task)
+	} else {
+		b.WriteString("用户没有给出具体任务：按技能说明开始，缺少必要信息时先问用户。")
+	}
+	return b.String()
+}

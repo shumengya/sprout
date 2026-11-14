@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -92,6 +93,9 @@ func (m *Model) suggestionsFor(v string) ([]suggestion, string) {
 			}
 			out = append(out, suggestion{value: val, label: c.name, hint: c.args, desc: c.desc})
 		}
+		// 技能排在命令后面：/技能名 也能手动触发（见 skillInvocation）。
+		// 与内置命令同名的技能不会被选到，提交时命令优先。
+		out = append(out, m.skillSuggestions(low)...)
 		return out, name
 	}
 	if strings.Contains(arg, " ") {
@@ -120,6 +124,25 @@ func (m *Model) suggestionsFor(v string) ([]suggestion, string) {
 		}
 	}
 	return out, arg
+}
+
+// skillSuggestions 列出名字以 low 开头的启用技能，值补成 "/名字 "，方便接着写任务。
+func (m *Model) skillSuggestions(low string) []suggestion {
+	if m.opts.Skills == nil {
+		return nil
+	}
+	var out []suggestion
+	for _, sk := range m.opts.Skills.Skills() {
+		name := "/" + sk.Name
+		if !sk.Enabled || !strings.HasPrefix(strings.ToLower(name), low) {
+			continue
+		}
+		if slices.ContainsFunc(slashCommands, func(c slashCommand) bool { return c.name == name }) {
+			continue
+		}
+		out = append(out, suggestion{value: name + " ", label: name, hint: "[任务]", desc: "触发技能 " + sk.Name})
+	}
+	return out
 }
 
 // suggestKey 在候选列表可见时处理按键，返回 true 表示已消费。

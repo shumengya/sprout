@@ -247,6 +247,43 @@ func (s skillStore) ScanAgents() bool {
 	return s.a.skillCfg.ScansAgents()
 }
 
+// Trigger 手动触发一个技能：按名字找到已启用的技能，读出正文组成一条提问。
+// 输入里的名字不是注册技能时返回 tui.ErrUnknownSkill，由 TUI 决定按普通提问处理。
+func (s skillStore) Trigger(name, task string) (string, error) {
+	a := s.a
+	a.mu.Lock()
+	list, cfg := a.skills, a.skillCfg
+	a.mu.Unlock()
+
+	var found *skills.Skill
+	for i := range list {
+		if list[i].Name == name {
+			found = &list[i]
+			break
+		}
+	}
+	if found == nil {
+		// 名字大小写不同也算同一个：技能名规范是小写，但用户手打时未必记得。
+		for i := range list {
+			if strings.EqualFold(list[i].Name, name) {
+				found = &list[i]
+				break
+			}
+		}
+	}
+	if found == nil {
+		return "", tui.ErrUnknownSkill
+	}
+	if e, ok := cfg.Entry(found.Name); !ok || !e.Enable {
+		return "", fmt.Errorf("技能 %s 已停用，用 /skills 打开后再试", found.Name)
+	}
+	body, err := skills.Body(*found)
+	if err != nil {
+		return "", err
+	}
+	return skills.Invocation(*found, body, task), nil
+}
+
 // SetSkill 启用或停用一个已注册的技能：写回 skills.jsonc。技能文件本身不动。
 func (s skillStore) SetSkill(name string, enable bool) (string, error) {
 	a := s.a
