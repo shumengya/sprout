@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -86,6 +87,7 @@ func (m *Model) onEvent(e event.Event) {
 
 	switch e := e.(type) {
 	case event.ReasoningDelta:
+		m.markGen()
 		if m.think == nil {
 			m.think = m.add(&entry{kind: kindThink, live: true, open: m.showThink, thinkStart: m.now()})
 			m.callThink = m.think
@@ -94,6 +96,7 @@ func (m *Model) onEvent(e event.Event) {
 		m.think.text += e.Text
 		m.think.touch()
 	case event.MessageDelta:
+		m.markGen()
 		m.endThink()
 		if m.cur == nil {
 			m.cur = m.add(&entry{kind: kindAssistant})
@@ -101,6 +104,7 @@ func (m *Model) onEvent(e event.Event) {
 		m.cur.text += e.Text
 		m.cur.touch()
 	case event.MessageCompleted:
+		m.genEnd = m.now()
 		m.endThink()
 		// 没收到增量（非流式服务）时，用完整内容补上思维链和正文。
 		// thinkShown 记录本次模型调用是否已经流式展示过思维链：MessageDelta 会提前结束 m.think，
@@ -182,7 +186,31 @@ func (m *Model) addUsage(e event.Usage) {
 	if e.InputTokens > 0 {
 		m.ctxTokens = e.InputTokens
 	}
+	m.updateSpeed(e.OutputTokens)
 }
+
+// markGen 记下本次模型调用第一次收到输出的时刻，输出速度从这里起算。
+func (m *Model) markGen() {
+	if m.genStart.IsZero() {
+		m.genStart = m.now()
+	}
+}
+
+// updateSpeed 用刚结束的这次调用的输出 token 数，除以从首个增量到消息完成的时间，得到输出速度。
+// 没收到过增量（非流式服务）、时间为零或服务端没报告输出 token 时保持上一次的值，不编造数字。
+func (m *Model) updateSpeed(output int) {
+	start, end := m.genStart, m.genEnd
+	m.genStart, m.genEnd = time.Time{}, time.Time{}
+	if output <= 0 || start.IsZero() || end.IsZero() {
+		return
+	}
+	if d := end.Sub(start).Seconds(); d > 0 {
+		m.speed = float64(output) / d
+	}
+}
+
+// resetSpeed 在新会话、恢复会话时清掉输出速度；重放历史事件时时钟几乎不走，算出来的速度没有意义。
+func (m *Model) resetSpeed() { m.speed, m.genStart, m.genEnd = 0, time.Time{}, time.Time{} }
 
 // endThink 结束当前的思维链条目：从“流式预览”变成一行摘要，并记下思考耗时。
 func (m *Model) endThink() {
@@ -203,6 +231,7 @@ func (m *Model) finishTurn(reason string) {
 	m.endThink()
 	m.thinkShown = false
 	m.callThink, m.usageThink = nil, nil
+	m.genStart, m.genEnd = time.Time{}, time.Time{} // 中断或出错的调用没有 Usage，不能把起点留给下一次调用
 	m.running, m.cur, m.status = false, nil, ""
 	// 轮次异常结束时（通道提前关闭等）可能还有工具卡片停在“运行中…”，不能让它一直转下去。
 	for _, e := range m.entries {

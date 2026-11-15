@@ -104,6 +104,7 @@ func (m *Model) newSessionCmd() {
 	m.entries, m.tools = nil, map[string]*entry{}
 	m.usage, m.cost, m.ctxTokens = usageTotals{}, costTotals{}, 0 // 新会话从零开始计数
 	m.resetBusy()
+	m.resetSpeed()
 	m.callThink, m.usageThink = nil, nil
 	m.clearSel()
 	m.add(&entry{kind: kindNotice, text: welcomeText})
@@ -141,5 +142,6 @@ func (m *Model) replay(events []event.Event) {
 		m.onEvent(e)
 	}
 	m.running, m.cur, m.think, m.thinkShown, m.follow = false, nil, nil, false, true
+	m.resetSpeed()
 	m.callThink, m.usageThink = nil, nil
 }

@@ -12,31 +12,37 @@ import (
 type SystemUsage struct {
 	MemPercent float64
 	CPUPercent float64
+	// ProcMemMB 是本进程（sprout）占用的物理内存，单位 MB；读不到时为负数。
+	ProcMemMB float64
 }
 
 // SystemSampler 采样整机资源占用。CPU 占用是两次采样之间的差，所以第一次采样没有 CPU 值。
 // 可以被多个 goroutine 调用。
 type SystemSampler struct {
-	mu  sync.Mutex
-	mem func() (float64, bool)
-	cpu func() (idle, total uint64, ok bool)
+	mu   sync.Mutex
+	mem  func() (float64, bool)
+	cpu  func() (idle, total uint64, ok bool)
+	proc func() (float64, bool)
 
 	prevIdle, prevTotal uint64
 	havePrev            bool
 }
 
-// NewSystemSampler 返回读取真实系统的采样器。平台差异在 sysMemPercent / sysCPUTimes 里。
+// NewSystemSampler 返回读取真实系统的采样器。平台差异在 sysMemPercent / sysCPUTimes / procMemMB 里。
 func NewSystemSampler() *SystemSampler {
-	return &SystemSampler{mem: sysMemPercent, cpu: sysCPUTimes}
+	return &SystemSampler{mem: sysMemPercent, cpu: sysCPUTimes, proc: procMemMB}
 }
 
 // Sample 采样一次。
 func (s *SystemSampler) Sample() SystemUsage {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	u := SystemUsage{MemPercent: -1, CPUPercent: -1}
+	u := SystemUsage{MemPercent: -1, CPUPercent: -1, ProcMemMB: -1}
 	if p, ok := s.mem(); ok {
 		u.MemPercent = p
+	}
+	if mb, ok := s.proc(); ok {
+		u.ProcMemMB = mb
 	}
 	idle, total, ok := s.cpu()
 	if !ok {
@@ -94,6 +100,28 @@ func parseMeminfo(text string) (float64, bool) {
 		return 0, false
 	}
 	return float64(total-avail) * 100 / float64(total), true
+}
+
+// parseVmRSSMB 从 /proc/self/status 的内容取出本进程驻留内存（VmRSS），换算成 MB。
+// 没有 VmRSS 或单位不是 kB 时返回 false，不猜。
+func parseVmRSSMB(text string) (float64, bool) {
+	sc := bufio.NewScanner(strings.NewReader(text))
+	for sc.Scan() {
+		key, rest, ok := strings.Cut(sc.Text(), ":")
+		if !ok || key != "VmRSS" {
+			continue
+		}
+		fields := strings.Fields(rest)
+		if len(fields) != 2 || fields[1] != "kB" {
+			return 0, false
+		}
+		v, err := strconv.ParseUint(fields[0], 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		return float64(v) / 1024, true
+	}
+	return 0, false
 }
 
 // parseProcStat 从 /proc/stat 的内容取出整机 CPU 的累计时间。

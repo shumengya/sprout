@@ -85,6 +85,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh()
 		return m, nil
 
+	case gitMsg:
+		m.git = msg.info
+		return m, m.gitCmd(gitInterval)
+
 	case resourceMsg:
 		m.res = msg.res
 		return m, m.resourceCmd(time.Second) // 约定下一次采样；View 会随这次 Update 重绘，耗时因此每秒刷新

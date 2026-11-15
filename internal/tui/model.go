@@ -120,6 +120,9 @@ type Options struct {
 	// Resources 采样整机内存和 CPU 占用，状态栏每秒调用一次（在 tea.Cmd 里，不占 Update）；
 	// 为 nil 时状态栏不显示这两项。
 	Resources func() Resources
+	// Git 读取工作目录的 git 分支和改动文件数，状态栏每几秒调用一次（在 tea.Cmd 里，不占 Update）；
+	// 为 nil 或返回 OK=false 时不显示 Git 一项。
+	Git func() GitInfo
 	// MCPReady 在后台的 MCP 连接流程结束时关闭；为 nil 表示没有后台连接（启动时已就绪或没有配置）。
 	MCPReady <-chan struct{}
 	// ApplyMCP 在 MCP 连接完成后调用，返回刷新后的 Info 与要显示的提示（连接失败等）。
@@ -181,6 +184,11 @@ type Model struct {
 	ctxTokens int
 	costUSD   float64 // 美元；/new 与恢复会话时清零，切模型后历史花费按原价保留
 	res       Resources
+	git       GitInfo
+	// speed 是最近一次模型调用的输出速度（token/s），0 表示还没有可算的数据；
+	// genStart、genEnd 是这次调用收到首个增量和消息完成的时刻。
+	speed            float64
+	genStart, genEnd time.Time
 	// pending 是下一条消息待发送的图片（/image 附加），发送或 /image clear 后清空。
 	pending []agent.Image
 
@@ -215,7 +223,7 @@ func New(o Options) *Model {
 		o.Disabled = "没有可用的 agent，无法发起对话。"
 	}
 	m := &Model{opts: o, follow: true, mouse: true, tools: map[string]*entry{}, quit: make(chan struct{}), clip: defaultClip, now: time.Now,
-		res: Resources{Mem: -1, CPU: -1}}
+		res: Resources{Mem: -1, CPU: -1, ProcMB: -1}}
 
 	m.vp = viewport.New()
 	m.vp.FillHeight = true
@@ -264,7 +272,7 @@ func New(o Options) *Model {
 }
 
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(m.in.Focus(), m.resourceCmd(0), m.mcpReadyCmd())
+	return tea.Batch(m.in.Focus(), m.resourceCmd(0), m.gitCmd(0), m.mcpReadyCmd())
 }
 
 // mcpReadyMsg 表示后台 MCP 连接流程已结束（不论成败）。

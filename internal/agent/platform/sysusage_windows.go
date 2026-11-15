@@ -10,7 +10,38 @@ import (
 var (
 	procGlobalMemoryStatusEx = kernel32.NewProc("GlobalMemoryStatusEx")
 	procGetSystemTimes       = kernel32.NewProc("GetSystemTimes")
+	// K32 前缀的版本在 kernel32 里，不必再加载 psapi.dll。
+	procGetProcessMemoryInfo = kernel32.NewProc("K32GetProcessMemoryInfo")
 )
+
+// processMemoryCounters 对应 Win32 的 PROCESS_MEMORY_COUNTERS。
+type processMemoryCounters struct {
+	Cb                         uint32
+	PageFaultCount             uint32
+	PeakWorkingSetSize         uintptr
+	WorkingSetSize             uintptr
+	QuotaPeakPagedPoolUsage    uintptr
+	QuotaPagedPoolUsage        uintptr
+	QuotaPeakNonPagedPoolUsage uintptr
+	QuotaNonPagedPoolUsage     uintptr
+	PagefileUsage              uintptr
+	PeakPagefileUsage          uintptr
+}
+
+// procMemMB 返回本进程的工作集（任务管理器里的“内存”），单位 MB。
+func procMemMB() (float64, bool) {
+	h, err := syscall.GetCurrentProcess()
+	if err != nil {
+		return 0, false
+	}
+	var c processMemoryCounters
+	c.Cb = uint32(unsafe.Sizeof(c))
+	r, _, _ := procGetProcessMemoryInfo.Call(uintptr(h), uintptr(unsafe.Pointer(&c)), uintptr(c.Cb))
+	if r == 0 {
+		return 0, false
+	}
+	return float64(c.WorkingSetSize) / (1 << 20), true
+}
 
 // memoryStatusEx 对应 Win32 的 MEMORYSTATUSEX。
 type memoryStatusEx struct {

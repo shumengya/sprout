@@ -88,8 +88,9 @@ func TestCPUPercent(t *testing.T) {
 func TestSamplerNeedsTwoSamplesForCPU(t *testing.T) {
 	idle, total := uint64(100), uint64(1000)
 	s := &SystemSampler{
-		mem: func() (float64, bool) { return 42, true },
-		cpu: func() (uint64, uint64, bool) { return idle, total, true },
+		mem:  func() (float64, bool) { return 42, true },
+		proc: func() (float64, bool) { return 64, true },
+		cpu:  func() (uint64, uint64, bool) { return idle, total, true },
 	}
 	first := s.Sample()
 	if first.MemPercent != 42 || first.CPUPercent >= 0 {
@@ -107,10 +108,11 @@ func TestSamplerNeedsTwoSamplesForCPU(t *testing.T) {
 
 func TestSamplerReportsUnavailableAsNegative(t *testing.T) {
 	s := &SystemSampler{
-		mem: func() (float64, bool) { return 0, false },
-		cpu: func() (uint64, uint64, bool) { return 0, 0, false },
+		mem:  func() (float64, bool) { return 0, false },
+		proc: func() (float64, bool) { return 0, false },
+		cpu:  func() (uint64, uint64, bool) { return 0, 0, false },
 	}
-	if u := s.Sample(); u.MemPercent >= 0 || u.CPUPercent >= 0 {
+	if u := s.Sample(); u.MemPercent >= 0 || u.CPUPercent >= 0 || u.ProcMemMB >= 0 {
 		t.Errorf("读不到的项应为负数，不能是 0（那会被当成“占用 0%%”）: %+v", u)
 	}
 }
@@ -119,8 +121,9 @@ func TestSamplerRebaselinesAfterAReadFailure(t *testing.T) {
 	ok := true
 	idle, total := uint64(100), uint64(1000)
 	s := &SystemSampler{
-		mem: func() (float64, bool) { return 1, true },
-		cpu: func() (uint64, uint64, bool) { return idle, total, ok },
+		mem:  func() (float64, bool) { return 1, true },
+		proc: func() (float64, bool) { return 1, true },
+		cpu:  func() (uint64, uint64, bool) { return idle, total, ok },
 	}
 	s.Sample()
 	ok = false

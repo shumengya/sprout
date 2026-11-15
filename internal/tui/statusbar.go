@@ -12,12 +12,13 @@ import (
 
 // 底部三行状态栏，从上到下：
 //
-//	路径 … | 对话轮次 N | 耗时 … | 内存 N% | CPU N%
-//	输入 … | 输出 … | 缓存 读/写 | 花费 — | 上下文 N%/窗口 | 模型ID … | 思考强度 …
-//	状态 … | MCP — | 插件 — | 技能 — | 工具 N
+//	路径 … | 对话轮次 N | 耗时 … | 内存 N% | CPU N% | 进程内存 N MB
+//	输入 … | 输出 … | 速度 N token/s | 缓存 读/写 | 花费 — | 上下文 N%/窗口 | 模型ID … | 思考强度 …
+//	状态 … | MCP — | 插件 — | 技能 — | 工具 N | Git 分支 +新增 ~修改 -删除
 //
 // MCP、插件、技能对应的功能还没有实现，先占位显示 placeholder，接上之后只需要把值换掉。
 // 花费已接上：按 models.dev 的单价累计，见 costTotals。
+// 内存、CPU 是整机占用，进程内存是 sprout 自己；速度是最近一次模型调用的输出速度。
 
 // infoRows 是状态栏占的行数。
 const infoRows = 3
@@ -29,6 +30,8 @@ const placeholder = "—"
 // 或者 CPU 还没有第二次采样可比），状态栏就不显示那一项。
 type Resources struct {
 	Mem, CPU float64
+	// ProcMB 是 sprout 进程自己占用的物理内存（MB）；不大于 0 表示读不到（运行中的进程不可能是 0）。
+	ProcMB float64
 }
 
 // usageTotals 是本会话累计的 token 用量，按服务端报告的数字累加。
@@ -87,12 +90,39 @@ func (m *Model) resourceCmd(delay time.Duration) tea.Cmd {
 	sample := m.opts.Resources
 	run := func() tea.Msg {
 		if sample == nil {
-			return resourceMsg{Resources{Mem: -1, CPU: -1}}
+			return resourceMsg{Resources{Mem: -1, CPU: -1, ProcMB: -1}}
 		}
 		return resourceMsg{sample()}
 	}
 	if delay <= 0 {
 		return func() tea.Msg { return run() }
+	}
+	return tea.Tick(delay, func(time.Time) tea.Msg { return run() })
+}
+
+// GitInfo 是工作目录的 git 分支和改动文件数。OK 为 false 表示读不到（不是仓库、没装 git），状态栏不显示这一项。
+type GitInfo struct {
+	Branch                   string
+	Added, Modified, Deleted int
+	OK                       bool
+}
+
+// gitInterval 是 git 状态的采样间隔，比资源采样慢：每次都要起一个 git 进程。
+const gitInterval = 5 * time.Second
+
+// gitMsg 携带一次 git 状态的读取结果。
+type gitMsg struct{ info GitInfo }
+
+// gitCmd 在 delay 之后读一次 git 状态。读取在命令自己的 goroutine 里做，git 慢也不占 Update；
+// 没有提供 Git 时返回 nil，之后也不再调度。
+func (m *Model) gitCmd(delay time.Duration) tea.Cmd {
+	read := m.opts.Git
+	if read == nil {
+		return nil
+	}
+	run := func() tea.Msg { return gitMsg{read()} }
+	if delay <= 0 {
+		return run
 	}
 	return tea.Tick(delay, func(time.Time) tea.Msg { return run() })
 }
@@ -108,9 +138,11 @@ var labelColors = map[string]string{
 	"耗时":   "220", // 金黄
 	"内存":   "114", // 浅绿
 	"CPU":  "176", // 粉紫
+	"进程内存": "186", // 淡黄
 	// 第二行
 	"输入":   "80",  // 青
 	"输出":   "211", // 粉
+	"速度":   "159", // 淡青
 	"缓存":   "179", // 土黄
 	"花费":   "120", // 亮绿
 	"上下文":  "111", // 浅蓝
@@ -122,6 +154,7 @@ var labelColors = map[string]string{
 	"插件":  "168", // 玫红
 	"技能":  "105", // 蓝紫
 	"工具":  "215", // 杏色
+	"Git": "209", // 珊瑚
 }
 
 // labelStyle 返回一项的样式；没登记的标签用淡色，不会因为漏登记而崩溃。
@@ -178,6 +211,19 @@ func fmtElapsed(d time.Duration) string {
 	return fmt.Sprintf("%dh%02dm%02ds", s/3600, s%3600/60, s%60)
 }
 
+// fmtMB 把 MB 数写成 48MB；超过 1024 换成 GB。
+func fmtMB(mb float64) string {
+	if mb >= 1024 {
+		return fmt.Sprintf("%.1fGB", mb/1024)
+	}
+	return fmt.Sprintf("%.0fMB", mb)
+}
+
+// fmtGit 是“Git”一项的值：分支名，后面依次是新增（含未跟踪）、修改、删除的文件数。
+func fmtGit(g GitInfo) string {
+	return fmt.Sprintf("%s +%d ~%d -%d", g.Branch, g.Added, g.Modified, g.Deleted)
+}
+
 func (m *Model) turns() int {
 	n := 0
 	for _, e := range m.entries {
@@ -224,6 +270,9 @@ func (m *Model) infoPathLine() string {
 	if r := m.res; r.CPU >= 0 {
 		rest = append(rest, seg{"CPU", fmt.Sprintf("%.0f%%", r.CPU), nil})
 	}
+	if r := m.res; r.ProcMB > 0 {
+		rest = append(rest, seg{"进程内存", fmtMB(r.ProcMB), nil})
+	}
 	fixed := 0
 	for _, s := range rest {
 		fixed += ansi.StringWidth(s.render()) + len(segSep)
@@ -239,11 +288,17 @@ func (m *Model) infoUsageLine() string {
 	segs := []seg{
 		{"输入", fmtTokens(u.Input), nil},
 		{"输出", fmtTokens(u.Output), nil},
-		{"缓存", fmtTokens(u.CacheRead) + "/" + fmtTokens(u.CacheWrite), nil},
-		{"花费", m.cost.String(), nil},
-		m.contextSeg(),
-		{"模型ID", m.opts.Info.Model, nil},
 	}
+	// 速度是最近一次模型调用的输出速度；还没有可算的数据（没回答过、非流式服务）时不显示。
+	if m.speed > 0 {
+		segs = append(segs, seg{"速度", fmt.Sprintf("%.1f token/s", m.speed), nil})
+	}
+	segs = append(segs,
+		seg{"缓存", fmtTokens(u.CacheRead) + "/" + fmtTokens(u.CacheWrite), nil},
+		seg{"花费", m.cost.String(), nil},
+		m.contextSeg(),
+		seg{"模型ID", m.opts.Info.Model, nil},
+	)
 	if e := m.opts.Info.Effort; e != "" {
 		segs = append(segs, seg{"思考强度", e, nil})
 	}
@@ -275,13 +330,17 @@ func (m *Model) contextSeg() seg {
 
 // infoStatusLine：当前在做什么、MCP 与技能、可用的工具数。
 func (m *Model) infoStatusLine() string {
-	return joinSegs(m.w, []seg{
+	segs := []seg{
 		{"状态", m.statusName(), nil},
 		{"MCP", m.mcpSegValue(), nil},
 		{"插件", placeholder, nil},
 		{"技能", m.skillsSegValue(), nil},
 		{"工具", fmt.Sprint(len(m.opts.Info.Tools)), nil},
-	})
+	}
+	if g := m.git; g.OK {
+		segs = append(segs, seg{"Git", fmtGit(g), nil})
+	}
+	return joinSegs(m.w, segs)
 }
 
 // mcpSegValue 是状态栏“MCP”一项：显示 已连接/已启用 的服务端数。

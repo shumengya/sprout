@@ -4,6 +4,15 @@ package platform
 
 import "os"
 
+// procMemMB 读 /proc/self/status 的 VmRSS，解析在 parseVmRSSMB（sysusage.go）。
+func procMemMB() (float64, bool) {
+	b, err := os.ReadFile("/proc/self/status")
+	if err != nil {
+		return 0, false
+	}
+	return parseVmRSSMB(string(b))
+}
+
 // Android（Termux）的 GOOS 是 android，构建时同样满足 linux 标签。
 // Android 8+ 的应用读不了 /proc/stat，sysCPUTimes 会返回 false，状态栏就不显示 CPU；/proc/meminfo 通常可读。
 
