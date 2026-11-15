@@ -3,7 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
-	"math/rand/v2"
+	"fmt"
 	"strings"
 	"time"
 
@@ -17,11 +17,11 @@ type RetryPolicy struct {
 	MaxDelay   time.Duration // 单次等待的上限
 }
 
-// DefaultRetry 是 Config.Retry 为 nil 时使用的策略：最多 3 次，等待约 1s、2s、4s。
-var DefaultRetry = RetryPolicy{MaxRetries: 3, BaseDelay: time.Second, MaxDelay: 16 * time.Second}
+// DefaultRetry 是 Config.Retry 为 nil 时使用的策略：最多 7 次，等待 1s、2s、4s、8s、16s、32s、64s。
+var DefaultRetry = RetryPolicy{MaxRetries: 7, BaseDelay: time.Second, MaxDelay: 64 * time.Second}
 
 // 服务端用 Retry-After 要求等待超过这个时间，就不等了，直接把错误交给用户。
-const maxServerWait = 30 * time.Second
+const maxServerWait = 64 * time.Second
 
 // next 判断第 attempt 次（从 1 起）重试是否应该进行，并给出等待时间。
 func (p RetryPolicy) next(attempt int, err error) (time.Duration, bool) {
@@ -36,8 +36,8 @@ func (p RetryPolicy) next(attempt int, err error) (time.Duration, bool) {
 	if p.MaxDelay > 0 && (d > p.MaxDelay || d <= 0) {
 		d = p.MaxDelay
 	}
-	// ±25% 抖动，避免多个客户端同时重试。
-	return d + time.Duration((rand.Float64()-0.5)*0.5*float64(d)), true
+	// 不加抖动：单个终端客户端不存在“一群客户端同时重试”的问题，固定的 1s、2s、4s… 用户看得懂。
+	return d, true
 }
 
 // sleepCtx 等待 d，ctx 被取消时立即返回 ctx.Err()，所以退避期间按 Ctrl+C 能马上取消。
@@ -68,6 +68,14 @@ func (t *turn) retrying(call func(started func()) (Response, error)) (Response, 
 		}
 		delay, ok := t.a.retry.next(attempt, err)
 		if !ok {
+			// 退避到上限仍失败：把次数写进错误里，用户才知道是重试过以后才放弃的，
+			// 而不是一次就报错。用 %w 包住原错误，上层仍能 errors.As 拿到 ProviderError。
+			if attempt > 1 {
+				var pe *ProviderError
+				if errors.As(err, &pe) && pe.Retryable {
+					return resp, fmt.Errorf("已重试 %d 次仍失败：%w", attempt-1, err)
+				}
+			}
 			return resp, err
 		}
 		reason, _, _ := strings.Cut(err.Error(), "\n")

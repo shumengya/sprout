@@ -133,8 +133,8 @@ func TestBackoffGrowsAndIsCapped(t *testing.T) {
 			t.Fatalf("第 %d 次应允许重试", attempt)
 		}
 		mid := min(p.BaseDelay<<(attempt-1), p.MaxDelay)
-		if lo, hi := time.Duration(float64(mid)*0.74), time.Duration(float64(mid)*1.26); d < lo || d > hi {
-			t.Errorf("第 %d 次等待 %v 不在 %v 的 ±25%% 内", attempt, d, mid)
+		if d != mid {
+			t.Errorf("第 %d 次等待 %v，期望 %v", attempt, d, mid)
 		}
 		if mid < prevMid {
 			t.Errorf("退避时间不应缩短")
@@ -148,7 +148,7 @@ func TestBackoffGrowsAndIsCapped(t *testing.T) {
 
 func TestBackoffOverflowIsSafe(t *testing.T) {
 	p := RetryPolicy{MaxRetries: 100, BaseDelay: time.Hour, MaxDelay: time.Minute}
-	if d, ok := p.next(80, &ProviderError{Retryable: true}); !ok || d <= 0 || d > 2*time.Minute {
+	if d, ok := p.next(80, &ProviderError{Retryable: true}); !ok || d != time.Minute {
 		t.Fatalf("移位溢出时应退回上限: %v %v", d, ok)
 	}
 }
@@ -190,5 +190,37 @@ func TestRetryInLaterStepKeepsEarlierToolResults(t *testing.T) {
 	}
 	if len(p.reqs) != 3 || len(p.reqs[1].Messages) != 3 || len(p.reqs[2].Messages) != 3 {
 		t.Fatalf("重试请求的历史应与失败那次一致: %d 次调用", len(p.reqs))
+	}
+}
+
+// 默认策略：1s、2s、4s、8s、16s、32s、64s 共 7 次，第 8 次不再重试。
+func TestDefaultRetrySchedule(t *testing.T) {
+	err := &ProviderError{Retryable: true}
+	var got []time.Duration
+	for attempt := 1; ; attempt++ {
+		d, ok := DefaultRetry.next(attempt, err)
+		if !ok {
+			break
+		}
+		got = append(got, d)
+	}
+	want := []time.Duration{1, 2, 4, 8, 16, 32, 64}
+	for i := range want {
+		want[i] *= time.Second
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("默认退避 = %v，期望 %v", got, want)
+	}
+}
+
+// 重试耗尽后的错误要说明重试过几次，同时仍能取到原始的 ProviderError。
+func TestRetryExhaustedErrorSaysHowManyTimes(t *testing.T) {
+	p := &scripted{steps: []scriptStep{{err: transient()}, {err: transient()}, {err: transient()}, {err: transient()}}}
+	a := newAgentCfg(t, Config{Provider: p, Retry: fast})
+	var c collector
+	err := a.Run(context.Background(), Input{Text: "q"}, &c)
+	var pe *ProviderError
+	if !errors.As(err, &pe) || !strings.Contains(err.Error(), "已重试 3 次仍失败") || !strings.Contains(err.Error(), "overloaded") {
+		t.Fatalf("错误 = %v", err)
 	}
 }
