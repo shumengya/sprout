@@ -90,7 +90,7 @@ func TestContextColorsWarnNearTheLimit(t *testing.T) {
 		sgr   string // 空串表示值和标签同色，不带警告色
 	}{
 		{500, ""},
-		{700, "\x1b[33m"}, // 黄
+		{700, "\x1b[33m"},   // 黄
 		{950, "\x1b[1;91m"}, // 亮红加粗，与最终的报错条目同色
 	}
 	for _, c := range cases {

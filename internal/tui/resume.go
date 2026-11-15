@@ -102,7 +102,7 @@ func (m *Model) newSessionCmd() {
 		return
 	}
 	m.entries, m.tools = nil, map[string]*entry{}
-	m.queue = nil // 排队的是上一个会话里的提问，不能带进新会话
+	m.queue = nil                                                 // 排队的是上一个会话里的提问，不能带进新会话
 	m.usage, m.cost, m.ctxTokens = usageTotals{}, costTotals{}, 0 // 新会话从零开始计数
 	m.resetBusy()
 	m.resetSpeed()
