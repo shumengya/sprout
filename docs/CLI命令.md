@@ -14,7 +14,7 @@
 | `sprout run` | 提问 | 单次运行后退出 | 多个词拼成一句；空白则用法错误。答案写 stdout，进度与错误写 stderr |
 | `sprout run` | 同上三个选项 | 单次运行并指定数据目录或恢复会话 | 恢复失败则退出，不新开会话 |
 | `sprout models update` | `[--data-dir DIR]` | 从 models.dev 下载模型目录，写入数据目录的 `models.dev.json` | 只在执行时联网；启动时不联网。报告本次配置里哪些模型对得上。重启后生效 |
-| `sprout update` | `[--repo OWNER/NAME]` | 查询 GitHub Releases 的最新版本并与当前版本比较；不一致时打印发布页与本平台产物的下载地址 | 默认源是 `github.com/shumengya/sprout`，`--repo` 可指向 fork。只提示，不自动替换正在运行的程序。开发构建（`dev`）只报告最新发布，不判版本高低 |
+| `sprout update` | `[--repo OWNER/NAME] [--check]` | 查询 GitHub Releases 的最新版本；有新版本时下载本平台产物，校验 `SHA256SUMS.txt`、试运行后替换当前程序，重启生效 | 默认源是 `github.com/shumengya/sprout`，`--repo` 可指向 fork。`--check` 只报告、不下载。程序目录不可写（如 Program Files）时报错，不动原程序。开发构建（`dev`）只报告最新发布，不判版本高低 |
 | `sprout` | `--version` | 打印版本 | — |
 | `sprout` | `-h`、`--help` | 打印用法 | — |
 

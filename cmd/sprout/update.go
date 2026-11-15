@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shumengya/sprout/internal/agent/platform"
 	"github.com/shumengya/sprout/internal/cli"
 )
 
@@ -33,46 +35,65 @@ type releaseInfo struct {
 	} `json:"assets"`
 }
 
-// runUpdate 实现 `sprout update [--repo 仓库]`：查询最新发布，和当前版本比较，
-// 不一致时提示可以更新并给出本平台产物的下载地址。不自动替换正在运行的程序。
-func runUpdate(version, repo string, client *http.Client, stdout, stderr io.Writer) int {
-	if repo == "" {
-		repo = releaseRepo
-	}
-	rel, err := fetchLatestRelease(repo, client)
+// runUpdate 实现 `sprout update [--repo 仓库] [--check]`：查询最新发布，
+// 默认下载本平台产物、校验 SHA-256、试运行后替换当前程序；--check 只报告不下载。
+func runUpdate(version, repo string, client *http.Client, checkOnly bool, stdout, stderr io.Writer) int {
+	plan, err := checkUpdate(version, repo, client)
 	if err != nil {
 		fmt.Fprintln(stderr, "错误:", err)
 		return cli.ExitError
 	}
+	fmt.Fprintf(stdout, "当前版本: %s\n最新版本: %s\n", plan.Current, plan.Latest)
+	switch {
+	case plan.Dev:
+		fmt.Fprintf(stdout, "\n当前是开发构建（%s），无法和发布版本比较；最新发布是 %s。\n", plan.Current, plan.Latest)
+	case !plan.Newer:
+		if compareVersions(plan.Current, plan.Latest) > 0 {
+			// 本地比最新发布还新：通常是自己打的、还没上传的构建，不该劝用户“降级”。
+			fmt.Fprintln(stdout, "当前版本比最新发布还新，无需更新。")
+		} else {
+			fmt.Fprintln(stdout, "已是最新版本，无需更新。")
+		}
+		return 0
+	default:
+		fmt.Fprintf(stdout, "\n有新版本可用：%s（当前 %s）\n", plan.Latest, plan.Current)
+	}
+	return reportOrInstall(plan, client, checkOnly, stdout, stderr)
+}
 
-	if strings.TrimSpace(rel.Tag) == "" {
-		fmt.Fprintln(stderr, "错误: 最新发布没有版本号，无法比较")
+// reportOrInstall 打印下载地址，或者在版本确实更新时执行安装。
+func reportOrInstall(plan *updatePlan, client *http.Client, checkOnly bool, stdout, stderr io.Writer) int {
+	if plan.PageURL != "" {
+		fmt.Fprintln(stdout, "发布页:", plan.PageURL)
+	}
+	if !plan.Newer {
+		// 开发构建或已是最新：只报告地址，绝不动程序。
+		if plan.AssetName != "" {
+			fmt.Fprintf(stdout, "本平台（%s）下载: %s\n  %s\n", platformName(), plan.AssetName, plan.AssetURL)
+		}
+		fmt.Fprintln(stdout, "下载后替换现有程序即可；数据目录（配置、会话）不受影响。")
+		return 0
+	}
+	if checkOnly {
+		if plan.AssetName != "" {
+			fmt.Fprintf(stdout, "本平台（%s）下载: %s\n  %s\n", platformName(), plan.AssetName, plan.AssetURL)
+		} else {
+			fmt.Fprintln(stdout, "没有找到与当前平台匹配的产物，请到发布页手动选择。")
+		}
+		fmt.Fprintln(stdout, "加 --check 之外的默认行为是自动下载并替换；也可以按上面的地址手动下载。")
+		return 0
+	}
+
+	exe, err := platform.ResolveExecutable()
+	if err != nil {
+		fmt.Fprintln(stderr, "错误:", err)
 		return cli.ExitError
 	}
-	fmt.Fprintf(stdout, "当前版本: %s\n最新版本: %s\n", version, rel.Tag)
-	release := isReleaseVersion(version)
-	switch {
-	case release && compareVersions(version, rel.Tag) == 0:
-		fmt.Fprintln(stdout, "已是最新版本，无需更新。")
-		return 0
-	case release && compareVersions(version, rel.Tag) > 0:
-		// 本地比最新发布还新：通常是自己打的、还没上传的构建，不该劝用户“降级”。
-		fmt.Fprintln(stdout, "当前版本比最新发布还新，无需更新。")
-		return 0
-	case !release:
-		fmt.Fprintf(stdout, "\n当前是开发构建（%s），无法和发布版本比较；最新发布是 %s。\n", version, rel.Tag)
-	default:
-		fmt.Fprintf(stdout, "\n有新版本可用：%s（当前 %s）\n", rel.Tag, version)
+	if err := installUpdate(context.Background(), plan, exe, client, func(s string) { fmt.Fprintln(stdout, s) }); err != nil {
+		fmt.Fprintln(stderr, "错误:", err)
+		return cli.ExitError
 	}
-	if rel.URL != "" {
-		fmt.Fprintln(stdout, "发布页:", rel.URL)
-	}
-	if name, url := platformAsset(rel); url != "" {
-		fmt.Fprintf(stdout, "本平台（%s）下载: %s\n  %s\n", platformName(), name, url)
-	} else {
-		fmt.Fprintln(stdout, "没有找到与当前平台匹配的产物，请到发布页手动选择。")
-	}
-	fmt.Fprintln(stdout, "下载后替换现有程序即可；数据目录（配置、会话）不受影响。")
+	fmt.Fprintf(stdout, "已更新到 %s。重新启动 sprout 后生效。\n", plan.Latest)
 	return 0
 }
 

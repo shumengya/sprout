@@ -23,8 +23,10 @@ type args struct {
 	effort string
 	// modelsUpdate 表示 `sprout models update`：拉取 models.dev 目录后退出。
 	modelsUpdate bool
-	// selfUpdate 表示 `sprout update`：查询最新发布并提示是否可以更新。
+	// selfUpdate 表示 `sprout update`：查询最新发布，默认下载并替换当前程序。
 	selfUpdate bool
+	// updateCheckOnly 表示 `sprout update --check`：只报告，不下载不替换。
+	updateCheckOnly bool
 	// updateRepo 是 update 查询的 GitHub 仓库（owner/name），空串用默认仓库。
 	updateRepo string
 }
@@ -47,7 +49,7 @@ const usage = `用法:
   sprout run [--data-dir DIR] [-c | --resume ID] [--effort 档位] [--image 文件]... "提问"
                                                    单次运行，答案写 stdout，进度写 stderr
   sprout models update [--data-dir DIR]            从 models.dev 更新模型参数与价格的本地缓存
-  sprout update [--repo OWNER/NAME]                检查 GitHub Releases 上是否有新版本
+  sprout update [--repo OWNER/NAME] [--check]     更新到 GitHub Releases 上的最新版本（--check 只检查）
   sprout --version
 
 选项:
@@ -149,12 +151,13 @@ func parseModelsArgs(a *args, argv []string) (args, error) {
 	return *a, nil
 }
 
-// parseUpdateArgs 解析 `sprout update [--repo OWNER/NAME]`。
+// parseUpdateArgs 解析 `sprout update [--repo OWNER/NAME] [--check]`。
 func parseUpdateArgs(a *args, argv []string) (args, error) {
 	fs := flag.NewFlagSet("sprout update", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.StringVar(&a.dataDir, "data-dir", a.dataDir, "")
 	fs.StringVar(&a.updateRepo, "repo", a.updateRepo, "")
+	fs.BoolVar(&a.updateCheckOnly, "check", false, "")
 	if err := fs.Parse(argv); err != nil {
 		return *a, fmt.Errorf("%w: %v", errUsage, err)
 	}

@@ -42,14 +42,20 @@ func release(tag string) map[string]any {
 }
 
 func runUpdateCase(version, repo string) (int, string, string) {
+	return runUpdateCheck(version, repo, false)
+}
+
+// runUpdateCheck 的 checkOnly 为 true 时等同 `sprout update --check`：有新版本也只报告。
+func runUpdateCheck(version, repo string, checkOnly bool) (int, string, string) {
 	var o, e bytes.Buffer
-	code := runUpdate(version, repo, nil, &o, &e)
+	code := runUpdate(version, repo, nil, checkOnly, &o, &e)
 	return code, o.String(), e.String()
 }
 
 func TestUpdateReportsNewerRelease(t *testing.T) {
 	reqs := fakeReleases(t, http.StatusOK, release("v2026.11.20"))
-	code, out, errOut := runUpdateCase("2026.11.12", "")
+	// 有新版本时默认会下载替换；这里只验证报告内容，用 --check 避免联网下载。
+	code, out, errOut := runUpdateCheck("2026.11.12", "", true)
 	if code != 0 {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}

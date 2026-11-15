@@ -42,6 +42,7 @@ const helpText = `快捷键
   /技能名 任务         直接触发一个技能（输入 / 会列出可触发的技能）；名字不是技能时按普通提问发送
   /install-sprout     把当前程序注册成全局 sprout 命令（新开的终端里生效）
   /uninstall-sprout   卸载全局 sprout 命令（程序文件不动）
+  /update             更新到 GitHub 上的最新发布（下载、校验后替换程序，重启生效）
   /help               显示本帮助
   /quit               退出`
 
@@ -68,6 +69,9 @@ func (m *Model) slash(text string) (handled bool, cmd tea.Cmd) {
 	case "/install-sprout", "/uninstall-sprout":
 		m.follow = true
 		return true, m.installCmd(name == "/uninstall-sprout")
+	case "/update":
+		m.follow = true
+		return true, m.updateCmd()
 	case "/help":
 		m.add(&entry{kind: kindNotice, text: helpText})
 	case "/tools":

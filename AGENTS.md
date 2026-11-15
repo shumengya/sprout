@@ -69,7 +69,7 @@ go vet ./...
 - `mcp.jsonc` 的模板（`config.MCPTemplate`）与仓库根的 `mcp.example.jsonc` 由测试保证一致，改一处要同步另一处。
 - `mcp.jsonc` 与 `skills.jsonc` 的开关由面板写回，必须走 `config` 包的 `editJSONC`（按字节偏移拼接，保留注释、BOM、缩进，写完重新校验，失败回滚）；不要读出结构体再整份 `json.Marshal` 写回，会丢掉用户的注释。唯一的例外是旧版 `{"disabled": [...]}` 的一次性迁移（`WriteSkills`）。
 - 技能的注册表键名优先于 `SKILL.md` 里的 `name`；`/技能名` 触发时内置命令优先，名字不是技能（`ErrUnknownSkill`）就当普通提问，所以 `/etc/hosts` 这类输入仍能原样发送。
-- `sprout update` 依赖 tag 与产物文件名同 `tools/release` 生成的一致（`sprout_<版本>_<平台>.<后缀>`）；改发布命名或平台名时要同步 `cmd/sprout/update.go` 的 `platformName`。它只检查、不下载，也不需要数据目录。
+- `sprout update` 依赖 tag 与产物文件名同 `tools/release` 生成的一致（`sprout_<版本>_<平台>.<后缀>`）；改发布命名或平台名时要同步 `cmd/sprout/update.go` 的 `platformName`。它不需要数据目录。自动替换必须先通过 `SHA256SUMS.txt` 校验和新程序的 `--version` 试运行，任何一步失败都不能动原程序；Windows 正在运行的 exe 不能覆盖，只能先改名成 `.old`（下次启动时清理），所以别改成直接写文件。
 - 数据目录用 `os.Executable()` 定位，`go run` 时二进制在临时目录；开发时显式传 `--data-dir ./data/.sprout`，不要用 cwd 当默认。目录不可写时明确报错，不要静默回退到 `~/.sprout`。
 - 所有路径处理用 `filepath`，不要手拼 `/` 或 `\`。
 
@@ -83,7 +83,7 @@ go vet ./...
 
 ## 不要做
 
-- 不要越过里程碑提前实现 MCP 的 Resources / Prompts / Sampling / OAuth、权限模块、WebUI 或子代理。`sprout update` 目前只提示，未经用户确认不要做成自动下载替换。
+- 不要越过里程碑提前实现 MCP 的 Resources / Prompts / Sampling / OAuth、权限模块、WebUI 或子代理。`sprout update` 只更新程序本身，不要顺带改数据目录里的配置。
 - 不要为 TUI 或演示引入假模型、假工具、回显模式；测试替身只允许放在 `_test.go`。
 - 不要复制 Crush / Codex / Claude Code 的代码；参考设计可以，注意 Crush 是 FSL-1.1-MIT。
 - 不要提交 `.env`、API key、`auth.json`、构建产物。

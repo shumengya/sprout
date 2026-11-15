@@ -85,7 +85,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 ### CLI 与入口（`internal/cli`、`cmd/sprout`）
 - [x] `sprout`（TUI）、`sprout run "..."`（答案写 stdout，进度/错误写 stderr；退出码 0 / 1 / 2 / 130）。
 - [x] `--effort`、`--image`（可重复）、`-c` / `--resume`；完整说明见 `docs/CLI命令.md`。
-- [x] `sprout update [--repo OWNER/NAME]`：查询 GitHub Releases 最新发布并与当前版本比较，不一致时打印发布页与本平台压缩包下载地址；只提示、不自动替换程序。开发构建（`dev`）只报告最新发布；本地比最新发布还新时不劝降级；网络失败、限流、仓库无发布以退出码 1 结束（`cmd/sprout/update.go`）。**未做**：自动下载与替换、校验 `SHA256SUMS.txt`。
+- [x] `sprout update [--repo OWNER/NAME]`：查询 GitHub Releases 最新发布并与当前版本比较，不一致时打印发布页与本平台压缩包下载地址；有新版本时默认下载本平台产物、校验 `SHA256SUMS.txt`、解压、用 `--version` 试运行后替换当前程序（Windows 先把旧程序改名为 `.old`，下次启动清理）；`--check` 只报告不下载。没有校验文件、校验不符、试运行失败、程序目录不可写时都不动原程序。开发构建（`dev`）只报告最新发布；本地比最新发布还新时不劝降级；网络失败、限流、仓库无发布以退出码 1 结束（`cmd/sprout/update.go`、`selfupdate.go`）。TUI 启动时后台查一次（仅发布构建，失败静默），有新版本在对话区提示；`/update` 在 TUI 里执行同样的更新（`cmd/sprout/updater.go`、`internal/tui/selfupdate.go`）。
 - [x] 模型输出与命令内容写终端前去除控制字符（含 ESC）。
 - [x] Windows：控制台 UTF-8 并在退出时恢复；双击启动出错时等待回车；日志写 `logs/sprout-YYYYMMDD.log`（不记录 Key、请求体、用户输入）。
 
@@ -112,7 +112,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [ ] **识图（M2）的真实服务商往返**：四种协议的图片请求形状只有 `httptest` 验证，没有对真实服务商手工发过图；Gemini 协议整体也只用测试替身验证过。
 - [ ] **`/model` 切换与恢复后的历史重放**：换模型时丢弃旧思维链、保留正文的逻辑有单元测试，但没有在真实多模型服务上跑过。
 - [ ] **双击 `sprout.exe` 启动**（含出错后等待回车）。
-- [ ] **`sprout update` 的真实网络往返**：已对线上 `v2026.11.14` 发布实测过一次（`dev` 构建只报告最新版本）；旧版二进制没有 `update` 命令，“有新版本可用”这条分支只有 `httptest` 测试；Termux / macOS 产物的平台匹配没在真机上确认。
+- [ ] **`sprout update` 的真实网络往返**：已对线上 `v2026.11.14` 发布实测过一次（`dev` 构建只报告最新版本）；旧版二进制没有 `update` 命令，“有新版本可用”这条分支和下载、校验、替换只有 `httptest` + 临时目录测试（试运行用替身），没有对真实发布完整替换过一次；Windows 的改名替换没在程序真正运行中验证过；Termux / macOS 产物的平台匹配没在真机上确认。
 - [ ] **`/mcp`、`/skills` 面板的真实终端操作**：只有模型级渲染与按键测试；`mcp.jsonc` / `skills.jsonc` 保留注释的写回用临时文件验证过，没有对用户手写的复杂配置做过大量实测。
 - [ ] **`/install-sprout` / `/uninstall-sprout` 的真实效果**：Windows 的流程用注册表替身和临时目录测试过，读取真实用户 / 系统 PATH 只做过只读演练，没有真正写过注册表、没有确认新开的终端能直接敲 `sprout`；Linux / macOS / Termux 的符号链接逻辑只用文件系统替身测试过，真实系统上没跑过。
 - [ ] `go test -race`：本机没有 gcc，未跑过。

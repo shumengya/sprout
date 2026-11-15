@@ -110,6 +110,19 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh()
 		return m, nil
 
+	case updateNoticeMsg:
+		// 启动检查只在有新版本时给一句话；没结果就什么都不做。
+		if msg.text != "" {
+			m.add(&entry{kind: kindNotice, text: msg.text})
+			m.refresh()
+		}
+		return m, nil
+
+	case updateDoneMsg:
+		m.onUpdated(msg)
+		m.refresh()
+		return m, nil
+
 	case installDoneMsg:
 		m.onInstalled(msg)
 		m.refresh()

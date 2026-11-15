@@ -63,9 +63,15 @@ func realMain(argv []string, stdout, stderr io.Writer) (code int) {
 		return 0
 	}
 
-	// update 只查网络上的发布信息，不需要数据目录，也不写日志。
+	// update 只读写程序本身和网络上的发布信息，不需要数据目录，也不写日志。
 	if a.selfUpdate {
-		return runUpdate(version, a.updateRepo, nil, stdout, stderr)
+		return runUpdate(version, a.updateRepo, nil, a.updateCheckOnly, stdout, stderr)
+	}
+
+	// 自己更新过的 Windows 会把旧程序改名成 .old 留在旁边；上次可能因为进程还在而没删掉，
+	// 这里顺手清理一次。其他平台没有这个文件，失败也无所谓。
+	if exe, err := platform.ResolveExecutable(); err == nil {
+		platform.RemoveOldExecutable(exe)
 	}
 
 	dataDir, err := config.ResolveDataDir(a.dataDir)
@@ -166,7 +172,7 @@ func runOnce(ap *app, prompt string, images []string, resume string, stdout, std
 
 // runTUI 启动终端界面。resume 非空时先恢复会话；失败不致命，只提示并开新会话。
 func runTUI(ap *app, resume string, stderr io.Writer) int {
-	opts := tui.Options{Info: ap.info, Disabled: ap.disabled, Notices: ap.notices, Installer: commandInstaller{}, Resources: systemResources(), Git: gitSampler(ap.info.Cwd), MCPChanged: ap.mcpChanged}
+	opts := tui.Options{Info: ap.info, Disabled: ap.disabled, Notices: ap.notices, Installer: commandInstaller{}, Updater: autoUpdater{version: version, repo: releaseRepo}, Resources: systemResources(), Git: gitSampler(ap.info.Cwd), MCPChanged: ap.mcpChanged}
 	// 后台连接结束后由 TUI 在空闲时调用 applyMCP，把工具接进 agent 并刷新信息栏。
 	if ap.mcpReady != nil {
 		opts.MCPReady = ap.mcpReady

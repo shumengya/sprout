@@ -111,6 +111,8 @@ type Options struct {
 	ResumeNotice string
 	// Installer 注册和卸载全局 sprout 命令（/install-sprout、/uninstall-sprout）；为 nil 时这两个命令不可用。
 	Installer Installer
+	// Updater 提供启动时的新版本检查和 /update；为 nil 时两者都不可用。
+	Updater Updater
 	// Models 提供模型列表与切换（/model）；为 nil 时 /model 不可用。
 	Models Models
 	// Efforts 调整思考程度（/effort）；为 nil 时 /effort 不可用。
@@ -274,7 +276,7 @@ func New(o Options) *Model {
 }
 
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(m.in.Focus(), m.resourceCmd(0), m.gitCmd(0), m.mcpReadyCmd(), m.mcpChangedCmd())
+	return tea.Batch(m.in.Focus(), m.resourceCmd(0), m.gitCmd(0), m.mcpReadyCmd(), m.mcpChangedCmd(), m.updateCheckCmd())
 }
 
 // mcpChangedMsg 表示某个 MCP 服务端的工具列表变了。

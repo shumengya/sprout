@@ -32,6 +32,7 @@ var slashCommands = []slashCommand{
 	{"/mouse", "", "开关鼠标上报"},
 	{"/install-sprout", "", "把当前程序注册成全局 sprout 命令"},
 	{"/uninstall-sprout", "", "卸载全局 sprout 命令"},
+	{"/update", "", "更新到最新发布版本"},
 	{"/quit", "", "退出"},
 	{"/exit", "", "退出（同 /quit）"},
 }
