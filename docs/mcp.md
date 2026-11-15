@@ -6,7 +6,13 @@ Sprout 内置一个最小化的 MCP（Model Context Protocol）客户端，把�
 
 ## 为什么自己实现
 
-内置的四个模型协议适配器都是手写的，MCP 需要的只是 JSON-RPC 2.0 的收发和两个方法（`tools/list`、`tools/call`）。引官方 SDK 会带进 OAuth、JSON Schema、JWT、golang.org/x/tools 等一串依赖，与“单二进制、无 CGO、Termux 可编译”的约束相悖。所以 `internal/agent/mcp` 自己写了两种传输，合计约 900 行。
+内置的四个模型协议适配器都是手写的，MCP 工具部分需要的只是 JSON-RPC 2.0 的收发和两个方法（`tools/list`、`tools/call`）。所以 `internal/agent/mcp` 自己写了两种传输，合计约 900 行，零新增依赖。
+
+这是一次成本判断的结果，不是禁令。判断规则见 `AGENTS.md`「架构边界」：硬约束只有「纯 Go、无 CGO、可交叉编译」，其余看引入后 `go.mod` 实际增加的间接依赖、上游成熟度、与自己实现的工作量对比。
+
+具体到 OAuth，有个容易算错的点：MCP **客户端**只需要 PKCE、授权服务器元数据发现和令牌存储，全程标准库就能写（`crypto/rand`、`crypto/sha256`、`net/http` 等）。**不需要 JWT / JWKS 校验**——校验令牌签名是资源服务端的职责，客户端拿到的只是一段不透明的 bearer token，原样放进 `Authorization` 头即可。所以「引 OAuth 会带进 JWT 依赖」不是客户端的真实成本。
+
+真正该记的顾虑是规范漂移：2026-07-28 这一版把动态客户端注册（RFC 7591）降级、改为推荐 Client ID Metadata Documents（CIMD），并加了 issuer 校验。无论自写还是引 SDK，这块都要跟着规范改。官方 Go SDK 的客户端 OAuth 目前仍标注 experimental，因此「引 SDK 更省事」在这个功能上未必成立。
 
 ## 配置：`mcp.jsonc`
 
@@ -139,7 +145,7 @@ MCP 服务端                                                    已启用 1/2
 - 工具结果里的图片不会转成图片块发给模型，只写占位文本。
 - 多轮请求（`resultType: "input_required"`，MRTR）不处理：服务端要求中途补充输入时会返回错误文本。
 - 工具列表有缓存（`<数据目录>/mcp-tools.json`）：服务端返回的 `ttlMs` 决定有效期，没给时按 10 分钟；`ttlMs: 0` 表示不缓存。指纹按连接目标计算，改地址或命令后旧缓存自动失效。`/mcp` 面板的 `r` 会先清缓存再重连。`ttlMs` 与 `cacheScope` 里只用了 `ttlMs`，`cacheScope`（`public` / `private`）忽略——缓存只在本机、单用户。
-- 没有 OAuth：远程服务端需要令牌时，自己用 `headers` 配。
+- 没有 OAuth：远程服务端需要令牌时，自己用 `headers` 配。要接的话按「为什么自己实现」里的结论做——PKCE + 元数据发现 + 令牌存储，标准库足够，不需要 JWT 库；工作量主要在浏览器授权跳转与回环回调。
 - 开关只有 TUI 的 `/mcp` 面板；没有 WebUI 管理面板（WebUI 是 M4）。面板不做配置编辑（加服务端、改地址），这些仍要手改 `mcp.jsonc`。
 - 没有 `resources/subscribe`；`notifications/tools/list_changed` 已处理：收到后客户端在后台重新 `tools/list`，TUI 在空闲时重建 agent，工具变化不需要重启。
 - 通知只在已有请求的 SSE 流里接收（Streamable HTTP 没有单独开长连接），stdio 服务端则直接读 stdin/stdout。HTTP 服务端如果只在独立的 GET 流里发通知，改动要等到下一次工具调用后才生效。
