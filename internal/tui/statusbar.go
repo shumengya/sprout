@@ -173,18 +173,13 @@ func (s seg) render() string {
 // segSep 是项与项之间的分隔：淡色的竖线，前后各留一个空格。
 const segSep = "│"
 
-// sepText 是分隔符连同两侧空格的完整写法，sepWidth 是它的显示宽度。
-var sepText = " " + styFaint.Render(segSep) + " "
-
-const sepWidth = 3
-
 // joinSegs 把各项用淡色竖线连起来，整行截到 width 以内。
 func joinSegs(width int, segs []seg) string {
 	parts := make([]string, len(segs))
 	for i, s := range segs {
 		parts[i] = s.render()
 	}
-	return ansi.Truncate(strings.Join(parts, sepText), width, "…")
+	return ansi.Truncate(strings.Join(parts, " "+styFaint.Render(segSep)+" "), width, "…")
 }
 
 // joinLine 渲染同一行的各项。可伸缩的一项（路径）先按其余各项占掉的位置算出剩余宽度，
@@ -199,7 +194,7 @@ func (m *Model) joinLine(segs []seg) string {
 			flex = i
 			continue
 		}
-		fixed += ansi.StringWidth(s.render()) + sepWidth
+		fixed += ansi.StringWidth(s.render()) + ansi.StringWidth(segSep) + 2 // 分隔线两侧各一个空格
 	}
 	if flex >= 0 {
 		room := max(m.w-fixed-ansi.StringWidth(segs[flex].label+" "), 8)
@@ -208,9 +203,9 @@ func (m *Model) joinLine(segs []seg) string {
 	return joinSegs(m.w, segs)
 }
 
-// statusRows 把配置里的项按行分组，组内顺序就是配置顺序。没有可显示内容的行整行省略，
+// infoLines 按 statusline.jsonc 的布局返回底部状态栏。没有内容可显示的行整行省略，
 // 所以自定义布局可能比默认的三行少。
-func (m *Model) statusRows() [][]seg {
+func (m *Model) infoLines() []string {
 	byLine := make([][]seg, maxStatusLine)
 	for _, it := range m.statusline {
 		d, ok := statusDefs[it.Name]
@@ -228,162 +223,13 @@ func (m *Model) statusRows() [][]seg {
 		}
 		byLine[line] = append(byLine[line], s)
 	}
-	var rows [][]seg
+	var out []string
 	for _, segs := range byLine {
-		if len(segs) > 0 {
-			rows = append(rows, segs)
+		if line := m.joinLine(segs); line != "" {
+			out = append(out, line)
 		}
-	}
-	return rows
-}
-
-// infoLines 按 statusline.jsonc 的布局返回底部状态栏。
-//
-// 各行共用一套列宽，同一列的 │ 落在同一条竖线上；终端够宽时把多余的空间按列均分，
-// 整块尽量铺满宽度。放不下时退回逐行截断——宁可不对齐，也不能超出终端。
-func (m *Model) infoLines() []string {
-	rows := m.statusRows()
-	if len(rows) == 0 {
-		return nil
-	}
-	widths, ok := m.columnWidths(rows)
-	if !ok {
-		out := make([]string, 0, len(rows))
-		for _, row := range rows {
-			out = append(out, m.joinLine(row))
-		}
-		return out
-	}
-	out := make([]string, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, m.gridLine(row, widths))
 	}
 	return out
-}
-
-// maxColumnGap 是每列最多补的空格。终端特别宽时到此为止，免得几项被拉成一片空白。
-const maxColumnGap = 6
-
-// columnWidths 算出各列该有多宽：同一列取各行里最宽的那项。
-//
-// 可伸缩的项（路径）不参与定列宽：它要吃掉剩下的宽度。有它的那一行改为固定项靠右排，
-// 让路径占掉左边剩下的列，这样它的 │ 才能和其他行落在同一条竖线上。
-func (m *Model) columnWidths(rows [][]seg) ([]int, bool) {
-	var widths []int
-	for _, row := range rows {
-		i := 0
-		for _, s := range row {
-			if s.flex {
-				continue
-			}
-			for len(widths) <= i {
-				widths = append(widths, 0)
-			}
-			widths[i] = max(widths[i], ansi.StringWidth(s.render()))
-			i++
-		}
-	}
-	if len(widths) == 0 {
-		return nil, false
-	}
-	for _, row := range rows {
-		if _, ok := fixedStart(row, len(widths)); !ok {
-			return nil, false // 给伸缩项留不出列，整块退回逐行渲染
-		}
-	}
-	if gridWidth(widths) > m.w {
-		return nil, false
-	}
-	// 多余的空间按列均分：每列都变宽同样的量，竖线仍落在同一位置，整块也更接近铺满。
-	gap := min((m.w-gridWidth(widths))/len(widths), maxColumnGap)
-	for i := range widths {
-		widths[i] += gap
-	}
-	if gridWidth(widths) > m.w {
-		return nil, false
-	}
-	return widths, true
-}
-
-// gridWidth 是整块按这些列宽排出来占的宽度。
-func gridWidth(widths []int) int {
-	total := 0
-	for i, w := range widths {
-		if i > 0 {
-			total += sepWidth
-		}
-		total += w
-	}
-	return total
-}
-
-// fixedStart 返回一行里非伸缩项从第几列开始排。
-//
-// 没有伸缩项的行从第 0 列开始；有伸缩项的行把固定项靠右排，伸缩项占掉左边剩下的列。
-// ok 为 false 表示固定项比列还多、给伸缩项留不出位置。
-func fixedStart(row []seg, columns int) (int, bool) {
-	fixed, flex := 0, false
-	for i, s := range row {
-		if s.flex {
-			// 伸缩项只能排在最前面：它占的是左边的列，排在中间就没法按顺序铺了。
-			if i != 0 {
-				return 0, false
-			}
-			flex = true
-			continue
-		}
-		fixed++
-	}
-	if fixed > columns {
-		return 0, false
-	}
-	if !flex {
-		return 0, true
-	}
-	if fixed >= columns {
-		return 0, false
-	}
-	return columns - fixed, true
-}
-
-// spanWidth 是前 n 列连同它们之间的分隔一共多宽。
-func spanWidth(widths []int, n int) int {
-	total := 0
-	for i := 0; i < n && i < len(widths); i++ {
-		if i > 0 {
-			total += sepWidth
-		}
-		total += widths[i]
-	}
-	return total
-}
-
-// gridLine 按共享的列宽渲染一行：每项右侧补空格，下一个 │ 因此落在同一条竖线上。
-func (m *Model) gridLine(row []seg, widths []int) string {
-	start, ok := fixedStart(row, len(widths))
-	if !ok {
-		return m.joinLine(row) // 理论上进不来：columnWidths 已经筛过
-	}
-	span := spanWidth(widths, start)
-	fixed := 0
-	parts := make([]string, 0, len(row))
-	for _, s := range row {
-		text := s.render()
-		width := span
-		if !s.flex {
-			width = widths[start+fixed]
-			fixed++
-		} else if span > 0 {
-			// 路径从左边截断：保留末尾几级目录，最有辨识度的部分还在。
-			s.value = truncateLeft(s.value, max(span-ansi.StringWidth(s.label+" "), 8))
-			text = s.render()
-		}
-		if pad := width - ansi.StringWidth(text); pad > 0 {
-			text += strings.Repeat(" ", pad)
-		}
-		parts = append(parts, text)
-	}
-	return strings.TrimRight(strings.Join(parts, sepText), " ")
 }
 
 // fmtElapsed 把时长写成 46m43s、1h02m03s；不到一分钟只写秒。

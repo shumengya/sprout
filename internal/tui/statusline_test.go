@@ -54,9 +54,7 @@ func TestLayoutMovesAndOrdersItems(t *testing.T) {
 		t.Fatalf("只剩一行的布局应只占一行，得到 %d: %q", len(lines), lines)
 	}
 	got := ansi.Strip(lines[0])
-	// 对齐会补空格，所以只比先后，不比精确文本。
-	out, in := strings.Index(got, "输出 0"), strings.Index(got, "输入 0")
-	if out < 0 || in < 0 || out > in {
+	if !strings.HasPrefix(got, "输出 0 │ 输入 0") {
 		t.Fatalf("同一行的先后应按配置顺序: %q", got)
 	}
 	if strings.Contains(got, "路径") || strings.Contains(got, "状态") {
@@ -207,87 +205,5 @@ func TestCompactionCountShowsSuccessesOnly(t *testing.T) {
 	runCmd(n, cmd)
 	if line := infoText(n, 2); !strings.Contains(line, "压缩 0") {
 		t.Errorf("/new 之后应清零: %q", line)
-	}
-}
-
-// columnOf 返回每一行里第 n 个 │ 所在的显示列。用于判断各行的竖线是否对齐。
-func columnsOf(lines []string) [][]int {
-	var out [][]int
-	for _, l := range lines {
-		plain := ansi.Strip(l)
-		runes := []rune(plain)
-		var cols []int
-		col := 0
-		for _, r := range runes {
-			if r == '│' {
-				cols = append(cols, col)
-			}
-			col += ansi.StringWidth(string(r))
-		}
-		out = append(out, cols)
-	}
-	return out
-}
-
-func TestStatusColumnsAlignWhenThereIsRoom(t *testing.T) {
-	// 宽终端：各行共享列宽，第 1、2 行的 │ 落在和第三行一致的列上。
-	m := newSized(t, Options{Runner: scriptRunner()}, 200, 24)
-	m.res = Resources{Mem: 63, CPU: 2, ProcMB: 144, Load: 0.09}
-	m.git = GitInfo{Branch: "main", Added: 1, Ahead: 7, OK: true}
-	apply(m, event.Usage{InputTokens: 863, OutputTokens: 52, CacheReadTokens: 10000})
-
-	lines := m.infoLines()
-	if len(lines) != infoRows {
-		t.Fatalf("应有 %d 行: %d", infoRows, len(lines))
-	}
-	cols := columnsOf(lines)
-	// 第二行 6 项、第三行 7 项：共有的前 5 条竖线必须落在同一列。
-	common := min(len(cols[1]), len(cols[2]))
-	if common < 5 {
-		t.Fatalf("第二、三行的竖线太少: %v", cols)
-	}
-	for i := 0; i < common; i++ {
-		if cols[1][i] != cols[2][i] {
-			t.Errorf("第二行第 %d 条竖线在第 %d 列，第三行在 %d 列: %v", i+1, cols[1][i], cols[2][i], cols)
-		}
-	}
-	// 第一行固定项靠右排，它的竖线是第三行竖线的子集（同一个网格）。
-	set := map[int]bool{}
-	for _, c := range cols[2] {
-		set[c] = true
-	}
-	for _, c := range cols[0] {
-		if !set[c] {
-			t.Errorf("第一行的竖线在第 %d 列，不在同一套列上: %v", c, cols)
-		}
-	}
-}
-
-func TestStatusFallsBackToPlainLayoutWhenNarrow(t *testing.T) {
-	// 窄终端放不下整块：不补空格，按行截断，绝不超过宽度。
-	m := newSized(t, Options{Runner: scriptRunner()}, 50, 24)
-	m.res = Resources{Mem: 63, CPU: 2, ProcMB: 144}
-	for _, l := range m.infoLines() {
-		if w := ansi.StringWidth(l); w > 50 {
-			t.Errorf("行宽 %d 超出 50: %q", w, ansi.Strip(l))
-		}
-	}
-	if padding := strings.Repeat(" ", 4) + "│"; strings.Contains(strings.Join(m.infoLines(), "\n"), padding) {
-		t.Error("放不下时不该补对齐空格")
-	}
-}
-
-func TestStatusRowsNeverExceedTheWidth(t *testing.T) {
-	// 各种宽度下都不能超宽：对齐与截断两条路径都覆盖到。
-	for _, w := range []int{20, 40, 60, 80, 100, 140, 200, 400} {
-		m := newSized(t, Options{Runner: scriptRunner()}, w, 24)
-		m.res = Resources{Mem: 63, CPU: 2, ProcMB: 144, Load: 0.09}
-		m.git = GitInfo{Branch: "feature/very-long-branch-name", Added: 12, Modified: 3, Ahead: 7, Behind: 2, OK: true}
-		apply(m, event.Usage{InputTokens: 863, OutputTokens: 52, CacheReadTokens: 10000, CacheWriteTokens: 999})
-		for _, l := range m.infoLines() {
-			if got := ansi.StringWidth(l); got > w {
-				t.Errorf("宽度 %d 下行宽 %d: %q", w, got, ansi.Strip(l))
-			}
-		}
 	}
 }
