@@ -59,7 +59,7 @@ func TestInstallErrorIsShown(t *testing.T) {
 	fi := &fakeInstaller{err: errors.New("无法写入用户 PATH: 拒绝访问")}
 	m := newSized(t, Options{Runner: scriptRunner(), Installer: fi}, 100, 30)
 	runSlash(t, m, "/install-sprout")
-	mustContain(t, plain(m), "! 无法写入用户 PATH: 拒绝访问")
+	mustContain(t, plain(m), "✗ 错误：无法写入用户 PATH: 拒绝访问")
 }
 
 func TestInstallWithoutInstaller(t *testing.T) {

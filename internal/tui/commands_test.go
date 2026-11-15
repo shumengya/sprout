@@ -149,7 +149,7 @@ func TestErrorEventShownAndTurnEnds(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 100, 24)
 	begin(m, "q")
 	apply(m, event.Error{Message: "认证失败（HTTP 401）"}, event.TurnFinished{Reason: event.ReasonError})
-	mustContain(t, plain(m), "! 认证失败（HTTP 401）")
+	mustContain(t, plain(m), "✗ 错误：认证失败（HTTP 401）")
 	mustBeIdle(t, m)
 }
 

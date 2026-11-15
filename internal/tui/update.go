@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -19,6 +20,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// MCP 连好时若正忙，推迟到任意一条消息处理完、状态回到空闲时再接入；
 	// 这样不必在每个“操作结束”的分支里各补一次。
 	m.applyMCP()
+	// 队列同理：不管本轮是正常结束、出错还是被取消，回到空闲就在这里发出下一条。
+	if q := m.startQueued(); q != nil {
+		cmd = tea.Batch(cmd, q)
+	}
 	m.syncSuggest() // 输入框内容可能变了（打字、粘贴、提交后清空），候选跟着变
 	m.fit()
 	return model, cmd
@@ -238,9 +243,6 @@ func (m *Model) submit() (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	switch {
-	case m.running:
-		m.status = "上一轮还在生成，请等它结束，或按 Esc 取消"
-		return m, nil
 	case m.resuming:
 		m.status = "正在恢复会话，请稍候"
 		return m, nil
@@ -275,7 +277,7 @@ func (m *Model) submit() (tea.Model, tea.Cmd) {
 	var notes []string
 	marks := imageListMarks(in.Images)
 	m.pending = nil
-	m.add(&entry{kind: kindUser, text: text, images: marks})
+	e := m.add(&entry{kind: kindUser, text: text, images: marks})
 	if skillName != "" {
 		notes = append(notes, "已手动触发技能 "+skillName)
 	}
@@ -285,12 +287,46 @@ func (m *Model) submit() (tea.Model, tea.Cmd) {
 	for _, n := range notes {
 		m.add(&entry{kind: kindNotice, text: n})
 	}
+	// 正在生成时先入队：想补充信息、追加要求，不必等本轮结束再把话重打一遍。
+	// 内容按提交这一刻的样子存好（图片、技能都已展开），本轮结束时原样发出。
+	if m.running {
+		e.queued = true
+		e.touch()
+		m.queue = append(m.queue, queued{in: in, entry: e})
+		m.status = fmt.Sprintf("已排队（第 %d 条），本轮结束后自动发送", len(m.queue))
+		m.refresh()
+		return m, nil
+	}
 	if len(in.Images) > 0 && !m.opts.Info.Vision {
 		m.status = "当前模型没有标注 vision，图片会被省略（models.jsonc 里加 \"vision\": true 才不会）"
 	}
 	m.running, m.follow = true, true
 	m.refresh()
 	return m, m.startTurn(in)
+}
+
+// queued 是一条排队中的用户输入。entry 指向对话区那条显示「排队中」的条目，发出时换成正常样式。
+type queued struct {
+	in    agent.Input
+	entry *entry
+}
+
+// startQueued 在本轮结束后发出队首那条。还在忙或队列为空时返回 nil。
+// 排队内容是用户主动提交的，上一轮被取消也照发：取消的是那一轮的回答，不是这些提问。
+func (m *Model) startQueued() tea.Cmd {
+	if m.running || m.resuming || m.switching || m.compacting || len(m.queue) == 0 {
+		return nil
+	}
+	q := m.queue[0]
+	m.queue = m.queue[1:]
+	q.entry.queued = false
+	q.entry.touch()
+	if len(m.queue) > 0 {
+		m.status = fmt.Sprintf("已发送排队消息，还有 %d 条等待", len(m.queue))
+	}
+	m.running, m.follow = true, true
+	m.refresh()
+	return m.startTurn(q.in)
 }
 
 // skillInvocation 把 "/技能名 任务" 展开成发给模型的提问，返回展开后的正文与技能名。

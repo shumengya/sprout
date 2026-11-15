@@ -203,6 +203,8 @@ type Model struct {
 	statusline []StatusItem
 	// pending 是下一条消息待发送的图片（/image 附加），发送或 /image clear 后清空。
 	pending []agent.Image
+	// queue 是生成中提交的输入，按先后顺序在本轮结束后依次发出。
+	queue []queued
 
 	// 对话区的拖选。选区用内容坐标记录；content 是当前送进 viewport 的完整文本，
 	// plain 是它去掉样式后的逐行文本（按需计算，plainSrc 记录算的是哪一版）。

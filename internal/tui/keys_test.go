@@ -1,9 +1,15 @@
 package tui
 
 import (
+	"context"
+	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/shumengya/sprout/internal/agent"
+	"github.com/shumengya/sprout/internal/agent/event"
 )
 
 func isQuit(cmd tea.Cmd) bool {
@@ -119,15 +125,80 @@ func TestEnterSubmitsAndClearsInput(t *testing.T) {
 	}
 }
 
-func TestSubmitWhileRunningIsRejectedAndKeepsInput(t *testing.T) {
+// 生成中提交的消息进队列：输入框清空，对话区标出“排队中”，本轮结束后才发出。
+func TestSubmitWhileRunningQueuesTheMessage(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 80, 24)
 	m.running = true
 	m.in.SetValue("第二条")
 	_, cmd := m.Update(keyEnter)
-	if cmd != nil || m.in.Value() != "第二条" {
-		t.Fatal("生成中不应发送，且输入框内容要保留")
+	if cmd != nil {
+		t.Fatal("排队时不应立刻启动新一轮")
 	}
-	mustContain(t, plain(m), "上一轮还在生成")
+	if m.in.Value() != "" {
+		t.Errorf("入队后输入框应清空，得到 %q", m.in.Value())
+	}
+	if len(m.queue) != 1 || m.queue[0].in.Text != "第二条" {
+		t.Fatalf("队列 = %+v", m.queue)
+	}
+	mustContain(t, plain(m), "第二条", "排队中", "已排队（第 1 条）")
+	if n := m.turns(); n != 0 {
+		t.Errorf("排队的那条不算一轮，turns = %d", n)
+	}
+	// 再提交一条：排在后面。
+	m.in.SetValue("第三条")
+	m.Update(keyEnter)
+	if len(m.queue) != 2 || m.queue[1].in.Text != "第三条" {
+		t.Fatalf("第二条排队失败: %+v", m.queue)
+	}
+	mustContain(t, plain(m), "已排队（第 2 条）")
+}
+
+// 本轮结束后队首自动发出，排队标记换回普通用户消息样式。
+func TestQueuedMessageStartsAfterTurnFinishes(t *testing.T) {
+	got := make(chan string, 4)
+	m := newSized(t, Options{Runner: fakeRunner{run: func(_ context.Context, in agent.Input, sink event.Sink) error {
+		got <- in.Text
+		sink.Emit(event.TurnFinished{Reason: event.ReasonStop})
+		return nil
+	}}}, 80, 24)
+	begin(m, "第一条")
+	m.in.SetValue("第二条")
+	m.Update(keyEnter)
+	if len(m.queue) != 1 {
+		t.Fatalf("应已排队: %+v", m.queue)
+	}
+	// 上一轮结束：Update 末尾把队首发出去。
+	_, cmd := m.Update(eventMsg{turn: m.turn, ev: event.TurnFinished{Reason: event.ReasonStop}})
+	if len(m.queue) != 0 || !m.running || cmd == nil {
+		t.Fatalf("队首应已发出：queue=%d running=%v cmd=%v", len(m.queue), m.running, cmd != nil)
+	}
+	mustContain(t, plain(m), "第二条")
+	if strings.Contains(plain(m), "排队中") {
+		t.Error("发出后不应再显示“排队中”")
+	}
+	// Runner 在 Cmd 里启动（Bubble Tea 在 Update 之外执行），这里手动跑一遍批量 Cmd。
+	runCmds(cmd)
+	select {
+	case text := <-got:
+		if text != "第二条" {
+			t.Errorf("队列里的内容应发给 agent，得到 %q", text)
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("队首没有真正调用 Runner")
+	}
+}
+
+// runCmds 执行一个 Cmd，遇到 Batch 就递归展开。
+// 里层的每个 Cmd 都放进 goroutine：startTurn 的批里有 waitEvent，它会一直等事件，不能同步跑。
+func runCmds(cmd tea.Cmd) {
+	if cmd == nil {
+		return
+	}
+	if batch, ok := cmd().(tea.BatchMsg); ok {
+		for _, c := range batch {
+			go runCmds(c)
+		}
+	}
 }
 
 func TestDisabledBlocksSendingButKeepsInput(t *testing.T) {

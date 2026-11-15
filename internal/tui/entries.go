@@ -21,6 +21,7 @@ const (
 	kindTool
 	kindNotice
 	kindError
+	kindWarn  // 警告：如自动重试中的提示，黄色
 	kindThink // 模型的思维链（reasoning_content）
 )
 
@@ -31,8 +32,11 @@ var (
 	styTool  = lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true)
 	stySkill = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Bold(true) // 技能被触发时的标记
 	styFaint = lipgloss.NewStyle().Faint(true)
-	styErr   = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
-	styWarn  = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+	// 报错用亮红加粗加 ✗ 前缀：和助手的正文、灰色提示一眼区分开。
+	styErr  = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
+	styWarn = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+	// 排队中的用户消息：保留用户色但变暗，表示还没发出去。
+	styQueued = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Faint(true)
 )
 
 // entryImage 是用户消息附带的一张图片。
@@ -51,6 +55,8 @@ type entry struct {
 
 	// images 是用户消息附带的图片，见 entryImage。
 	images []entryImage
+	// queued 表示这条用户消息还在队列里：本轮生成中提交的，等它结束后才会真正发出。
+	queued bool
 
 	// 工具条目
 	name    string
@@ -101,6 +107,13 @@ func (e *entry) draw(w int) string {
 			b.WriteString(styFaint.Render("  " + img.size))
 			b.WriteString("\n")
 		}
+		if e.queued {
+			// 排队中的消息不走图片原位替换：发出前的样子尽量简单，发出后再按正常样式重绘。
+			b.WriteString(styQueued.Render(wrap(sanitize(e.text), w)))
+			b.WriteString("\n")
+			b.WriteString(styFaint.Render("排队中，本轮结束后发送"))
+			return b.String()
+		}
 		b.WriteString(drawUserText(e.text, e.images, w))
 		return b.String()
 	case kindAssistant:
@@ -110,7 +123,10 @@ func (e *entry) draw(w int) string {
 	case kindThink:
 		return e.drawThink(w)
 	case kindError:
-		return styErr.Render(hang("! ", 2, wrap(sanitize(e.text), w-2)))
+		// 「错误：」放进正文一起折行，前缀只占 2 列，和缩进对齐。
+		return styErr.Render(hang("✗ ", 2, wrap("错误："+sanitize(e.text), w-2)))
+	case kindWarn:
+		return styWarn.Render(hang("⟳ ", 2, wrap(sanitize(e.text), w-2)))
 	}
 	return styFaint.Render(wrap(sanitize(e.text), w))
 }

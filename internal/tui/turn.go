@@ -153,7 +153,8 @@ func (m *Model) onEvent(e event.Event) {
 			m.compactions++
 		}
 	case event.Retrying:
-		m.add(&entry{kind: kindNotice, text: fmt.Sprintf("请求失败，%s后重试（%d/%d）：%s",
+		// 重试中的提示用黄色：它是“还在努力”，和最终失败的红色报错区分开。
+		m.add(&entry{kind: kindWarn, text: fmt.Sprintf("请求失败，%s后重试（%d/%d）：%s",
 			fmtWait(e.Delay), e.Attempt, e.Max, e.Reason)})
 	case event.Interrupted:
 		m.endThink()
@@ -233,6 +234,7 @@ func (m *Model) endThink() {
 	m.think = nil
 }
 
+// finishTurn 收尾一轮。排队中的下一条由 Update 末尾统一发出，这里只管把本轮状态清干净。
 func (m *Model) finishTurn(reason string) {
 	// 一轮结束，“正在取消…”这类针对本轮的临时提示也该消失。
 	m.busyStop()

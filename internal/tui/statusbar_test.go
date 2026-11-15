@@ -91,7 +91,7 @@ func TestContextColorsWarnNearTheLimit(t *testing.T) {
 	}{
 		{500, ""},
 		{700, "\x1b[33m"}, // 黄
-		{950, "\x1b[31m"}, // 红
+		{950, "\x1b[1;91m"}, // 亮红加粗，与最终的报错条目同色
 	}
 	for _, c := range cases {
 		m := newSized(t, Options{Runner: scriptRunner(), Info: info}, 200, 24)
