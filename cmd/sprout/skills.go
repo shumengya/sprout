@@ -156,7 +156,7 @@ func skillCatalog(dataDir, cwd, home string) (cfg *config.SkillsFile, list []ski
 			dir = filepath.Join(dataDir, dir)
 		}
 		if !cfg.ScansAgents() && slices.ContainsFunc(agents, func(root string) bool { return underDir(dir, root) }) {
-			problems = append(problems, fmt.Sprintf("技能 %q 在 .agents 目录下，scanAgents 已关闭，未加载", name))
+			// scanAgents 是用户自己关的，跳过不算问题，不提示：.agents 下常有十来个技能，逐个提示会刷满一屏。
 			continue
 		}
 		sk, warns, loadErr := skills.Load(dir, sourceFor(dir, dataDir, cwd, home, cfg.ScansAgents()))

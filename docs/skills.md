@@ -57,7 +57,7 @@ Sprout 从 M1 之后支持 Agent Skills：一份目录 + 一个 `SKILL.md`，启
 - 数据目录默认是 `<exeDir>/data/.sprout`；启动时会确保 `<数据目录>/skills/` 存在，方便用户知道往哪放。
 - 扫描到的新技能会被**自动登记**进 `skills.jsonc`（`path` + `enable: true`），下次扫描不会重复写入。已有的条目不会被覆盖，用户改过的 `path` 和 `enable` 一直有效。
 - 想放在别处、又不想挪进扫描目录的技能：直接在 `skills.jsonc` 里手动写一条 `path`，它会以“自定义”来源加载。
-- `.agents/skills` 是别的 agent 客户端的目录，可以在 `/skills` 面板里按 `a` 或改 `scanAgents` 整体关掉；关掉后那里的技能不加载，注册表条目保留，改回 `true` 即恢复。
+- `.agents/skills` 是别的 agent 客户端的目录，可以在 `/skills` 面板里按 `a` 或改 `scanAgents` 整体关掉；关掉后那里的技能不加载，注册表条目保留，改回 `true` 即恢复。被这个开关挡住的技能**不逐条提示**——那个目录里往往一次就有十来个，逐个提示会刷满对话区；状态在 `/skills` 面板里看得到。
 - 只认“子目录里存在 `SKILL.md`”的目录；同级散落的 `README.md` 不算技能。
 - 扫描跳过 `.git/`、`node_modules/`、以 `.` 开头的目录；最深 4 层、最多 2000 个目录。
 - 找到含 `SKILL.md` 的目录后不再向下深入：技能自带的 `scripts/`、`references/` 不会被当成另一个技能。

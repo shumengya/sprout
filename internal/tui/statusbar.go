@@ -170,16 +170,16 @@ func (s seg) render() string {
 	return st.Render(s.label + " " + s.value)
 }
 
-// segSep 是项与项之间的间隔：两个空格。各项本身已经带颜色，再画竖线只会让整行更碎。
-const segSep = "  "
+// segSep 是项与项之间的分隔：淡色的竖线，前后各留一个空格。
+const segSep = "│"
 
-// joinSegs 把各项连起来，整行截到 width 以内。
+// joinSegs 把各项用淡色竖线连起来，整行截到 width 以内。
 func joinSegs(width int, segs []seg) string {
 	parts := make([]string, len(segs))
 	for i, s := range segs {
 		parts[i] = s.render()
 	}
-	return ansi.Truncate(strings.Join(parts, segSep), width, "…")
+	return ansi.Truncate(strings.Join(parts, " "+styFaint.Render(segSep)+" "), width, "…")
 }
 
 // joinLine 渲染同一行的各项。可伸缩的一项（路径）先按其余各项占掉的位置算出剩余宽度，
@@ -194,7 +194,7 @@ func (m *Model) joinLine(segs []seg) string {
 			flex = i
 			continue
 		}
-		fixed += ansi.StringWidth(s.render()) + ansi.StringWidth(segSep)
+		fixed += ansi.StringWidth(s.render()) + ansi.StringWidth(segSep) + 2 // 分隔线两侧各一个空格
 	}
 	if flex >= 0 {
 		room := max(m.w-fixed-ansi.StringWidth(segs[flex].label+" "), 8)

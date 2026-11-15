@@ -172,9 +172,9 @@ func TestInfoLabelsHaveDistinctColors(t *testing.T) {
 			t.Errorf("%q 没有用它登记的颜色 %s 渲染: %q", label, c, all)
 		}
 	}
-	// 项之间是两个空格，不再画淡色竖线：各项本身已经带颜色，竖线只会让整行更碎。
-	if strings.Contains(all, "\x1b[2m") {
-		t.Errorf("项之间不该再有淡色分隔线: %q", all)
+	// 项之间用淡色竖线分隔。
+	if !strings.Contains(all, " "+styFaint.Render(segSep)+" ") {
+		t.Errorf("项之间应有淡色竖线: %q", all)
 	}
 }
 

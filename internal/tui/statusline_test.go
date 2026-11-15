@@ -54,7 +54,7 @@ func TestLayoutMovesAndOrdersItems(t *testing.T) {
 		t.Fatalf("只剩一行的布局应只占一行，得到 %d: %q", len(lines), lines)
 	}
 	got := ansi.Strip(lines[0])
-	if !strings.HasPrefix(got, "输出 0  输入 0") {
+	if !strings.HasPrefix(got, "输出 0 │ 输入 0") {
 		t.Fatalf("同一行的先后应按配置顺序: %q", got)
 	}
 	if strings.Contains(got, "路径") || strings.Contains(got, "状态") {
