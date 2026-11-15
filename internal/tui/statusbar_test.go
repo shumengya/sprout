@@ -38,7 +38,8 @@ func TestInputExcludesCacheSoThatInputPlusCacheIsTheWholeInput(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 200, 24)
 	apply(m, event.Usage{InputTokens: 1000, OutputTokens: 50, CacheReadTokens: 800, CacheWriteTokens: 100})
 	line := infoText(m, 1)
-	for _, want := range []string{"输入 100", "输出 50", "缓存 800/100"} {
+	// 命中率按全部输入算：800 / (100 + 800 + 100) = 80%。
+	for _, want := range []string{"输入 100", "输出 50", "缓存 800/100 · 80.0%"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("缺少 %q: %q", want, line)
 		}
@@ -374,7 +375,7 @@ func TestSwitchingModelUpdatesTheContextWindow(t *testing.T) {
 	m.in.SetValue("/model b/two")
 	_, cmd := m.Update(keyEnter)
 	runCmd(m, cmd)
-	if line := infoText(m, 1); !strings.Contains(line, "0.2%/200k") || !strings.Contains(line, "模型ID two") {
+	if line := infoText(m, 1); !strings.Contains(line, "0.2%/200k") || !strings.Contains(line, "模型 two") {
 		t.Errorf("切换后百分比应按新窗口重算: %q", line)
 	}
 	// 已累计的花费按旧价格算过，切换不重算；之后的用量才用新价格。

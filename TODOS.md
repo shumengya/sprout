@@ -73,7 +73,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] `/image 路径` 附加图片，粘贴或消息里直接写图片路径时自动附加（`internal/media`、`internal/tui/image.go`）。
 - [x] 对话区拖选复制：按住左键拖动选中（反色显示），松开自动复制；选区跟着内容走，拖到上下边缘自动滚动；中文按整个字选中；内容重排（窗口缩放、`/think` 展开）导致选区对不上时自动取消。复制同时走 OSC 52 和系统剪贴板，任何一条失败只提示、不当作致命。
 - [x] 真实终端光标（输入法候选窗跟随）；退出时 `Shutdown` 等 agent 收尾，保证 `turn.finished` 被记录。
-- [x] 底部三行状态栏（路径、对话轮次、耗时、内存、CPU / 输入、输出、缓存读写、花费、上下文占用、模型ID、思考强度 / 状态、MCP、插件、技能、工具数）；MCP 显示 `已连接/已配置`、技能显示个数，没配置时显示 `—`；`插件` 仍未实现，恒为占位。花费按 models.dev 的单价折算，见下。设计见 `docs/m1-implementation.md` §9。
+- [x] 底部状态栏（默认三行：路径、对话轮次、耗时 · 首字、内存 百分比 · 进程 MB、CPU · 负载 / 输入、输出、缓存读写 · 命中率、花费、上下文占用、模型、思考强度 / 状态、速度、压缩次数、MCP、插件、技能、工具数、Git 分支 ↑ahead +新增 ~修改 -删除）；MCP 显示 `已连接/已启用`、技能显示个数，没配置时显示 `—`；`插件` 仍未实现，恒为占位。花费按 models.dev 的单价折算，见下。显示哪些项、在第几行、什么颜色由数据目录的 `statusline.jsonc` 配置（`statusline.example.jsonc` 是模板）。设计见 `docs/m1-implementation.md` §9。
 
 ### 识图（`internal/media`，设计见 `docs/m2-vision.md`）
 - [x] `Message.Content` 改为 text / image 块数组；工具结果也能带图片。
@@ -108,7 +108,8 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [ ] **思维链 token 数**：Chat 协议下真实 DeepSeek 已确认返回 `completion_tokens_details.reasoning_tokens`（本机 11 次调用，与分词器数出的一致）；Responses 协议的 `output_tokens_details.reasoning_tokens` 和 OpenAI 官方服务只有 `httptest` 测试。不返回时 TUI 显示内核估算的“约 N token”。
 - [ ] **Linux / macOS / Termux 实际运行**：CI 在 Linux / macOS 上跑单元测试（`bash` 探测、进程组终止等 Unix 路径仍以 fake probe 为主），但没有在这些系统上交互式地跑过 TUI 与真实模型；Termux 只验证过能用 `GOOS=android` 编译，CI 不覆盖。
 - [ ] **状态栏的缓存读写**：四个协议的缓存字段（OpenAI `prompt_tokens_details.cached_tokens`、DeepSeek `prompt_cache_hit_tokens`、Responses `input_tokens_details.cached_tokens`、Anthropic `cache_read_input_tokens` / `cache_creation_input_tokens`、Gemini `cachedContentTokenCount`）是按各家文档实现的，只有 `httptest` 验证，没有对真实服务确认过。Anthropic 的输入口径是适配器加回缓存得到的，也没有对真实响应核对。
-- [ ] **状态栏的内存与 CPU**：只在 Windows 上运行验证过；Linux / Termux 只有解析器的单元测试（Android 8+ 读不了 `/proc/stat`，预期没有 CPU 一项），macOS 不显示这两项。是整机占用，不是 sprout 进程自己的。
+- [ ] **状态栏的内存与 CPU**：只在 Windows 上运行验证过；Linux / Termux 只有解析器的单元测试（Android 8+ 读不了 `/proc/stat`，预期没有 CPU 一项），macOS 不显示这两项。是整机占用，进程内存那一项才是 sprout 自己的。系统负载（`/proc/loadavg`）只有 Linux 读，Windows / macOS 不显示。
+- [ ] **`statusline.jsonc` 的终端实测**：布局解析、颜色校验、隐藏与行号调整都有单元测试，但没有在真实终端里跑过自定义布局（尤其是颜色名写法在各终端配色下的观感）。
 - [ ] **识图（M2）的真实服务商往返**：四种协议的图片请求形状只有 `httptest` 验证，没有对真实服务商手工发过图；Gemini 协议整体也只用测试替身验证过。
 - [ ] **`/model` 切换与恢复后的历史重放**：换模型时丢弃旧思维链、保留正文的逻辑有单元测试，但没有在真实多模型服务上跑过。
 - [ ] **双击 `sprout.exe` 启动**（含出错后等待回车）。

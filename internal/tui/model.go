@@ -113,6 +113,8 @@ type Options struct {
 	Installer Installer
 	// Updater 提供启动时的新版本检查和 /update；为 nil 时两者都不可用。
 	Updater Updater
+	// Statusline 是状态栏布局（来自 statusline.jsonc）；为空时用 DefaultStatusItems()。
+	Statusline []StatusItem
 	// Models 提供模型列表与切换（/model）；为 nil 时 /model 不可用。
 	Models Models
 	// Efforts 调整思考程度（/effort）；为 nil 时 /effort 不可用。
@@ -193,6 +195,12 @@ type Model struct {
 	// genStart、genEnd 是这次调用收到首个增量和消息完成的时刻。
 	speed            float64
 	genStart, genEnd time.Time
+	// ttft 是最近一次调用从开始请求到收到第一个输出的时间；0 表示还没有数据（没回答过或非流式）。
+	ttft time.Duration
+	// compactions 是本会话成功压缩上下文的次数。
+	compactions int
+	// statusline 是按当前布局排好序的、要显示的状态栏各项（含行号和颜色）。
+	statusline []StatusItem
 	// pending 是下一条消息待发送的图片（/image 附加），发送或 /image clear 后清空。
 	pending []agent.Image
 
@@ -252,6 +260,8 @@ func New(o Options) *Model {
 	st := m.in.Styles()
 	st.Focused.CursorLine, st.Blurred.CursorLine = lipgloss.NewStyle(), lipgloss.NewStyle()
 	m.in.SetStyles(st)
+
+	m.statusline = ResolveStatusline(o.Statusline)
 
 	m.sp = spinner.New(spinner.WithSpinner(spinner.Dot))
 	m.sp.Style = styFaint
@@ -355,10 +365,10 @@ func (m *Model) layout() {
 	m.refresh()
 }
 
-// footerRows 是对话区下面占的行数：可选的活动行、分隔线、输入框（或选择器）、分隔线、三行状态栏。
-// 空闲时只有 6 行（输入框一行）。
+// footerRows 是对话区下面占的行数：可选的活动行、分隔线、输入框（或选择器）、分隔线、状态栏。
+// 状态栏行数按当前布局算（默认三行）；空闲时通常是 6 行（输入框一行）。
 func (m *Model) footerRows() int {
-	n := 1 + m.inputRows() + 1 + infoRows + m.suggestRows()
+	n := 1 + m.inputRows() + 1 + len(m.infoLines()) + m.suggestRows()
 	if m.activityLine() != "" {
 		n++
 	}

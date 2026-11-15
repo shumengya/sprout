@@ -10,17 +10,18 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// 底部三行状态栏，从上到下：
+// 底部状态栏，默认三行：
 //
-//	路径 … | 对话轮次 N | 耗时 … | 内存 N% | CPU N% | 进程内存 N MB
-//	输入 … | 输出 … | 缓存 读/写 | 花费 — | 上下文 N%/窗口 | 模型ID … | 思考强度 …
-//	状态 … | MCP — | 插件 — | 技能 — | 工具 N | 速度 N token/s | Git 分支 +新增 ~修改 -删除
+//	路径 … | 对话轮次 N | 耗时 … | 内存 N% · MB | CPU N% · 负载 …
+//	输入 … | 输出 … | 缓存 读/写 · 命中率 | 花费 — | 上下文 N%/窗口 | 模型 … | 思考强度 …
+//	状态 … | 速度 N token/s | 压缩 N | MCP … | 插件 — | 技能 … | 工具 N | Git 分支 ↑ahead +新增 ~修改 -删除
 //
-// MCP、插件、技能对应的功能还没有实现，先占位显示 placeholder，接上之后只需要把值换掉。
-// 花费已接上：按 models.dev 的单价累计，见 costTotals。
-// 内存、CPU 是整机占用，进程内存是 sprout 自己；速度是最近一次模型调用的输出速度。
+// 显示哪些项、在第几行、什么颜色由 statusline.jsonc 决定（见 statusline.go）；
+// 一项在当前没有数据时整项不显示（还没采样、没回答过、不在 git 仓库里），
+// 而“有数据但值为零”照常显示——那两项在配置里看得见差别。
+// 插件还没有实现，固定显示 placeholder。
 
-// infoRows 是状态栏占的行数。
+// infoRows 是默认布局下状态栏占的行数；自定义布局可能更少，实际行数以 infoLines 为准。
 const infoRows = 3
 
 // placeholder 是尚未实现的功能在状态栏里显示的值。
@@ -32,6 +33,8 @@ type Resources struct {
 	Mem, CPU float64
 	// ProcMB 是 sprout 进程自己占用的物理内存（MB）；不大于 0 表示读不到（运行中的进程不可能是 0）。
 	ProcMB float64
+	// Load 是系统负载（1 分钟平均）；不大于 0 表示读不到。Windows 没有这个概念，状态栏就只显示 CPU 百分比。
+	Load float64
 }
 
 // usageTotals 是本会话累计的 token 用量，按服务端报告的数字累加。
@@ -104,7 +107,9 @@ func (m *Model) resourceCmd(delay time.Duration) tea.Cmd {
 type GitInfo struct {
 	Branch                   string
 	Added, Modified, Deleted int
-	OK                       bool
+	// Ahead、Behind 是相对上游的提交数；没有上游时都是 0。
+	Ahead, Behind int
+	OK            bool
 }
 
 // gitInterval 是 git 状态的采样间隔，比资源采样慢：每次都要起一个 git 进程。
@@ -127,73 +132,104 @@ func (m *Model) gitCmd(delay time.Duration) tea.Cmd {
 	return tea.Tick(delay, func(time.Time) tea.Msg { return run() })
 }
 
-// labelColors 是各项的颜色（256 色编号），每项一种，互不重复；标签和值用同一种颜色，一眼就能看出哪个值属于哪一项。
-// statusbar_test 保证不重复、不漏登记。唯一的例外是上下文接近上限时值变黄或变红，那是提醒，不是装饰。
-//
-// 同一行相邻的几项刻意拉开色相，不用 0-15 号基础色：基础色跟随终端主题，换个主题可能变成同一种颜色。
-var labelColors = map[string]string{
-	// 第一行
-	"路径":   "75",  // 天蓝
-	"对话轮次": "208", // 橙
-	"耗时":   "220", // 金黄
-	"内存":   "114", // 浅绿
-	"CPU":  "176", // 粉紫
-	"进程内存": "186", // 淡黄
-	// 第二行
-	"输入":   "80",  // 青
-	"输出":   "211", // 粉
-	"缓存":   "179", // 土黄
-	"花费":   "120", // 亮绿
-	"上下文":  "111", // 浅蓝
-	"模型ID": "141", // 紫
-	"思考强度": "152", // 浅青灰
-	// 第三行
-	"状态":  "250", // 灰
-	"MCP": "37",  // 深青
-	"插件":  "168", // 玫红
-	"技能":  "105", // 蓝紫
-	"工具":  "215", // 杏色
-	"速度":  "159", // 淡青
-	"Git": "209", // 珊瑚
-}
+// labelColors 是各项的内置颜色，取自 statusDefs（statusline.go）。配置没写 color 时用它。
+// statusbar_test 保证不重复。唯一的例外是上下文接近上限时值变黄或变红，那是提醒，不是装饰。
+var labelColors = func() map[string]string {
+	m := make(map[string]string, len(statusDefs))
+	for name, d := range statusDefs {
+		m[name] = d.color
+	}
+	return m
+}()
 
-// labelStyle 返回一项的样式；没登记的标签用淡色，不会因为漏登记而崩溃。
-func labelStyle(label string) lipgloss.Style {
+// labelStyle 返回一项的样式：配置里写了颜色就用它，否则用内置颜色；都没有时用淡色，不会因为漏登记而崩溃。
+func labelStyle(label, color string) lipgloss.Style {
+	if color != "" {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(color))
+	}
 	if c, ok := labelColors[label]; ok {
 		return lipgloss.NewStyle().Foreground(lipgloss.Color(c))
 	}
 	return styFaint
 }
 
-// seg 是状态栏里的一项：标签 + 值，两者同色（见 labelColors）。
+// seg 是状态栏里的一项：标签 + 值，两者同色。
 type seg struct {
 	label string
 	value string          // 纯文本，不带样式
+	color string          // 配置指定的颜色；空表示用内置颜色
 	alert *lipgloss.Style // 非空时值改用这个颜色（上下文快满的提醒）
+	flex  bool            // 占满剩余宽度（只有路径）
 }
 
 func (s seg) render() string {
-	st := labelStyle(s.label)
+	st := labelStyle(s.label, s.color)
 	if s.alert != nil {
 		return st.Render(s.label) + " " + s.alert.Render(s.value)
 	}
 	return st.Render(s.label + " " + s.value)
 }
 
-const segSep = " | "
+// segSep 是项与项之间的间隔：两个空格。各项本身已经带颜色，再画竖线只会让整行更碎。
+const segSep = "  "
 
-// joinSegs 把各项用淡色竖线连起来，整行截到 width 以内。
+// joinSegs 把各项连起来，整行截到 width 以内。
 func joinSegs(width int, segs []seg) string {
 	parts := make([]string, len(segs))
 	for i, s := range segs {
 		parts[i] = s.render()
 	}
-	return ansi.Truncate(strings.Join(parts, styFaint.Render(segSep)), width, "…")
+	return ansi.Truncate(strings.Join(parts, segSep), width, "…")
 }
 
-// infoLines 返回底部状态栏的三行。
+// joinLine 渲染同一行的各项。可伸缩的一项（路径）先按其余各项占掉的位置算出剩余宽度，
+// 再从左边截断——保留末尾几级目录，最有辨识度的部分还在。宽度不够时整项让位，宁可截掉也不换行。
+func (m *Model) joinLine(segs []seg) string {
+	if len(segs) == 0 {
+		return ""
+	}
+	fixed, flex := 0, -1
+	for i, s := range segs {
+		if s.flex {
+			flex = i
+			continue
+		}
+		fixed += ansi.StringWidth(s.render()) + ansi.StringWidth(segSep)
+	}
+	if flex >= 0 {
+		room := max(m.w-fixed-ansi.StringWidth(segs[flex].label+" "), 8)
+		segs[flex].value = truncateLeft(segs[flex].value, room)
+	}
+	return joinSegs(m.w, segs)
+}
+
+// infoLines 按 statusline.jsonc 的布局返回底部状态栏。没有内容可显示的行整行省略，
+// 所以自定义布局可能比默认的三行少。
 func (m *Model) infoLines() []string {
-	return []string{m.infoPathLine(), m.infoUsageLine(), m.infoStatusLine()}
+	byLine := make([][]seg, maxStatusLine)
+	for _, it := range m.statusline {
+		d, ok := statusDefs[it.Name]
+		if !ok {
+			continue // 配置在加载时已校验过，这里只是防御
+		}
+		s, ok := d.value(m)
+		if !ok {
+			continue // 当前没有数据：整项不显示
+		}
+		s.color = it.Color
+		line := it.Line - 1
+		if line < 0 || line >= maxStatusLine {
+			line = d.line - 1
+		}
+		byLine[line] = append(byLine[line], s)
+	}
+	var out []string
+	for _, segs := range byLine {
+		if line := m.joinLine(segs); line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
 }
 
 // fmtElapsed 把时长写成 46m43s、1h02m03s；不到一分钟只写秒。
@@ -219,9 +255,16 @@ func fmtMB(mb float64) string {
 	return fmt.Sprintf("%.0fMB", mb)
 }
 
-// fmtGit 是“Git”一项的值：分支名，后面依次是新增（含未跟踪）、修改、删除的文件数。
+// fmtGit 是“Git”一项的值：分支名、相对上游的领先 / 落后（有上游才写），再是新增（含未跟踪）、修改、删除的文件数。
 func fmtGit(g GitInfo) string {
-	return fmt.Sprintf("%s +%d ~%d -%d", g.Branch, g.Added, g.Modified, g.Deleted)
+	v := g.Branch
+	if g.Ahead > 0 {
+		v += fmt.Sprintf(" ↑%d", g.Ahead)
+	}
+	if g.Behind > 0 {
+		v += fmt.Sprintf(" ↓%d", g.Behind)
+	}
+	return fmt.Sprintf("%s +%d ~%d -%d", v, g.Added, g.Modified, g.Deleted)
 }
 
 func (m *Model) turns() int {
@@ -257,48 +300,6 @@ func (m *Model) busyStop() {
 // resetBusy 在新会话、恢复会话时把耗时清零。
 func (m *Model) resetBusy() { m.busyTotal, m.busySince = 0, time.Time{} }
 
-// infoPathLine：路径、对话轮次、耗时、内存、CPU。路径是唯一可伸缩的一项，把剩下的宽度都给它，
-// 放不下时从左边截断（保留末尾几级最有辨识度的部分），其他项宁可整行被截也不为它让位。
-func (m *Model) infoPathLine() string {
-	rest := []seg{
-		{"对话轮次", fmt.Sprint(m.turns()), nil},
-		{"耗时", fmtElapsed(m.elapsed()), nil},
-	}
-	if r := m.res; r.Mem >= 0 {
-		rest = append(rest, seg{"内存", fmt.Sprintf("%.0f%%", r.Mem), nil})
-	}
-	if r := m.res; r.CPU >= 0 {
-		rest = append(rest, seg{"CPU", fmt.Sprintf("%.0f%%", r.CPU), nil})
-	}
-	if r := m.res; r.ProcMB > 0 {
-		rest = append(rest, seg{"进程内存", fmtMB(r.ProcMB), nil})
-	}
-	fixed := 0
-	for _, s := range rest {
-		fixed += ansi.StringWidth(s.render()) + len(segSep)
-	}
-	room := max(m.w-fixed-ansi.StringWidth("路径 "), 8)
-	path := seg{"路径", truncateLeft(m.opts.Info.Cwd, room), nil}
-	return joinSegs(m.w, append([]seg{path}, rest...))
-}
-
-// infoUsageLine：本会话累计的输入输出、缓存、花费、上下文占用、模型和思考强度。
-func (m *Model) infoUsageLine() string {
-	u := m.usage
-	segs := []seg{
-		{"输入", fmtTokens(u.Input), nil},
-		{"输出", fmtTokens(u.Output), nil},
-		{"缓存", fmtTokens(u.CacheRead) + "/" + fmtTokens(u.CacheWrite), nil},
-		{"花费", m.cost.String(), nil},
-		m.contextSeg(),
-		{"模型ID", m.opts.Info.Model, nil},
-	}
-	if e := m.opts.Info.Effort; e != "" {
-		segs = append(segs, seg{"思考强度", e, nil})
-	}
-	return joinSegs(m.w, segs)
-}
-
 // contextSeg 是“上下文”一项：知道窗口大小时是 占用%/窗口，不知道时只写当前占用的 token 数。
 // 占用接近压缩的触发线时值变黄，快满了变红。
 func (m *Model) contextSeg() seg {
@@ -320,25 +321,6 @@ func (m *Model) contextSeg() seg {
 		s.alert = &styWarn
 	}
 	return s
-}
-
-// infoStatusLine：当前在做什么、MCP 与技能、可用的工具数。
-func (m *Model) infoStatusLine() string {
-	segs := []seg{
-		{"状态", m.statusName(), nil},
-		{"MCP", m.mcpSegValue(), nil},
-		{"插件", placeholder, nil},
-		{"技能", m.skillsSegValue(), nil},
-		{"工具", fmt.Sprint(len(m.opts.Info.Tools)), nil},
-	}
-	// 速度是最近一次模型调用的输出速度；还没有可算的数据（没回答过、非流式服务）时不显示。
-	if m.speed > 0 {
-		segs = append(segs, seg{"速度", fmt.Sprintf("%.1f token/s", m.speed), nil})
-	}
-	if g := m.git; g.OK {
-		segs = append(segs, seg{"Git", fmtGit(g), nil})
-	}
-	return joinSegs(m.w, segs)
 }
 
 // mcpSegValue 是状态栏“MCP”一项：显示 已连接/已启用 的服务端数。
@@ -416,4 +398,15 @@ func (m *Model) busyLabel() string {
 		return "生成中"
 	}
 	return ""
+}
+
+// fmtSeconds 把零头很短的时长写成 1.2s、0.4s；不到 10 秒保留一位小数，再长就按 fmtElapsed 的写法。
+func fmtSeconds(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	if d < 10*time.Second {
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	}
+	return fmtElapsed(d)
 }

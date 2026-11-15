@@ -90,10 +90,11 @@ func TestSamplerNeedsTwoSamplesForCPU(t *testing.T) {
 	s := &SystemSampler{
 		mem:  func() (float64, bool) { return 42, true },
 		proc: func() (float64, bool) { return 64, true },
+		load: func() (float64, bool) { return 0.5, true },
 		cpu:  func() (uint64, uint64, bool) { return idle, total, true },
 	}
 	first := s.Sample()
-	if first.MemPercent != 42 || first.CPUPercent >= 0 {
+	if first.MemPercent != 42 || first.CPUPercent >= 0 || first.LoadAvg != 0.5 {
 		t.Fatalf("第一次采样没有 CPU 可比，应为负数: %+v", first)
 	}
 	idle, total = 180, 1100
@@ -110,6 +111,7 @@ func TestSamplerReportsUnavailableAsNegative(t *testing.T) {
 	s := &SystemSampler{
 		mem:  func() (float64, bool) { return 0, false },
 		proc: func() (float64, bool) { return 0, false },
+		load: func() (float64, bool) { return 0, false },
 		cpu:  func() (uint64, uint64, bool) { return 0, 0, false },
 	}
 	if u := s.Sample(); u.MemPercent >= 0 || u.CPUPercent >= 0 || u.ProcMemMB >= 0 {
@@ -123,6 +125,7 @@ func TestSamplerRebaselinesAfterAReadFailure(t *testing.T) {
 	s := &SystemSampler{
 		mem:  func() (float64, bool) { return 1, true },
 		proc: func() (float64, bool) { return 1, true },
+		load: func() (float64, bool) { return 1, true },
 		cpu:  func() (uint64, uint64, bool) { return idle, total, ok },
 	}
 	s.Sample()

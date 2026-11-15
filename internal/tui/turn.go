@@ -150,6 +150,7 @@ func (m *Model) onEvent(e event.Event) {
 		m.add(&entry{kind: kindNotice, text: describeCompacted(e)})
 		if e.Err == "" { // 失败时历史没动，上下文占用还是原来的
 			m.ctxTokens = e.TokensAfter
+			m.compactions++
 		}
 	case event.Retrying:
 		m.add(&entry{kind: kindNotice, text: fmt.Sprintf("请求失败，%s后重试（%d/%d）：%s",
@@ -189,10 +190,14 @@ func (m *Model) addUsage(e event.Usage) {
 	m.updateSpeed(e.OutputTokens)
 }
 
-// markGen 记下本次模型调用第一次收到输出的时刻，输出速度从这里起算。
+// markGen 记下本次模型调用第一次收到输出的时刻，输出速度和首字延迟从这里起算。
+// 一次调用只记一次：多个增量先后到达时，首字是第一个。
 func (m *Model) markGen() {
 	if m.genStart.IsZero() {
 		m.genStart = m.now()
+		if !m.started.IsZero() {
+			m.ttft = max(m.genStart.Sub(m.started), 0) // 时钟回拨时不写负数
+		}
 	}
 }
 
@@ -210,7 +215,10 @@ func (m *Model) updateSpeed(output int) {
 }
 
 // resetSpeed 在新会话、恢复会话时清掉输出速度；重放历史事件时时钟几乎不走，算出来的速度没有意义。
-func (m *Model) resetSpeed() { m.speed, m.genStart, m.genEnd = 0, time.Time{}, time.Time{} }
+func (m *Model) resetSpeed() {
+	m.speed, m.ttft, m.compactions = 0, 0, 0
+	m.genStart, m.genEnd = time.Time{}, time.Time{}
+}
 
 // endThink 结束当前的思维链条目：从“流式预览”变成一行摘要，并记下思考耗时。
 func (m *Model) endThink() {

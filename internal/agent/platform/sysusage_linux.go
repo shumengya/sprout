@@ -2,7 +2,10 @@
 
 package platform
 
-import "os"
+import (
+	"os"
+	"runtime"
+)
 
 // procMemMB 读 /proc/self/status 的 VmRSS，解析在 parseVmRSSMB（sysusage.go）。
 func procMemMB() (float64, bool) {
@@ -22,6 +25,18 @@ func sysMemPercent() (float64, bool) {
 		return 0, false
 	}
 	return parseMeminfo(string(b))
+}
+
+// sysLoadAvg 读 /proc/loadavg。Android 没有这个文件，返回 false。
+func sysLoadAvg() (float64, bool) {
+	if runtime.GOOS == "android" {
+		return 0, false
+	}
+	b, err := os.ReadFile("/proc/loadavg")
+	if err != nil {
+		return 0, false
+	}
+	return parseLoadAvg(string(b))
 }
 
 func sysCPUTimes() (idle, total uint64, ok bool) {

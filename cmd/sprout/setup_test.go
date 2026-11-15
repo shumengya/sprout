@@ -131,8 +131,9 @@ func TestEnvKeyEnablesAgentWithToolsAndPrompt(t *testing.T) {
 	if a.sel.Ref() != "deepseek/deepseek-flash" || toolNames(a) != "bash,powershell,read,write,edit,delete,ls" {
 		t.Errorf("sel=%s tools=%s", a.sel.Ref(), toolNames(a))
 	}
-	// 首次运行但 Key 已就绪：不禁用，只在启动提示里说明配置文件位置。
-	if len(a.notices) != 1 || !strings.Contains(a.notices[0], config.ModelsPath(dir)) {
+	// 首次运行但 Key 已就绪：不禁用，只在启动提示里说明生成的配置文件位置（状态栏与模型）。
+	if len(a.notices) != 2 || !strings.Contains(strings.Join(a.notices, " "), config.ModelsPath(dir)) ||
+		!strings.Contains(strings.Join(a.notices, " "), config.StatuslinePath(dir)) {
 		t.Errorf("notices = %v", a.notices)
 	}
 	// 一条消息都没发时不应创建会话文件。

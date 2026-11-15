@@ -9,3 +9,6 @@ func sysMemPercent() (float64, bool) { return 0, false }
 func sysCPUTimes() (idle, total uint64, ok bool) { return 0, 0, false }
 
 func procMemMB() (float64, bool) { return 0, false }
+
+// sysLoadAvg：macOS 的 load average 要靠 sysctl 或 CGO，这里不读，状态栏只显示 CPU 百分比。
+func sysLoadAvg() (float64, bool) { return 0, false }

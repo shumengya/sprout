@@ -28,6 +28,9 @@ type processMemoryCounters struct {
 	PeakPagefileUsage          uintptr
 }
 
+// sysLoadAvg：Windows 没有系统负载的概念（处理器队列长度不是一回事），状态栏只显示 CPU 百分比。
+func sysLoadAvg() (float64, bool) { return 0, false }
+
 // procMemMB 返回本进程的工作集（任务管理器里的“内存”），单位 MB。
 func procMemMB() (float64, bool) {
 	h, err := syscall.GetCurrentProcess()

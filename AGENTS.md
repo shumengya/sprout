@@ -67,6 +67,7 @@ go vet ./...
 - `mcp-versions.json` 只存目标指纹的 SHA-256，不存 URL 原文：URL / args 里可能有 `${VAR}` 展开出的令牌。缓存只能用来跳过 `server/discover` 试探，任何握手失败都必须能退回完整协商。
 - 技能的目录段是追加在系统提示词末尾的（`skills.AppendCatalog`），不要改成模板变量：用户的 `SYSTEMPROMPT.md` 可能是旧版本，没有那个变量的模板会让技能静默失效。
 - `mcp.jsonc` 的模板（`config.MCPTemplate`）与仓库根的 `mcp.example.jsonc` 由测试保证一致，改一处要同步另一处。
+- 状态栏的项目名、内置行号和内置颜色都在 `internal/tui/statusline.go` 的 `statusDefs` 里，`statusItemOrder` 必须与它一一对应（测试保证）。加一项时这三处一起改，另外 `config.StatuslineTemplate` 与仓库根的 `statusline.example.jsonc` 也要同步；`statusline.jsonc` 的项目名是用户可见接口，不要改名。
 - `mcp.jsonc` 与 `skills.jsonc` 的开关由面板写回，必须走 `config` 包的 `editJSONC`（按字节偏移拼接，保留注释、BOM、缩进，写完重新校验，失败回滚）；不要读出结构体再整份 `json.Marshal` 写回，会丢掉用户的注释。唯一的例外是旧版 `{"disabled": [...]}` 的一次性迁移（`WriteSkills`）。
 - 技能的注册表键名优先于 `SKILL.md` 里的 `name`；`/技能名` 触发时内置命令优先，名字不是技能（`ErrUnknownSkill`）就当普通提问，所以 `/etc/hosts` 这类输入仍能原样发送。
 - `sprout update` 依赖 tag 与产物文件名同 `tools/release` 生成的一致（`sprout_<版本>_<平台>.<后缀>`）；改发布命名或平台名时要同步 `cmd/sprout/update.go` 的 `platformName`。它不需要数据目录。自动替换必须先通过 `SHA256SUMS.txt` 校验和新程序的 `--version` 试运行，任何一步失败都不能动原程序；Windows 正在运行的 exe 不能覆盖，只能先改名成 `.old`（下次启动时清理），所以别改成直接写文件。

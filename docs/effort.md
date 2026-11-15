@@ -99,7 +99,7 @@ Anthropic 预算模式下 `budget_tokens` 必须小于 `max_tokens`：配置了 
   `Enter` 确认，`Esc` 取消。下方一行用该协议的真实字段名说明选中档位会发送什么（如 `output_config.effort=max`）。
 - `/effort 档位`：直接切换，大小写不敏感。生成中也可以用。
 - 当前模型没有声明 `effort` 时，`/effort` 说明原因和配置方法，不打开档位条。
-- 状态栏第二行在模型ID后显示 `思考强度 high`；没声明 `effort` 的模型不显示。
+- 状态栏第二行在模型后显示 `思考强度 high`；没声明 `effort` 的模型不显示。
 - 命令行 `--effort 档位`（TUI 与 `run` 都支持）覆盖 `default`；档位不存在或模型没声明 `effort` 时启动报错，
   而不是静默忽略。
 

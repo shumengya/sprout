@@ -143,6 +143,6 @@ func systemResources() func() tui.Resources {
 	s := platform.NewSystemSampler()
 	return func() tui.Resources {
 		u := s.Sample()
-		return tui.Resources{Mem: u.MemPercent, CPU: u.CPUPercent, ProcMB: u.ProcMemMB}
+		return tui.Resources{Mem: u.MemPercent, CPU: u.CPUPercent, ProcMB: u.ProcMemMB, Load: u.LoadAvg}
 	}
 }

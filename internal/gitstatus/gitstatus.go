@@ -4,15 +4,18 @@ package gitstatus
 import (
 	"context"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
 
-// Info 是一次读取的结果。OK 为 false 表示读不到（不是 git 仓库、没装 git、超时），状态栏不显示这两项。
+// Info 是一次读取的结果。OK 为 false 表示读不到（不是 git 仓库、没装 git、超时），状态栏不显示这几项。
 type Info struct {
 	Branch                   string
 	Added, Modified, Deleted int
-	OK                       bool
+	// Ahead、Behind 是相对上游的提交数。没有上游（没配 remote 分支）时都是 0。
+	Ahead, Behind int
+	OK            bool
 }
 
 // Read 在 dir 下执行一次 git status。超时放得很短：状态栏采样不能被大仓库拖住。
@@ -36,6 +39,9 @@ func Parse(text string) Info {
 		case strings.HasPrefix(line, "# branch.head "):
 			in.Branch = strings.TrimPrefix(line, "# branch.head ")
 			in.OK = true
+		case strings.HasPrefix(line, "# branch.ab "):
+			// 形如 "# branch.ab +2 -1"：领先上游 2 个提交，落后 1 个。
+			in.Ahead, in.Behind = parseBranchAB(strings.TrimPrefix(line, "# branch.ab "))
 		case strings.HasPrefix(line, "? "):
 			in.Added++
 		case strings.HasPrefix(line, "u "):
@@ -59,4 +65,25 @@ func Parse(text string) Info {
 		}
 	}
 	return in
+}
+
+// parseBranchAB 解析 "# branch.ab" 后面的 "+a -b"。解析不了时返回 0，不猜。
+func parseBranchAB(s string) (ahead, behind int) {
+	for f := range strings.FieldsSeq(s) {
+		v, ok := strings.CutPrefix(f, "+")
+		if !ok {
+			v, ok = strings.CutPrefix(f, "-")
+			if !ok {
+				continue
+			}
+			if n, err := strconv.Atoi(v); err == nil {
+				behind = n
+			}
+			continue
+		}
+		if n, err := strconv.Atoi(v); err == nil {
+			ahead = n
+		}
+	}
+	return ahead, behind
 }

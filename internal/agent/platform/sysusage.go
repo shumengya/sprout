@@ -14,6 +14,8 @@ type SystemUsage struct {
 	CPUPercent float64
 	// ProcMemMB 是本进程（sprout）占用的物理内存，单位 MB；读不到时为负数。
 	ProcMemMB float64
+	// LoadAvg 是系统 1 分钟平均负载；读不到时为负数（Windows 没有这个概念）。
+	LoadAvg float64
 }
 
 // SystemSampler 采样整机资源占用。CPU 占用是两次采样之间的差，所以第一次采样没有 CPU 值。
@@ -23,6 +25,7 @@ type SystemSampler struct {
 	mem  func() (float64, bool)
 	cpu  func() (idle, total uint64, ok bool)
 	proc func() (float64, bool)
+	load func() (float64, bool)
 
 	prevIdle, prevTotal uint64
 	havePrev            bool
@@ -30,19 +33,22 @@ type SystemSampler struct {
 
 // NewSystemSampler 返回读取真实系统的采样器。平台差异在 sysMemPercent / sysCPUTimes / procMemMB 里。
 func NewSystemSampler() *SystemSampler {
-	return &SystemSampler{mem: sysMemPercent, cpu: sysCPUTimes, proc: procMemMB}
+	return &SystemSampler{mem: sysMemPercent, cpu: sysCPUTimes, proc: procMemMB, load: sysLoadAvg}
 }
 
 // Sample 采样一次。
 func (s *SystemSampler) Sample() SystemUsage {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	u := SystemUsage{MemPercent: -1, CPUPercent: -1, ProcMemMB: -1}
+	u := SystemUsage{MemPercent: -1, CPUPercent: -1, ProcMemMB: -1, LoadAvg: -1}
 	if p, ok := s.mem(); ok {
 		u.MemPercent = p
 	}
 	if mb, ok := s.proc(); ok {
 		u.ProcMemMB = mb
+	}
+	if l, ok := s.load(); ok {
+		u.LoadAvg = l
 	}
 	idle, total, ok := s.cpu()
 	if !ok {
@@ -122,6 +128,16 @@ func parseVmRSSMB(text string) (float64, bool) {
 		return float64(v) / 1024, true
 	}
 	return 0, false
+}
+
+// parseLoadAvg 从 /proc/loadavg 的第一项取出 1 分钟平均负载；解析不了时返回 false。
+func parseLoadAvg(text string) (float64, bool) {
+	first, _, _ := strings.Cut(strings.TrimSpace(text), " ")
+	v, err := strconv.ParseFloat(first, 64)
+	if err != nil || v < 0 {
+		return 0, false
+	}
+	return v, true
 }
 
 // parseProcStat 从 /proc/stat 的内容取出整机 CPU 的累计时间。

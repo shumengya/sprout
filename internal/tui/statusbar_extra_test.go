@@ -8,18 +8,23 @@ import (
 	"github.com/shumengya/sprout/internal/agent/event"
 )
 
-func TestProcessMemoryIsShownOnlyWhenKnown(t *testing.T) {
+func TestProcessMemoryIsMergedIntoTheMemorySegment(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 200, 24)
-	if line := infoText(m, 0); strings.Contains(line, "进程内存") {
-		t.Errorf("还没采样到时不显示进程内存: %q", line)
+	if line := infoText(m, 0); strings.Contains(line, "内存") {
+		t.Errorf("还没采样到时不显示内存: %q", line)
 	}
-	m.res = Resources{Mem: 43, CPU: 1, ProcMB: 48.4}
-	if line := infoText(m, 0); !strings.Contains(line, "进程内存 48MB") {
-		t.Errorf("应显示取整的 MB: %q", line)
+	m.res = Resources{Mem: 63, CPU: 1, ProcMB: 48.4}
+	if line := infoText(m, 0); !strings.Contains(line, "内存 63% · 48MB") {
+		t.Errorf("整机占用后面应跟上进程自己的 MB: %q", line)
 	}
 	m.res.ProcMB = 2048
-	if line := infoText(m, 0); !strings.Contains(line, "进程内存 2.0GB") {
+	if line := infoText(m, 0); !strings.Contains(line, "内存 63% · 2.0GB") {
 		t.Errorf("超过 1024MB 应换成 GB: %q", line)
+	}
+	// 读不到进程内存时只写百分比，不留一个孤零零的分隔点。
+	m.res.ProcMB = -1
+	if line := infoText(m, 0); !strings.Contains(line, "内存 63%") || strings.Contains(line, "63% ·") {
+		t.Errorf("没有进程内存时应只写百分比: %q", line)
 	}
 }
 
@@ -55,6 +60,15 @@ func TestGitSegmentShowsBranchAndCounts(t *testing.T) {
 	m.git = GitInfo{Branch: "main", Added: 1, Modified: 2, Deleted: 3, OK: true}
 	if line := infoText(m, 2); !strings.Contains(line, "Git main +1 ~2 -3") {
 		t.Errorf("应显示分支和新增/修改/删除数: %q", line)
+	}
+	// 有上游时在分支名后面带上领先 / 落后；为 0 的不写。
+	m.git.Ahead, m.git.Behind = 7, 0
+	if line := infoText(m, 2); !strings.Contains(line, "Git main ↑7 +1 ~2 -3") {
+		t.Errorf("应显示领先上游的提交数: %q", line)
+	}
+	m.git.Ahead, m.git.Behind = 0, 2
+	if line := infoText(m, 2); !strings.Contains(line, "Git main ↓2 +1 ~2 -3") {
+		t.Errorf("应显示落后上游的提交数: %q", line)
 	}
 }
 

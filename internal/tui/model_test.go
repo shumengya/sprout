@@ -43,7 +43,7 @@ func TestInfoLinesAreAtTheBottomInChinese(t *testing.T) {
 	info := lines[len(lines)-infoRows:]
 	for i, wants := range [][]string{
 		{"路径 " + `D:\SmyProjects\sprout`, "对话轮次 0", "耗时 0s"},
-		{"输入 0", "输出 0", "缓存 0/0", "花费 —", "上下文 —", "模型ID deepseek-chat"},
+		{"输入 0", "输出 0", "缓存 0/0", "花费 —", "上下文 —", "模型 deepseek-chat"},
 		{"状态 空闲", "MCP —", "插件 —", "技能 —", "工具 2"},
 	} {
 		for _, want := range wants {
@@ -74,7 +74,7 @@ func TestFooterIsCompactWhenIdle(t *testing.T) {
 	foot := lines[len(lines)-(3+infoRows):]
 	if !strings.HasPrefix(foot[0], "────") || !strings.HasPrefix(foot[1], "❯ 输入消息") ||
 		!strings.HasPrefix(foot[2], "────") || !strings.Contains(foot[3], "路径") ||
-		!strings.Contains(foot[4], "模型ID deepseek-chat") || !strings.Contains(foot[5], "状态 空闲") {
+		!strings.Contains(foot[4], "模型 deepseek-chat") || !strings.Contains(foot[5], "状态 空闲") {
 		t.Fatalf("空闲时底部应是 分隔线 / 输入框 / 分隔线 / 三行状态栏:\n%s", strings.Join(foot, "\n"))
 	}
 	mustNotContain(t, plain(m), "Ctrl+C 退出")
@@ -137,7 +137,7 @@ func TestUsageShownOnTheSecondInfoLine(t *testing.T) {
 	// 太窄时整行从右边截断，不能超宽，左边的先保留。
 	narrow := newSized(t, Options{Runner: scriptRunner()}, 30, 24)
 	apply(narrow, event.Usage{InputTokens: 2000, OutputTokens: 863})
-	got := narrow.infoUsageLine()
+	got := narrow.infoLines()[1]
 	if ansi.StringWidth(got) > 30 || !strings.HasPrefix(ansi.Strip(got), "输入 2k") {
 		t.Fatalf("窄宽度下第二行: %q", ansi.Strip(got))
 	}
@@ -172,8 +172,9 @@ func TestInfoLabelsHaveDistinctColors(t *testing.T) {
 			t.Errorf("%q 没有用它登记的颜色 %s 渲染: %q", label, c, all)
 		}
 	}
-	if !strings.Contains(all, "\x1b[2m") {
-		t.Errorf("分隔线应是淡色: %q", all)
+	// 项之间是两个空格，不再画淡色竖线：各项本身已经带颜色，竖线只会让整行更碎。
+	if strings.Contains(all, "\x1b[2m") {
+		t.Errorf("项之间不该再有淡色分隔线: %q", all)
 	}
 }
 
@@ -182,8 +183,8 @@ func TestInfoPathTruncatesLongDirectoryFromTheLeft(t *testing.T) {
 	info := testInfo
 	info.Cwd = long
 	m := newSized(t, Options{Runner: scriptRunner(), Info: info}, 70, 24)
-	line := ansi.Strip(m.infoPathLine())
-	if !strings.Contains(line, "…") || !strings.Contains(strings.SplitN(line, " | ", 2)[0], `\myproject`) {
+	line := ansi.Strip(m.infoLines()[0])
+	if !strings.Contains(line, "…") || !strings.Contains(strings.SplitN(line, "  ", 2)[0], `\myproject`) {
 		t.Errorf("过长的目录应从左边截断，保留末尾: %q", line)
 	}
 	if strings.Contains(line, `D:\Projects`) {

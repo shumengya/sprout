@@ -69,8 +69,10 @@ type app struct {
 	rec         *session.Recorder
 	info        tui.Info
 	effort      string // 当前思考档位，跨 /new、/resume 保留；切模型时尽量沿用
-	disabled    string
-	notices     []string
+	// statusline 是状态栏布局，来自 statusline.jsonc。
+	statusline []tui.StatusItem
+	disabled   string
+	notices    []string
 }
 
 func (a *app) close() {
@@ -145,6 +147,13 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 		return nil, err
 	}
 
+	// statusline.jsonc 决定状态栏显示哪些项、在第几行、什么颜色。
+	// 缺失或为空时写模板；项目名写错是配置问题，这里只提示并退回默认布局，不挡住启动。
+	statusline, statusProblems, err := loadStatusline(dataDir)
+	if err != nil {
+		return nil, err
+	}
+
 	// models.jsonc 里没写的窗口、输出上限和价格从 models.dev 的本地缓存补，查不到用默认值。
 	// 缓存由 `sprout models update` 维护；这里不联网，缺缓存不影响启动。
 	// 必须在 Selected 之前：Selection 拷贝的是 Model 值，之后再补全就补不到它身上。
@@ -163,7 +172,9 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 		dataDir: dataDir, cwd: e.cwd, cfg: cfg, tools: toolsCfg, mcpCfg: mcpCfg,
 		mcpTools: mcp.LoadTools(config.MCPToolsPath(dataDir)), mcpChanged: make(chan struct{}, 1),
 		prompt: prompt, instr: instr, skills: skillList, skillCfg: skillCfg, env: e, log: log, sel: sel, effort: effort,
+		statusline: statusline,
 	}
+	a.notices = append(a.notices, statusProblems...)
 	a.notices = append(a.notices, instrProblems...)
 	a.notices = append(a.notices, skillProblems...)
 	a.info = tui.Info{
