@@ -62,6 +62,11 @@ func (f *File) problems() []string {
 			if m.MaxOutput < 0 {
 				add("%s.models.%s.maxOutput 不能为负数", prefix, mn)
 			}
+			switch m.MaxTokensParam {
+			case "", "max_tokens", "max_completion_tokens":
+			default:
+				add("%s.models.%s.maxTokensParam 只能是 max_tokens 或 max_completion_tokens", prefix, mn)
+			}
 			out = append(out, effortProblems(prefix+".models."+mn, p.Protocol, m)...)
 		}
 	}

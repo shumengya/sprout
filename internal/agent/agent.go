@@ -23,6 +23,8 @@ type Config struct {
 	System          string
 	Tools           *tool.Registry // 可为 nil，表示没有工具
 	MaxOutputTokens int
+	// MaxTokensParam 是 Chat 协议里输出上限的参数名，空表示 max_tokens。
+	MaxTokensParam string
 	// Thinking 是初始的思考参数，之后可以用 SetThinking 随时调整。
 	Thinking Thinking
 	// MaxSteps > 0 时限制一轮里最多“模型调用 + 工具执行”的次数，超过后以 max_steps 结束本轮；
@@ -139,6 +141,7 @@ func (a *Agent) request() Request {
 		Messages:        msgs,
 		Tools:           a.specs,
 		MaxOutputTokens: a.cfg.MaxOutputTokens,
+		MaxTokensParam:  a.cfg.MaxTokensParam,
 		Thinking:        a.Thinking(),
 	}
 }

@@ -107,6 +107,8 @@ Anthropic 预算模式下 `budget_tokens` 必须小于 `max_tokens`：配置了 
 
 - 所有协议的请求与流解析只有 `httptest` 测试，没有打真实服务。
 - DeepSeek 三个入口的写法依据其「思考模式」文档；Responses 入口是否接受 `reasoning.summary` 未确认，模板里关掉了。
-- Gemini 3 的思考签名（`thoughtSignature`）目前不回传。Gemini 3 在函数调用时要求回传它；如果遇到相应报错，
-  需要按 §4 的方式给 Gemini 也保存原始 part。
-- Responses 协议在 `store: false` 下不回传 reasoning 条目（需要 `reasoning.encrypted_content`），多轮工具调用时模型拿不到上一步的思考。
+- Gemini 3 的 `thoughtSignature` 会随带签名的 part 存进 `Message.Native`，下一轮原样回传（见 `internal/provider/google`）。
+  纯思考摘要（没有签名的 `thought` part）不回传，相邻的逐字文本会被合并成一个 part。
+- Responses 协议开启思考时请求 `include: ["reasoning.encrypted_content"]`，把流里的 reasoning 条目原文存进
+  `Message.Native`，下一轮放在同一条 assistant 的正文与 `function_call` 之前回传。
+  换模型、被压缩裁剪后随其他 `Native` 一起清掉。

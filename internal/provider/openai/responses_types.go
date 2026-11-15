@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/shumengya/sprout/internal/agent"
+	"github.com/shumengya/sprout/internal/agent/config"
 )
 
 // Responses 的线格式。input 里的条目类型各不相同，分别定义结构体，
@@ -19,6 +20,9 @@ type responsesRequest struct {
 	MaxOutputTokens int             `json:"max_output_tokens,omitempty"`
 	// Reasoning 是思考设置，只在 models.jsonc 为当前档位声明了强度时才发。
 	Reasoning *responsesReasoning `json:"reasoning,omitempty"`
+	// Include 请求额外的返回内容。开启思考时要 reasoning.encrypted_content：
+	// store:false 下没有它就拿不到可回传的加密思考内容，多轮工具调用会丢掉上一步的思考。
+	Include []string `json:"include,omitempty"`
 }
 
 type responsesReasoning struct {
@@ -92,6 +96,7 @@ func buildResponsesRequest(req agent.Request) responsesRequest {
 	}
 	if t := req.Thinking; t.Effort != "" {
 		out.Reasoning = &responsesReasoning{Effort: t.Effort}
+		out.Include = []string{"reasoning.encrypted_content"}
 		if t.Summary {
 			out.Reasoning.Summary = "auto"
 		}
@@ -113,6 +118,11 @@ func buildResponsesRequest(req agent.Request) responsesRequest {
 		case agent.RoleUser:
 			out.Input = append(out.Input, responsesMessage{Type: "message", Role: "user", Content: responsesContent(m)})
 		case agent.RoleAssistant:
+			// 同一模型产出的思考条目原样回传：加密内容只能由服务端解开，重建出来的条目无效。
+			// 它必须排在这次 assistant 的正文与 function_call 之前。
+			for _, it := range nativeReasoning(m, req.Model) {
+				out.Input = append(out.Input, it)
+			}
 			if text := m.Text(); text != "" {
 				out.Input = append(out.Input, responsesMessage{Type: "message", Role: "assistant", Content: text})
 			}
@@ -137,6 +147,18 @@ func buildResponsesRequest(req agent.Request) responsesRequest {
 	return out
 }
 
+// nativeReasoning 取出可回传的 reasoning 条目。历史来自别的协议、别的模型或已被清掉时返回 nil。
+func nativeReasoning(m agent.Message, model string) []json.RawMessage {
+	if !m.Native.Usable(config.ProtocolResponses, model) {
+		return nil
+	}
+	var items []json.RawMessage
+	if json.Unmarshal(m.Native.Data, &items) != nil {
+		return nil
+	}
+	return items
+}
+
 // responsesEvent 是流式响应里的一个事件，各事件类型共用此结构，按 Type 取用对应字段。
 type responsesEvent struct {
 	Type        string         `json:"type"`
@@ -159,7 +181,9 @@ type responsesItem struct {
 	CallID    string `json:"call_id"`
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
-	Content   []struct {
+	// Raw 是这条 item 的原始 JSON。reasoning 条目要靠它原样回传（含 encrypted_content）。
+	Raw     json.RawMessage `json:"-"`
+	Content []struct {
 		Type    string `json:"type"`
 		Text    string `json:"text"`
 		Refusal string `json:"refusal"`
@@ -168,6 +192,18 @@ type responsesItem struct {
 	Summary []struct {
 		Text string `json:"text"`
 	} `json:"summary"`
+}
+
+// UnmarshalJSON 在解析的同时保留原始字节，供 reasoning 条目原样回传。
+func (it *responsesItem) UnmarshalJSON(b []byte) error {
+	type plain responsesItem
+	var p plain
+	if err := json.Unmarshal(b, &p); err != nil {
+		return err
+	}
+	p.Raw = append(json.RawMessage(nil), b...)
+	*it = responsesItem(p)
+	return nil
 }
 
 // text 拼出 message 条目里的全部文本。

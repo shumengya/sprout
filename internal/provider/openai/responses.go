@@ -73,9 +73,9 @@ func (p *responsesProvider) Stream(ctx context.Context, req agent.Request, emit 
 		}
 	}
 	return agent.Response{
-		// Reasoning 只用于展示：Responses 的思考条目需要加密内容才能回传，store:false 下不回传。
+		// Reasoning 只用于展示。可回传的部分在 Native 里（需要 include reasoning.encrypted_content）。
 		Message: agent.Message{Role: agent.RoleAssistant, Content: []agent.Block{agent.TextBlock(st.text.String())},
-			Reasoning: st.reasoning.String(), ToolCalls: calls},
+			Reasoning: st.reasoning.String(), ToolCalls: calls, Native: st.native(req.Model)},
 		Usage:      usage,
 		StopReason: stop,
 	}, nil

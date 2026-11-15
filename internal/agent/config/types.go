@@ -39,6 +39,8 @@ type Provider struct {
 type Model struct {
 	ContextWindow int `json:"contextWindow"`
 	MaxOutput     int `json:"maxOutput"`
+	// MaxTokensParam 是 Chat 协议里输出上限的参数名：留空或 max_tokens，或 max_completion_tokens（OpenAI o 系列、GPT-5 在 Chat 协议下只认后者）。其他协议忽略。
+	MaxTokensParam string `json:"maxTokensParam"`
 	// Tools 用指针区分“没写”和“写了 false”：没写按支持工具处理。
 	Tools *bool `json:"tools"`
 	// Vision 表示模型是否支持图片输入。缺省为 false：绝大多数模型没有视觉能力，

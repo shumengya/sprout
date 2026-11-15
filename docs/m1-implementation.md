@@ -483,7 +483,7 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
 - Responses 的函数调用来自 `added` / `arguments.delta` / `arguments.done` / `output_item.done` / `completed.output` 多个来源，后到的覆盖先到的；文本已通过增量输出过就不再用完整 item 重复输出。
 - Responses 的 `function_call` 条目不带 `id`（`store:false` 时没有配对的 reasoning 条目）；依据文档推断。已用真实 DeepSeek 的 `/responses` 端点验证往返可用，但 **OpenAI 官方服务（尤其带 reasoning 的 gpt-5 / o 系列）尚未验证**。
 - Responses 的函数工具显式 `strict:false`，否则默认 `strict:true` 会要求 schema 满足严格模式。
-- 发送给服务端的输出上限直接取 `models.jsonc` 里的 `maxOutput`（Chat 为 `max_tokens`，Responses 为 `max_output_tokens`）。个别新模型（如 OpenAI 的 o 系列）在 Chat 协议下拒绝 `max_tokens`，这类模型请使用 Responses 协议。`contextWindow` 决定自动压缩的触发线（见上下文管理一节）。
+- 发送给服务端的输出上限直接取 `models.jsonc` 里的 `maxOutput`。Chat 协议默认发 `max_tokens`，模型写了 `maxTokensParam: "max_completion_tokens"` 时改发后者（o 系列、GPT-5 在 Chat 协议下拒收 `max_tokens`）；Responses 为 `max_output_tokens`，Anthropic 为 `max_tokens`（必填），Gemini 为 `maxOutputTokens`。`contextWindow` 决定自动压缩的触发线（见上下文管理一节）。
 - `contextWindow` 与 `maxOutput` 可以不写。优先级：`models.jsonc` 里手写的值 > models.dev 目录里查到的 > 默认值（上下文 400000、输出 16000）。目录由 `sprout models update` 下载到数据目录的 `models.dev.json`，启动时只读这份缓存、不联网；没有缓存或查不到该模型时直接用默认值。查找先按 `baseUrl` 匹配同一渠道，匹配不上再按模型 id 取第一条。价格只有 models.dev 一个来源，查不到就没有价格（状态栏显示 `—`）。
 
 **工具**

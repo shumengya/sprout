@@ -251,7 +251,8 @@ func (t *turn) askSummary(system, input string) (string, error) {
 	a := t.a
 	req := Request{
 		Model: a.cfg.Model, System: system, MaxOutputTokens: summaryMaxOutput(a.cfg.MaxOutputTokens),
-		Messages: []Message{NewTextMessage(RoleUser, input)},
+		MaxTokensParam: a.cfg.MaxTokensParam,
+		Messages:       []Message{NewTextMessage(RoleUser, input)},
 	}
 	resp, err := t.retrying(func(func()) (Response, error) {
 		return a.cfg.Provider.Stream(t.ctx, req, func(Chunk) error { return t.ctx.Err() })

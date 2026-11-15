@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/shumengya/sprout/internal/agent"
+	"github.com/shumengya/sprout/internal/agent/config"
 )
 
 // Gemini 协议的线格式。只含本项目用到的字段。
@@ -43,6 +44,9 @@ type part struct {
 	FunctionCall     *functionCall     `json:"functionCall,omitempty"`
 	FunctionResponse *functionResponse `json:"functionResponse,omitempty"`
 	InlineData       *inlineData       `json:"inlineData,omitempty"`
+	// ThoughtSignature 是 Gemini 3 给函数调用等 part 的服务端签名，回传对应 part 时必须原样带回，
+	// 否则服务端会拒绝。没有的模型不返回这个字段。
+	ThoughtSignature string `json:"thoughtSignature,omitempty"`
 }
 
 // inlineData 是内联的 base64 图片。Gemini 也支持 fileData/URI，这里只用内联，避免依赖 File API。
@@ -62,6 +66,34 @@ func contentParts(m agent.Message) []part {
 		parts = append(parts, part{Text: blk.Text})
 	}
 	return parts
+}
+
+// nativeParts 取出原始 part 序列。历史来自别的协议、别的模型或已被清掉时返回 false。
+func nativeParts(m agent.Message, model string) ([]part, bool) {
+	if !m.Native.Usable(config.ProtocolGoogle, model) {
+		return nil, false
+	}
+	var parts []part
+	if json.Unmarshal(m.Native.Data, &parts) != nil || len(parts) == 0 {
+		return nil, false
+	}
+	return parts, true
+}
+
+// appendNative 把流式收到的 part 记进回传序列：不带签名的纯思考摘要不回传（它只是展示用的摘要），
+// 相邻的、都不带签名的文本 part 合并成一个，避免逐字增量被拆成几百个 part。
+func appendNative(parts []part, p part) []part {
+	if p.Thought && p.ThoughtSignature == "" {
+		return parts
+	}
+	if p.Text != "" && p.FunctionCall == nil && p.InlineData == nil && p.ThoughtSignature == "" && len(parts) > 0 {
+		if last := &parts[len(parts)-1]; last.Text != "" && !last.Thought &&
+			last.FunctionCall == nil && last.InlineData == nil && last.ThoughtSignature == "" {
+			last.Text += p.Text
+			return parts
+		}
+	}
+	return append(parts, p)
 }
 
 type functionCall struct {
@@ -129,6 +161,14 @@ func buildRequest(req agent.Request) request {
 		case agent.RoleUser:
 			out.Contents = append(out.Contents, content{Role: "user", Parts: contentParts(m)})
 		case agent.RoleAssistant:
+			// 带 thoughtSignature 的历史原样回传：签名只对当时的 part 序列有效，重建会失效。
+			if parts, ok := nativeParts(m, req.Model); ok {
+				for _, tc := range m.ToolCalls {
+					callName[tc.ID] = tc.Name
+				}
+				out.Contents = append(out.Contents, content{Role: "model", Parts: parts})
+				continue
+			}
 			var parts []part
 			// Gemini 不接受空的 text part；有 tool call 时内容为空很正常。
 			if text := m.Text(); text != "" {

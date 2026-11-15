@@ -22,6 +22,8 @@ type Request struct {
 	Messages        []Message
 	Tools           []ToolSpec
 	MaxOutputTokens int
+	// MaxTokensParam 指定输出上限在 Chat 协议里用的参数名，空表示 max_tokens；其他协议不看它。
+	MaxTokensParam string
 	// Thinking 是本次请求的思考参数；零值表示不发送。上下文摘要等内部请求不带它。
 	Thinking Thinking
 }

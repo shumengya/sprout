@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/shumengya/sprout/internal/agent"
+	"github.com/shumengya/sprout/internal/agent/config"
 	"github.com/shumengya/sprout/internal/provider/transport"
 )
 
@@ -68,6 +69,9 @@ func (p *provider) Stream(ctx context.Context, req agent.Request, emit func(agen
 		usage     agent.Usage
 		finish    string
 		blocked   string // promptFeedback.blockReason
+		// native 是本次响应的 part 序列，带 thoughtSignature 时原样存进 Message.Native 供下一轮回传。
+		native  []part
+		hasSign bool
 	)
 	for {
 		ev, err := sse.Next()
@@ -109,6 +113,10 @@ func (p *provider) Stream(ctx context.Context, req agent.Request, emit func(agen
 				continue
 			}
 			for _, part := range cand.Content.Parts {
+				if part.ThoughtSignature != "" {
+					hasSign = true
+				}
+				native = appendNative(native, part)
 				// thought=true 的 part 是思维摘要（部分模型会带出来），不进正文。
 				if part.Thought && part.Text != "" {
 					reasoning.WriteString(part.Text)
@@ -156,9 +164,16 @@ func (p *provider) Stream(ctx context.Context, req agent.Request, emit func(agen
 	case finish == "MAX_TOKENS":
 		stop = agent.StopLength
 	}
+	var nat *agent.Native
+	if hasSign && len(native) > 0 {
+		if data, err := json.Marshal(native); err == nil {
+			nat = &agent.Native{Protocol: config.ProtocolGoogle, Model: req.Model, Data: data}
+		}
+	}
 	return agent.Response{
 		Message: agent.Message{
-			Role: agent.RoleAssistant, Content: []agent.Block{agent.TextBlock(text.String())}, Reasoning: reasoning.String(), ToolCalls: calls,
+			Role: agent.RoleAssistant, Content: []agent.Block{agent.TextBlock(text.String())},
+			Reasoning: reasoning.String(), ToolCalls: calls, Native: nat,
 		},
 		Usage:      usage,
 		StopReason: stop,

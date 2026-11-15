@@ -143,15 +143,16 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [ ] 状态栏里还是占位的：`插件`（没有插件机制）。
 - [ ] MCP 只做了工具：Resources、Prompts、Sampling、Elicitation、MRTR、`ttlMs` 缓存、OAuth、`notifications/tools/list_changed` 均未实现；工具结果里的图片只写占位文本（见 `docs/mcp.md`“已知限制”）。
 - [ ] MCP 没有工具列表缓存：每次启动重新发现（协议版本有缓存，跳过的是 `server/discover` 探测）。连接在后台进行，不拖慢启动，但连接完成前用不到 MCP 工具；整体 20 秒上限。
-- [ ] 技能正文的裁剪保护：压缩时不会特意保留已激活技能的正文（它只是一条普通的 tool 结果）。
+- [x] 技能正文的裁剪保护：`read` 读取 `SKILL.md` 的工具结果不参与旧输出裁剪（按历史里的调用参数判断，会话恢复重放结果一致）。
 - [ ] 每轮回答结束后的统计行（TPS、输出 / 输入 / 缓存 / 合计 token、耗时、首字耗时）：需要在内核记录首个增量到达的时间，尚未做。
 - [ ] 配置热加载：改 `models.jsonc` 仍需重启才生效，`/model` 只列启动时读到的模型。
 - [ ] 剪贴板取图（`Ctrl+V` 粘贴图片）、图片缩放与降采样：超过 3 MB 直接拒绝（见 `docs/m2-vision.md` §7）。
 - [ ] 交互式 CLI REPL；`sprout run` 不支持从 stdin 读提问。
 - [x] 思考程度调节：`/effort` 档位条与 `--effort`，档位由 `models.jsonc` 的 `effort` 按模型声明；四种协议按各自真实字段发送，Anthropic 思考块带签名原样回传（`docs/effort.md`）。
 - [x] Responses 协议下的思考摘要：`reasoning.summary=auto` 时接收 `reasoning_summary_text` 并显示。
-- [ ] Responses 协议回传 reasoning 条目（需要 `include: reasoning.encrypted_content`），现在 `store:false` 下多轮工具调用拿不到上一步的思考。
-- [ ] Gemini 3 的 `thoughtSignature` 回传：函数调用时要求带回，目前未保存；遇到相应报错时按 `Message.Native` 的方式补上。
+- [x] Responses 协议回传 reasoning 条目：开启思考时请求 `include: reasoning.encrypted_content`，把 reasoning 条目原文存进 `Message.Native`，下一轮放在同一条 assistant 的正文与 `function_call` 之前回传。
+- [x] Gemini 3 的 `thoughtSignature` 回传：带签名的 part 存进 `Message.Native` 原样回传；纯思考摘要不回传，相邻逐字文本合并成一个 part。
+- [x] 按模型切换 `max_tokens` / `max_completion_tokens`：`models.jsonc` 的 `maxTokensParam`，只对 Chat 协议生效。
 - [ ] 会话与日志的清理/轮转（`sessions/`、`logs/` 只增不减）。
 
 ## 四、已知限制与风险
@@ -160,7 +161,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - **项目级技能是提示注入面**：克隆来的陌生仓库可能带着 `.agents/skills/` 或 `.sprout/skills/`，其中的技能正文会进上下文。目前没有信任门槛，只建议在可信仓库里使用项目级技能。
 - **非终端启动 TUI 不退出**：stdin 重定向到 `/dev/null` 时 TUI 会一直挂到被外部终止。
 - **思维链回传**：DeepSeek 文档要求带 `tools` 的请求回传历史 `reasoning_content`，已实现；实测当前服务端尚未强制，之后可能变严。
-- **`max_tokens`**：直接取 `models.jsonc` 的 `maxOutput`。个别新 OpenAI 模型（o 系列）在 Chat 协议下拒绝 `max_tokens`，需改用 Responses 协议；没有按模型切换参数名的机制。
+- **`max_tokens`**：直接取 `models.jsonc` 的 `maxOutput`；Chat 协议可用 `maxTokensParam` 换成 `max_completion_tokens`（o 系列等）。
 - **并行工具的前提**：同批调用并行、互相看不到结果，靠系统提示词让模型把有依赖的命令合并或分回合；模型不听话时（比如先建目录再写文件放同一批）会得到失败结果，由它自己纠正。工具实现必须并发安全。
 - **token 估算是近似值**：按字符类别估算（英文单词每 5 个字母约 1 个、数字每 3 位 1 个、汉字 0.7、符号 1.5、emoji 2，见 `internal/agent/tokens.go`），用 DeepSeek V4 分词器在本机真实会话上校准，整体略微偏高（约 1.1 倍），并用服务端上次报告的用量校准。旧的 OpenAI cl100k 分词器（gpt-4、gpt-3.5）每个汉字约 1 个 token，中文多时会低估约三成。窗口配置错误（比实际大）时靠“服务端报超长后压缩重试”兜底。裁剪会改动历史前缀，使服务端的前缀缓存失效一次。
 - **恢复会话不回放增量**：TUI 恢复时对话区由落盘的完整消息重建，看不到当初的逐字流式过程；思维链在恢复后是折叠摘要。
@@ -173,7 +174,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [ ] **会话路径与 `AGENTS.md` 不一致**：`AGENTS.md` 决策表写 `sessions/<工作目录 slug>/<session-id>.jsonl`，实际按 `m1-minimal.md` 实现为 `sessions/--<cwd slug>--/<时间戳>_<id>.jsonl`。要改代码还是改决策表？
 - [ ] **`meta.json` 语义**：现在是工作目录分组下所有会话的索引；如果你想要“每个会话一份元数据”，需要改格式。
 - [x] **是否提供关闭思考的开关**：已由 `/effort off` 实现，模板里 DeepSeek 的 off 档位发送 `thinking: {"type":"disabled"}`。
-- [ ] **按模型切换 `max_tokens` / `max_completion_tokens`**：要不要在 `models.jsonc` 里加字段，解决 o 系列在 Chat 协议下的参数名问题。
+- [x] **按模型切换 `max_tokens` / `max_completion_tokens`**：已由 `models.jsonc` 的 `maxTokensParam` 实现。
 - [ ] **输出上限的默认值**：`deepseek-flash` 的 `maxOutput` 现为官方上限 384000，是否过大；不填则不发该参数。
 
 ## 六、工程与文档

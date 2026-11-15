@@ -1,10 +1,12 @@
 package openai
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 
 	"github.com/shumengya/sprout/internal/agent"
+	"github.com/shumengya/sprout/internal/agent/config"
 )
 
 // respStream 累积一次 Responses 流式响应的状态。
@@ -21,6 +23,8 @@ type respStream struct {
 	// reasoning 是思考摘要（或兼容服务给出的原始思考文本）；thinkIdx 记录已经流式输出过的 reasoning 条目。
 	reasoning strings.Builder
 	thinkIdx  map[int]bool
+	// rawReasoning 按 output_index 保存 reasoning 条目的原文，用于下一轮原样回传（含 encrypted_content）。
+	rawReasoning map[int]json.RawMessage
 }
 
 type respCall struct {
@@ -29,7 +33,8 @@ type respCall struct {
 }
 
 func newRespStream(emit func(agent.Chunk) error) *respStream {
-	return &respStream{emit: emit, textIdx: map[int]bool{}, calls: map[int]*respCall{}, thinkIdx: map[int]bool{}}
+	return &respStream{emit: emit, textIdx: map[int]bool{}, calls: map[int]*respCall{}, thinkIdx: map[int]bool{},
+		rawReasoning: map[int]json.RawMessage{}}
 }
 
 func (s *respStream) call(idx int) *respCall {
@@ -81,7 +86,11 @@ func (s *respStream) finishItem(idx int, it responsesItem) error {
 			return s.addText(idx, it.text())
 		}
 	case "reasoning":
-		// 同上：没有流式输出过摘要时用完整 item 补上，多段摘要之间空一行。
+		// 原文留着下一轮回传；ack 掉重复处理（output_item.done 与 response.completed 会各来一次）。
+		if len(it.Raw) > 0 {
+			s.rawReasoning[idx] = it.Raw
+		}
+		// 没有流式输出过摘要时用完整 item 补上，多段摘要之间空一行。
 		if !s.thinkIdx[idx] {
 			var parts []string
 			for _, p := range it.Summary {
@@ -153,6 +162,28 @@ func (s *respStream) handle(e responsesEvent, httpStatus int) (*responsesDone, e
 		return nil, streamError(httpStatus, e.Code, msg)
 	}
 	return nil, nil
+}
+
+// native 返回本次调用产生的 reasoning 条目，供内核存进 Message.Native。
+// 按 output_index 排序，保证与原始顺序一致；没有任何 reasoning 条目时返回 nil。
+func (s *respStream) native(model string) *agent.Native {
+	if len(s.rawReasoning) == 0 {
+		return nil
+	}
+	idxs := make([]int, 0, len(s.rawReasoning))
+	for i := range s.rawReasoning {
+		idxs = append(idxs, i)
+	}
+	slices.Sort(idxs)
+	items := make([]json.RawMessage, 0, len(idxs))
+	for _, i := range idxs {
+		items = append(items, s.rawReasoning[i])
+	}
+	data, err := json.Marshal(items)
+	if err != nil {
+		return nil
+	}
+	return &agent.Native{Protocol: config.ProtocolResponses, Model: model, Data: data}
 }
 
 // toolCalls 按 output_index 顺序返回拼好的调用。名字和参数都为空的槽位是残留，丢弃。

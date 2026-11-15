@@ -27,6 +27,8 @@ const Template = `// Sprout 模型配置（JSONC：支持 // 和 /* */ 注释，
       "models": {
         // contextWindow / maxOutput 可以不写：先查 sprout models update 下载的 models.dev 目录，
         // 查不到再用默认值（上下文 400000、输出 16000）。手写的值优先。
+        // maxTokensParam 只对 openai-chat 有效：留空发 max_tokens，写 max_completion_tokens 发后者
+        // （o 系列、GPT-5 这类模型在 Chat 协议下拒收 max_tokens）。
         "deepseek-flash": {
           "contextWindow": 1000000,
           "maxOutput": 384000,

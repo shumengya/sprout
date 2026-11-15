@@ -348,9 +348,10 @@ func (a *app) buildAgent(sel config.Selection, key string, reg *tool.Registry, r
 	return agent.New(agent.Config{
 		Provider: prov, Model: sel.ModelName, Tools: reg, System: system,
 		MaxOutputTokens: sel.Model.MaxOutput, ContextWindow: sel.Model.ContextWindow,
-		Thinking: thinkingFor(sel, a.effort),
-		Vision:   sel.Model.SupportsVision(),
-		Recorder: rec, Retry: e.retry, Logger: log,
+		MaxTokensParam: sel.Model.MaxTokensParam,
+		Thinking:       thinkingFor(sel, a.effort),
+		Vision:         sel.Model.SupportsVision(),
+		Recorder:       rec, Retry: e.retry, Logger: log,
 	})
 }
 

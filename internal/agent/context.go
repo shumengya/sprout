@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"regexp"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -73,9 +74,10 @@ func contextBudget(window, maxOutput int) int {
 // 超过 pruneMinChars、还没裁过、不带图片（只截文本会把图片和文字的对应关系弄乱）。
 func pruneCandidates(history []Message, keepRecent int) []int {
 	var idx []int
+	skill := skillCallIDs(history)
 	for i := 0; i < len(history)-keepRecent; i++ {
 		m := history[i]
-		if m.Role != RoleTool || m.HasImages() {
+		if m.Role != RoleTool || m.HasImages() || skill[m.ToolID] {
 			continue
 		}
 		if text := m.Text(); utf8.RuneCountInString(text) > pruneMinChars && !isPruned(text) {
@@ -83,6 +85,24 @@ func pruneCandidates(history []Message, keepRecent int) []int {
 		}
 	}
 	return idx
+}
+
+// skillCallIDs 返回历史里读取技能正文（read 工具读 SKILL.md）的调用 id。
+// 技能正文是模型按步骤执行任务的依据，被裁成 200 字符开头后任务会做偏，所以不参与裁剪。
+// 只看历史里的调用参数，会话恢复重放时得到同样的集合，裁剪结果与当初一致。
+func skillCallIDs(history []Message) map[string]bool {
+	ids := map[string]bool{}
+	for _, m := range history {
+		if m.Role != RoleAssistant {
+			continue
+		}
+		for _, c := range m.ToolCalls {
+			if c.Name == "read" && strings.Contains(c.Arguments, "SKILL.md") {
+				ids[c.ID] = true
+			}
+		}
+	}
+	return ids
 }
 
 // pruneOne 把一条 tool 消息裁成“开头 + 标记”，返回估算省下的 token。
