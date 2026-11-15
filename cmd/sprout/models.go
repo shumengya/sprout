@@ -108,6 +108,7 @@ func (s modelStore) Switch(ref string) (*tui.SwitchResult, error) {
 	// key 要跟着换：后台 MCP 连好后 applyMCP 用它重建 agent，留着旧 Key 会打到新模型的服务端上失败。
 	a.ag, a.reg, a.key = ag, reg, key
 	a.rec.NoteModelChange(sel.ProviderName, sel.ModelName, reg.Names())
+	a.remember()
 
 	notice := fmt.Sprintf("已切换模型：%s → %s（保留 %d 条历史消息）", oldSel.Ref(), sel.Ref(), len(history))
 	switch {

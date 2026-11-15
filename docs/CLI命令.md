@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | `sprout` | 无 | 启动 TUI | 默认入口 |
 | `sprout` | `--data-dir DIR` | 指定数据目录 | 也可 `--data-dir=DIR`。优先级：该选项 > `SPROUT_DATA_DIR` > `<程序目录>/data/.sprout`。`go run` 须显式指定 |
-| `sprout` / `sprout run` | `--effort 档位` | 指定启动时的思考程度，覆盖 `models.jsonc` 里的 `effort.default` | 档位不存在、或当前模型没声明 `effort` 时报错退出（退出码 1），不静默忽略 |
+| `sprout` / `sprout run` | `--effort 档位` | 指定启动时的思考程度，覆盖上次 `/effort` 记下的档位（`state.json`）和 `models.jsonc` 里的 `effort.default`；本次指定的值不会被记住 | 档位不存在、或当前模型没声明 `effort` 时报错退出（退出码 1），不静默忽略 |
 | `sprout` | `-c`、`--continue` | 恢复当前目录最近会话后启动 TUI | 等价 `--resume latest`。失败则提示并新开会话 |
 | `sprout` | `--resume ID` | 恢复指定会话后启动 TUI | `latest`、列表序号、或 ID 前缀。失败则提示并新开会话 |
 | `sprout run` | 提问 | 单次运行后退出 | 多个词拼成一句；空白则用法错误。答案写 stdout，进度与错误写 stderr |

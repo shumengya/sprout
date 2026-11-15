@@ -91,6 +91,16 @@ func (a *app) close() {
 	}
 }
 
+// remember 把当前的模型和档位记进 state.json，下次启动直接沿用。
+// 只在用户主动切换时调用（run 模式不改）：脚本里临时 --effort 不该覆盖交互时的选择。
+// 写失败只记日志，不影响本次使用。
+func (a *app) remember() {
+	st := config.State{Model: a.sel.Ref(), Effort: a.effort}
+	if err := config.SaveState(config.StatePath(a.dataDir), st); err != nil {
+		a.log.Warn("保存上次的选择失败", "error", err.Error())
+	}
+}
+
 // buildApp 读取配置并装配 agent。
 //
 // 配置文件缺失/语法错误/校验失败是致命的，返回 error；
@@ -158,12 +168,27 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 	// 缓存由 `sprout models update` 维护；这里不联网，缺缓存不影响启动。
 	// 必须在 Selected 之前：Selection 拷贝的是 Model 值，之后再补全就补不到它身上。
 	applyModelsDev(cfg, config.LoadModelsDev(dataDir), log)
+	statePath := config.StatePath(dataDir)
+	saved, stateErr := config.LoadState(statePath)
+	// 记录读不出来或记的模型已经删掉，都退回 models.jsonc 的 default：只是个便利，不该挡住启动。
+	var stateProblems []string
 	sel, err := cfg.Selected()
 	if err != nil {
 		return nil, err
 	}
+	restored := false
+	switch {
+	case stateErr != nil && !config.IsStateMissing(stateErr):
+		stateProblems = append(stateProblems, fmt.Sprintf("无法读取上次的选择记录，已使用默认模型：%v", stateErr))
+	case stateErr == nil && saved.Model != "":
+		if s, err := cfg.Select(saved.Model); err == nil {
+			sel, restored = s, true
+		} else {
+			stateProblems = append(stateProblems, fmt.Sprintf("上次使用的模型 %s 已不在 models.jsonc 里，已退回默认模型：%v", saved.Model, err))
+		}
+	}
 
-	effort, err := startEffort(sel, e.effort)
+	effort, err := startEffort(sel, e.effort, saved.Effort, restored)
 	if err != nil {
 		return nil, err
 	}
@@ -175,6 +200,7 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 		statusline: statusline,
 	}
 	a.notices = append(a.notices, statusProblems...)
+	a.notices = append(a.notices, stateProblems...)
 	a.notices = append(a.notices, instrProblems...)
 	a.notices = append(a.notices, skillProblems...)
 	a.info = tui.Info{

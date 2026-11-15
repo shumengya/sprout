@@ -22,10 +22,16 @@ func thinkingFor(sel config.Selection, level string) agent.Thinking {
 	}
 }
 
-// startEffort 决定启动时的档位：命令行 --effort 优先，否则用 models.jsonc 的 default。
-// 命令行指定了模型不支持的档位是错误：静默忽略会让用户以为在用 max，实际却没发任何参数。
-func startEffort(sel config.Selection, flag string) (string, error) {
+// startEffort 决定启动时的档位：命令行 --effort 优先，其次是上次用过的档位，最后是 models.jsonc 的 default。
+//
+// saved 只在 restored 为真（上次的模型确实恢复了）时才用：换回 default 模型时沿用为另一个模型选的档位没有意义。
+// 记的档位不在当前模型的 levels 里就忽略，退回 default，不报错——模型是用户改配置改掉的，不该挡住启动。
+// 命令行指定了模型不支持的档位才是错误：静默忽略会让用户以为在用 max，实际却没发任何参数。
+func startEffort(sel config.Selection, flag, saved string, restored bool) (string, error) {
 	if flag == "" {
+		if saved = strings.ToLower(strings.TrimSpace(saved)); restored && slices.Contains(sel.Model.EffortNames(), saved) {
+			return saved, nil
+		}
 		return sel.Model.DefaultEffort(), nil
 	}
 	flag = strings.ToLower(strings.TrimSpace(flag))
@@ -100,6 +106,7 @@ func (s effortStore) Set(name string) (string, error) {
 	a.info.Effort = effortLabel(a.sel, name)
 	a.ag.SetThinking(thinkingFor(a.sel, name))
 	a.log.Info("effort changed", "model", a.sel.Ref(), "from", old, "to", name)
+	a.remember()
 
 	l, _ := a.sel.Model.EffortLevel(name)
 	return fmt.Sprintf("思考程度：%s → %s（%s），下一次请求生效。", old, name,
