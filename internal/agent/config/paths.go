@@ -82,6 +82,9 @@ func ModelsPath(dataDir string) string { return filepath.Join(dataDir, "models.j
 // 下次启动可以跳过 server/discover 的试探，少一次 HTTPS 往返。
 func MCPVersionsPath(dataDir string) string { return joinDataDir(dataDir, "mcp-versions.json") }
 
+// MCPToolsPath 是 MCP 工具列表缓存的路径：有效期内启动时直接用，省掉一次 tools/list。
+func MCPToolsPath(dataDir string) string { return joinDataDir(dataDir, "mcp-tools.json") }
+
 // joinDataDir 是数据目录下文件的统一拼接入口；单独抽出来方便测试替换，也避免各处手拼分隔符。
 func joinDataDir(dataDir, name string) string { return filepath.Join(dataDir, name) }
 

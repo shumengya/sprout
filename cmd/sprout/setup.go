@@ -60,6 +60,8 @@ type app struct {
 	// mu 保护后台 goroutine 与界面线程共用的字段（mcp、info），避免数据竞争。
 	mu          sync.Mutex
 	mcpVersions *mcp.Versions
+	mcpTools    *mcp.ToolCache // 工具列表缓存（mcp-tools.json）
+	mcpChanged  chan struct{}  // 服务端通知工具列表变了；TUI 据此在空闲时重建 agent
 	mcpReady    chan struct{}
 	mcpCancel   context.CancelFunc
 	key         string // 当前模型的 API Key；后台重建 agent 时要用
@@ -159,6 +161,7 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 
 	a := &app{
 		dataDir: dataDir, cwd: e.cwd, cfg: cfg, tools: toolsCfg, mcpCfg: mcpCfg,
+		mcpTools: mcp.LoadTools(config.MCPToolsPath(dataDir)), mcpChanged: make(chan struct{}, 1),
 		prompt: prompt, instr: instr, skills: skillList, skillCfg: skillCfg, env: e, log: log, sel: sel, effort: effort,
 	}
 	a.notices = append(a.notices, instrProblems...)

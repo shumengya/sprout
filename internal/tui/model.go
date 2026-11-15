@@ -125,6 +125,8 @@ type Options struct {
 	Git func() GitInfo
 	// MCPReady 在后台的 MCP 连接流程结束时关闭；为 nil 表示没有后台连接（启动时已就绪或没有配置）。
 	MCPReady <-chan struct{}
+	// MCPChanged 在服务端通知工具列表变了（并且已重新取回）时收到信号；TUI 据此在空闲时重建 agent。为 nil 表示不监听。
+	MCPChanged <-chan struct{}
 	// ApplyMCP 在 MCP 连接完成后调用，返回刷新后的 Info 与要显示的提示（连接失败等）。
 	// 它会重建 agent 并保留对话历史，因此只能在空闲时调用；TUI 会等到一轮结束再调。
 	ApplyMCP func() (Info, []string)
@@ -272,7 +274,22 @@ func New(o Options) *Model {
 }
 
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(m.in.Focus(), m.resourceCmd(0), m.gitCmd(0), m.mcpReadyCmd())
+	return tea.Batch(m.in.Focus(), m.resourceCmd(0), m.gitCmd(0), m.mcpReadyCmd(), m.mcpChangedCmd())
+}
+
+// mcpChangedMsg 表示某个 MCP 服务端的工具列表变了。
+type mcpChangedMsg struct{}
+
+// mcpChangedCmd 等下一次工具列表变更信号。每处理完一次要重新挂起，所以 Update 里会再调用它。
+func (m *Model) mcpChangedCmd() tea.Cmd {
+	ch := m.opts.MCPChanged
+	if ch == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		<-ch
+		return mcpChangedMsg{}
+	}
 }
 
 // mcpReadyMsg 表示后台 MCP 连接流程已结束（不论成败）。

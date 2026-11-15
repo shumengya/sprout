@@ -129,6 +129,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mcpDone = m.opts.ApplyMCP != nil
 		return m, nil
 
+	case mcpChangedMsg:
+		// 只置标记：真正的重建在 Update 末尾的空闲检查里做，生成中不会换掉工具。
+		m.mcpDone = m.opts.ApplyMCP != nil
+		return m, m.mcpChangedCmd()
+
 	case turnClosedMsg:
 		if msg.turn != m.turn {
 			return m, nil

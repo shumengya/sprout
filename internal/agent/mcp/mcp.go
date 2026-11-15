@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -48,6 +49,11 @@ type Spec struct {
 	// KnownVersion 是上次连接时与服务端谈成的协议版本。非空时跳过 server/discover 试探，
 	// 直接按这个版本握手；失败也只是一次额外往返，之后照常退回完整流程。
 	KnownVersion string
+	// Cache 是工具列表缓存；为 nil 时每次都重新 tools/list。
+	Cache *ToolCache
+	// OnToolsChanged 在服务端发来 notifications/tools/list_changed 后调用，参数是刷新后的工具个数。
+	// 它在后台 goroutine 里执行，调用方要自己保证线程安全。
+	OnToolsChanged func(server string, toolCount int)
 }
 
 // IsHTTP 报告这个服务端是否走 HTTP。
@@ -67,9 +73,12 @@ type Client struct {
 	version   string // 协商出的协议版本
 	stateless bool   // 无状态协议：每个请求要在 _meta 里带版本与客户端信息
 	info      ServerInfo
-	tools     []ToolInfo
 	log       *slog.Logger
 	close     func()
+
+	// tools、version 由 mu 保护：list_changed 通知会在后台刷新工具列表，同时别处在读。
+	mu    sync.Mutex
+	tools []ToolInfo
 }
 
 // ServerInfo 是服务端自报的身份。
@@ -131,13 +140,57 @@ func Dial(ctx context.Context, spec Spec, hc *http.Client, log *slog.Logger) (*C
 		_ = tr.close()
 		return nil, err
 	}
-	tools, err := c.listTools(ctx)
-	if err != nil {
-		_ = tr.close()
-		return nil, err
+	// 缓存仍在有效期内就直接用，省掉一次 tools/list；过期、换了目标或没有缓存时照常列。
+	if cached, ok := spec.Cache.Lookup(spec); ok {
+		c.tools = cached
+	} else {
+		tools, ttl, err := c.listTools(ctx)
+		if err != nil {
+			_ = tr.close()
+			return nil, err
+		}
+		c.tools = tools
+		c.rememberTools(ttl)
 	}
-	c.tools = tools
+	if spec.OnToolsChanged != nil {
+		tr.setNotifyHook(c.onServerNotification)
+	}
 	return c, nil
+}
+
+// rememberTools 记下工具列表的缓存时长。ttlMs 缺省时用 DefaultToolTTL；
+// 服务端明确给 0 表示不要缓存。
+func (c *Client) rememberTools(ttl time.Duration) {
+	if c.spec.Cache == nil {
+		return
+	}
+	if ttl <= 0 {
+		ttl = DefaultToolTTL
+	}
+	c.spec.Cache.Record(c.spec, c.Tools(), ttl)
+}
+
+// onServerNotification 在后台 goroutine 里处理服务端通知。目前只关心工具列表变了：
+// 重新列一遍并回调，让上层重建 agent（工具 schema 烘在请求里，不重建就看不到新工具）。
+func (c *Client) onServerNotification(method string) {
+	if method != "notifications/tools/list_changed" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), c.spec.timeout())
+	defer cancel()
+	tools, ttl, err := c.listTools(ctx)
+	if err != nil {
+		c.log.Debug("工具列表变更后重新获取失败", "server", c.spec.Name, "error", err)
+		return
+	}
+	c.mu.Lock()
+	c.tools = tools
+	c.mu.Unlock()
+	c.rememberTools(ttl)
+	c.log.Info("MCP 工具列表已变更", "server", c.spec.Name, "tools", len(tools))
+	if c.spec.OnToolsChanged != nil {
+		c.spec.OnToolsChanged(c.spec.Name, len(tools))
+	}
 }
 
 // handshake 先按缓存的上次版本直连，失败或没有缓存时先试无状态发现，再退回 initialize。
@@ -271,10 +324,12 @@ func (c *Client) Version() string { return c.version }
 // ServerInfo 返回服务端自报的身份。
 func (c *Client) ServerInfo() ServerInfo { return c.info }
 
-// listTools 取全部工具，跟着 nextCursor 翻页。
-func (c *Client) listTools(ctx context.Context) ([]ToolInfo, error) {
+// listTools 取全部工具，跟着 nextCursor 翻页，同时返回服务端给的缓存时长（ttlMs）。
+// 没有给 ttlMs 时返回 0，由调用方决定默认值。
+func (c *Client) listTools(ctx context.Context) ([]ToolInfo, time.Duration, error) {
 	var out []ToolInfo
 	cursor := ""
+	var ttl time.Duration
 	for range 20 { // 防止服务端返回环状的 cursor 时死循环
 		params := map[string]any{}
 		if cursor != "" {
@@ -282,14 +337,19 @@ func (c *Client) listTools(ctx context.Context) ([]ToolInfo, error) {
 		}
 		raw, err := c.tr.request(ctx, "tools/list", "", c.wrap(params))
 		if err != nil {
-			return nil, fmt.Errorf("获取工具列表失败: %w", err)
+			return nil, 0, fmt.Errorf("获取工具列表失败: %w", err)
 		}
 		var res struct {
 			Tools      []ToolInfo `json:"tools"`
 			NextCursor string     `json:"nextCursor"`
+			// ttlMs 是服务端建议的缓存时长（毫秒），0 表示不要缓存。
+			TTLMs *int64 `json:"ttlMs"`
 		}
 		if err := json.Unmarshal(raw, &res); err != nil {
-			return nil, fmt.Errorf("解析工具列表失败: %w", err)
+			return nil, 0, fmt.Errorf("解析工具列表失败: %w", err)
+		}
+		if res.TTLMs != nil && ttl == 0 {
+			ttl = time.Duration(*res.TTLMs) * time.Millisecond
 		}
 		out = append(out, res.Tools...)
 		if res.NextCursor == "" || res.NextCursor == cursor {
@@ -297,11 +357,15 @@ func (c *Client) listTools(ctx context.Context) ([]ToolInfo, error) {
 		}
 		cursor = res.NextCursor
 	}
-	return out, nil
+	return out, ttl, nil
 }
 
 // Tools 返回发现到的工具。
-func (c *Client) Tools() []ToolInfo { return append([]ToolInfo(nil), c.tools...) }
+func (c *Client) Tools() []ToolInfo {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]ToolInfo(nil), c.tools...)
+}
 
 // Call 调用一个工具。
 func (c *Client) Call(ctx context.Context, name string, args json.RawMessage) (CallResult, error) {
@@ -353,6 +417,8 @@ type transport interface {
 	notify(ctx context.Context, method string, params any) error
 	// setVersion 记下协商出的协议版本；空串表示按旧版处理，不再发版本头。
 	setVersion(v string)
+	// setNotifyHook 注册服务端通知的处理函数：传输层收到带 method、不带 id 的消息时调用它。
+	setNotifyHook(fn func(method string))
 	close() error
 }
 

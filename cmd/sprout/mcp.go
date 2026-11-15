@@ -89,7 +89,8 @@ func (a *app) startMCP(f *config.MCPFile) {
 	a.mcpCancel = cancel
 	go func() {
 		defer close(a.mcpReady)
-		connectMCP(ctx, set, f, a.env, a.log, a.mcpVersions)
+		connectMCP(ctx, set, f, a.env, a.log, a.mcpVersions, a.specTweak())
+		a.saveMCPTools()
 		if err := a.mcpVersions.Save(); err != nil {
 			a.log.Debug("写入 MCP 版本缓存失败", "error", err)
 		}
@@ -178,7 +179,7 @@ func (s *mcpSet) Close() {
 //
 // 连接失败不阻止启动：MCP 是扩展能力，某个服务端没起来时 agent 照样能用内置工具，
 // 失败原因写进 MCPServerInfo.Err 交给 /tools 与 /mcp 展示。
-func connectMCP(ctx context.Context, set *mcpSet, f *config.MCPFile, e env, log *slog.Logger, versions *mcp.Versions) {
+func connectMCP(ctx context.Context, set *mcpSet, f *config.MCPFile, e env, log *slog.Logger, versions *mcp.Versions, tweak ...func(*mcp.Spec)) {
 	names := f.EnabledServers()
 	if len(names) == 0 {
 		return
@@ -198,6 +199,9 @@ func connectMCP(ctx context.Context, set *mcpSet, f *config.MCPFile, e env, log 
 		spec := mcpSpec(name, f.Servers[name], e.getenv)
 		// 上次谈成的版本直接用来握手，跳过一轮注定失败的 server/discover 试探。
 		spec.KnownVersion = versions.Lookup(spec)
+		for _, fn := range tweak {
+			fn(&spec)
+		}
 		go func() {
 			c, err := mcp.Dial(ctx, spec, e.http, log)
 			ch <- result{name: name, spec: spec, client: c, err: err}
@@ -378,6 +382,7 @@ func (s mcpStore) SetServer(name string, enable bool) (string, error) {
 	versions := a.mcpVersionsLocked()
 	spec := mcpSpec(name, srv, a.env.getenv)
 	spec.KnownVersion = versions.Lookup(spec)
+	a.specTweak()(&spec)
 	c, err := mcp.Dial(ctx, spec, a.env.http, a.log)
 	if err != nil {
 		// 连不上也要把 enable 留在配置里：用户修好网络后按 r 重连即可，不用再点一次开关。
@@ -469,7 +474,12 @@ func (s mcpStore) Refresh() (string, error) {
 
 	set := newMCPSet(f)
 	versions := a.mcpVersionsLocked()
-	connectMCP(context.Background(), set, f, a.env, a.log, versions)
+	// 用户主动刷新就是要看最新的工具：先清掉缓存，别又读回旧列表。
+	for _, name := range f.ServerNames() {
+		a.mcpTools.Drop(name)
+	}
+	connectMCP(context.Background(), set, f, a.env, a.log, versions, a.specTweak())
+	a.saveMCPTools()
 	if err := versions.Save(); err != nil {
 		a.log.Debug("写入 MCP 版本缓存失败", "error", err)
 	}

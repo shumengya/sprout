@@ -138,20 +138,22 @@ MCP 服务端                                                    已启用 1/2
 - 只支持工具（`tools`）。Resources、Prompts、Sampling、Elicitation 都没实现；服务端发起的 `elicitation/create` 等请求一律回“方法不支持”。
 - 工具结果里的图片不会转成图片块发给模型，只写占位文本。
 - 多轮请求（`resultType: "input_required"`，MRTR）不处理：服务端要求中途补充输入时会返回错误文本。
-- 没有工具列表缓存：每次启动重新发现。`tools/list` 的 `ttlMs` / `cacheScope` 目前忽略。协议版本本身有缓存（见上文），跳过的是探测，不是 `tools/list`。
+- 工具列表有缓存（`<数据目录>/mcp-tools.json`）：服务端返回的 `ttlMs` 决定有效期，没给时按 10 分钟；`ttlMs: 0` 表示不缓存。指纹按连接目标计算，改地址或命令后旧缓存自动失效。`/mcp` 面板的 `r` 会先清缓存再重连。`ttlMs` 与 `cacheScope` 里只用了 `ttlMs`，`cacheScope`（`public` / `private`）忽略——缓存只在本机、单用户。
 - 没有 OAuth：远程服务端需要令牌时，自己用 `headers` 配。
 - 开关只有 TUI 的 `/mcp` 面板；没有 WebUI 管理面板（WebUI 是 M4）。面板不做配置编辑（加服务端、改地址），这些仍要手改 `mcp.jsonc`。
-- 没有 `resources/subscribe`、`notifications/tools/list_changed` 的处理：服务端工具列表变化要重启才发现。
+- 没有 `resources/subscribe`；`notifications/tools/list_changed` 已处理：收到后客户端在后台重新 `tools/list`，TUI 在空闲时重建 agent，工具变化不需要重启。
+- 通知只在已有请求的 SSE 流里接收（Streamable HTTP 没有单独开长连接），stdio 服务端则直接读 stdin/stdout。HTTP 服务端如果只在独立的 GET 流里发通知，改动要等到下一次工具调用后才生效。
 
 ## 代码位置
 
 - `internal/agent/mcp/mcp.go`：客户端、握手与版本协商（`KnownVersion` 缓存命中、失败回退）、工具列表、调用
 - `internal/agent/mcp/versions.go`：协议版本缓存（读写、目标指纹失效）
+- `internal/agent/mcp/toolcache.go`：工具列表缓存（`ttlMs` 有效期、目标指纹失效）与 `list_changed` 后的刷新
 - `internal/agent/mcp/stdio.go`、`http.go`：两种传输
 - `internal/agent/mcp/jsonrpc.go`：JSON-RPC 消息结构
 - `internal/agent/mcp/tool.go`：把 MCP 工具适配成 `tool.Tool`
 - `internal/agent/config/mcp.go`、`mcp_template.go`：`mcp.jsonc` 的解析、校验与模板；`mcp_edit.go` 是保留注释的单键写回（`SetMCPServerEnabled` / `SetMCPToolExcluded`）；`paths.go` 的 `MCPVersionsPath` 是缓存文件位置
-- `cmd/sprout/mcp.go`：后台连接（`startMCP` / `waitMCP` / `applyMCP`）、环境变量展开、工具注册，以及 `/mcp` 面板的实现（`mcpStore`）
+- `cmd/sprout/mcp.go`：后台连接（`startMCP` / `waitMCP` / `applyMCP`）、环境变量展开、工具注册，以及 `/mcp` 面板的实现（`mcpStore`）；`mcp_cache.go` 接工具列表缓存与变更回调
 - `internal/tui/mcp.go`：`/mcp` 面板的交互与渲染；`model.go` 的 `Options.MCP` / `Options.ApplyMCP` 与“连接中”状态，`update.go` 在空闲时接入
 
 ## 测试

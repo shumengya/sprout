@@ -41,6 +41,8 @@ type stdioTransport struct {
 	closed  chan struct{}
 	readErr atomic.Value  // error：读循环结束的原因
 	wait    chan struct{} // 子进程退出后关闭
+	// notifyHook 是服务端通知的处理函数，由 Client 在握手后注册。
+	notifyHook atomic.Pointer[func(string)]
 }
 
 func newStdioTransport(spec Spec) (*stdioTransport, error) {
@@ -155,10 +157,14 @@ func (t *stdioTransport) dispatch(line []byte) {
 }
 
 // handleServerMessage 回应服务端发来的请求。ping 回空结果，roots/list 回空列表，
-// 其余回“方法不支持”，避免服务端一直等。
+// 其余回“方法不支持”，避免服务端一直等。通知（没有 id）交给注册的钩子。
 func (t *stdioTransport) handleServerMessage(line []byte, method string, id json.RawMessage) {
 	if len(id) == 0 || string(id) == "null" {
-		return // 通知，无需回应
+		// 通知，无需回应；工具列表变更等由钩子处理。
+		if h := t.notifyHook.Load(); h != nil {
+			go (*h)(method)
+		}
+		return
 	}
 	var result any = map[string]any{}
 	switch method {
@@ -204,6 +210,13 @@ func (t *stdioTransport) request(ctx context.Context, method, _ string, params a
 
 // setVersion 对 stdio 没有影响：版本只在 initialize 里声明一次。
 func (t *stdioTransport) setVersion(string) {}
+
+func (t *stdioTransport) setNotifyHook(fn func(string)) {
+	if fn == nil {
+		return
+	}
+	t.notifyHook.Store(&fn)
+}
 
 func (t *stdioTransport) notify(_ context.Context, method string, params any) error {
 	return t.writeMessage(map[string]any{"jsonrpc": "2.0", "method": method, "params": paramsOrEmpty(params)})

@@ -26,6 +26,23 @@ type httpTransport struct {
 	sessionID string // 旧版协议里服务端下发、之后每个请求都要带上的会话 ID
 	version   string // 协商出的协议版本，作为 MCP-Protocol-Version 头
 	nextID    atomic.Uint64
+	// notifyHook 是服务端通知的处理函数。通知随任意一次请求的 SSE 流一起到达。
+	notifyHook atomic.Pointer[func(string)]
+}
+
+func (t *httpTransport) setNotifyHook(fn func(string)) {
+	if fn == nil {
+		return
+	}
+	t.notifyHook.Store(&fn)
+}
+
+// hook 返回当前的通知钩子；没有注册时返回 nil。
+func (t *httpTransport) hook() func(string) {
+	if p := t.notifyHook.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 func newHTTPTransport(spec Spec, hc *http.Client) *httpTransport {
@@ -63,7 +80,7 @@ func (t *httpTransport) request(ctx context.Context, method, name string, params
 	ct := resp.Header.Get("Content-Type")
 	switch {
 	case strings.HasPrefix(ct, "text/event-stream"):
-		return readSSEResponse(resp.Body, id, method)
+		return readSSEResponse(resp.Body, id, method, t.hook())
 	case strings.HasPrefix(ct, "application/json"):
 		return readJSONResponse(resp.Body, method)
 	default:
@@ -176,8 +193,9 @@ func unwrapResponse(resp rpcResponse, method string) (json.RawMessage, error) {
 	return resp.Result, nil
 }
 
-// readSSEResponse 读完 SSE 流，返回 id 匹配的那条响应。服务端可能先发若干通知。
-func readSSEResponse(r io.Reader, id uint64, method string) (json.RawMessage, error) {
+// readSSEResponse 读完 SSE 流，返回 id 匹配的那条响应。服务端可能先发若干通知，
+// 通知交给 hook（工具列表变更等），不影响本次响应的等待。
+func readSSEResponse(r io.Reader, id uint64, method string, hook func(string)) (json.RawMessage, error) {
 	br := bufio.NewReaderSize(r, 64*1024)
 	var data []string
 	var size int
@@ -192,7 +210,7 @@ func readSSEResponse(r io.Reader, id uint64, method string) (json.RawMessage, er
 			switch {
 			case line == "":
 				if len(data) > 0 {
-					if raw, done, derr := matchEvent(strings.Join(data, "\n"), id, method); done || derr != nil {
+					if raw, done, derr := matchEvent(strings.Join(data, "\n"), id, method, hook); done || derr != nil {
 						return raw, derr
 					}
 					data, size = nil, 0
@@ -205,7 +223,7 @@ func readSSEResponse(r io.Reader, id uint64, method string) (json.RawMessage, er
 		}
 		if err != nil {
 			if len(data) > 0 {
-				if raw, done, derr := matchEvent(strings.Join(data, "\n"), id, method); done || derr != nil {
+				if raw, done, derr := matchEvent(strings.Join(data, "\n"), id, method, hook); done || derr != nil {
 					return raw, derr
 				}
 			}
@@ -218,12 +236,16 @@ func readSSEResponse(r io.Reader, id uint64, method string) (json.RawMessage, er
 }
 
 // matchEvent 判断一条 SSE 事件是不是我们要的响应；是则返回结果，done 为 true。
-func matchEvent(payload string, id uint64, method string) (json.RawMessage, bool, error) {
+// 带 method 的事件是服务端通知或请求，交给 hook。
+func matchEvent(payload string, id uint64, method string, hook func(string)) (json.RawMessage, bool, error) {
 	var resp rpcResponse
 	if err := json.Unmarshal([]byte(payload), &resp); err != nil {
 		return nil, false, nil // 不是 JSON 的事件，忽略
 	}
 	if resp.Method != "" {
+		if hook != nil && (len(resp.ID) == 0 || string(resp.ID) == "null") {
+			go hook(resp.Method)
+		}
 		return nil, false, nil // 服务端的通知或请求
 	}
 	got, ok := parseID(resp.ID)
