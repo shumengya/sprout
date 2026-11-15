@@ -13,8 +13,8 @@ import (
 // 底部三行状态栏，从上到下：
 //
 //	路径 … | 对话轮次 N | 耗时 … | 内存 N% | CPU N% | 进程内存 N MB
-//	输入 … | 输出 … | 速度 N token/s | 缓存 读/写 | 花费 — | 上下文 N%/窗口 | 模型ID … | 思考强度 …
-//	状态 … | MCP — | 插件 — | 技能 — | 工具 N | Git 分支 +新增 ~修改 -删除
+//	输入 … | 输出 … | 缓存 读/写 | 花费 — | 上下文 N%/窗口 | 模型ID … | 思考强度 …
+//	状态 … | MCP — | 插件 — | 技能 — | 工具 N | 速度 N token/s | Git 分支 +新增 ~修改 -删除
 //
 // MCP、插件、技能对应的功能还没有实现，先占位显示 placeholder，接上之后只需要把值换掉。
 // 花费已接上：按 models.dev 的单价累计，见 costTotals。
@@ -142,7 +142,6 @@ var labelColors = map[string]string{
 	// 第二行
 	"输入":   "80",  // 青
 	"输出":   "211", // 粉
-	"速度":   "159", // 淡青
 	"缓存":   "179", // 土黄
 	"花费":   "120", // 亮绿
 	"上下文":  "111", // 浅蓝
@@ -154,6 +153,7 @@ var labelColors = map[string]string{
 	"插件":  "168", // 玫红
 	"技能":  "105", // 蓝紫
 	"工具":  "215", // 杏色
+	"速度":  "159", // 淡青
 	"Git": "209", // 珊瑚
 }
 
@@ -288,17 +288,11 @@ func (m *Model) infoUsageLine() string {
 	segs := []seg{
 		{"输入", fmtTokens(u.Input), nil},
 		{"输出", fmtTokens(u.Output), nil},
-	}
-	// 速度是最近一次模型调用的输出速度；还没有可算的数据（没回答过、非流式服务）时不显示。
-	if m.speed > 0 {
-		segs = append(segs, seg{"速度", fmt.Sprintf("%.1f token/s", m.speed), nil})
-	}
-	segs = append(segs,
-		seg{"缓存", fmtTokens(u.CacheRead) + "/" + fmtTokens(u.CacheWrite), nil},
-		seg{"花费", m.cost.String(), nil},
+		{"缓存", fmtTokens(u.CacheRead) + "/" + fmtTokens(u.CacheWrite), nil},
+		{"花费", m.cost.String(), nil},
 		m.contextSeg(),
-		seg{"模型ID", m.opts.Info.Model, nil},
-	)
+		{"模型ID", m.opts.Info.Model, nil},
+	}
 	if e := m.opts.Info.Effort; e != "" {
 		segs = append(segs, seg{"思考强度", e, nil})
 	}
@@ -336,6 +330,10 @@ func (m *Model) infoStatusLine() string {
 		{"插件", placeholder, nil},
 		{"技能", m.skillsSegValue(), nil},
 		{"工具", fmt.Sprint(len(m.opts.Info.Tools)), nil},
+	}
+	// 速度是最近一次模型调用的输出速度；还没有可算的数据（没回答过、非流式服务）时不显示。
+	if m.speed > 0 {
+		segs = append(segs, seg{"速度", fmt.Sprintf("%.1f token/s", m.speed), nil})
 	}
 	if g := m.git; g.OK {
 		segs = append(segs, seg{"Git", fmtGit(g), nil})

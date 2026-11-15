@@ -25,7 +25,7 @@ func TestProcessMemoryIsShownOnlyWhenKnown(t *testing.T) {
 
 func TestOutputSpeedUsesTheLastCall(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 200, 24)
-	if line := infoText(m, 1); strings.Contains(line, "速度") {
+	if line := infoText(m, 2); strings.Contains(line, "速度") {
 		t.Errorf("没有数据时不显示速度: %q", line)
 	}
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -33,13 +33,17 @@ func TestOutputSpeedUsesTheLastCall(t *testing.T) {
 	apply(m, event.MessageDelta{Text: "a"})
 	now = now.Add(2 * time.Second)
 	apply(m, event.MessageCompleted{Content: "a"}, event.Usage{OutputTokens: 100})
-	if line := infoText(m, 1); !strings.Contains(line, "速度 50.0 token/s") {
+	if line := infoText(m, 2); !strings.Contains(line, "速度 50.0 token/s") {
 		t.Errorf("100 token / 2 秒应是 50.0 token/s: %q", line)
 	}
 	// 非流式服务没有增量：保持上一次的值，不编造数字。
 	apply(m, event.MessageCompleted{Content: "b"}, event.Usage{OutputTokens: 999})
-	if line := infoText(m, 1); !strings.Contains(line, "速度 50.0 token/s") {
+	if line := infoText(m, 2); !strings.Contains(line, "速度 50.0 token/s") {
 		t.Errorf("没有增量时应保持原值: %q", line)
+	}
+	// 速度在第三行，第二行不该再被它占位。
+	if line := infoText(m, 1); strings.Contains(line, "速度") {
+		t.Errorf("第二行不应显示速度: %q", line)
 	}
 }
 
