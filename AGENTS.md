@@ -84,7 +84,7 @@ go vet ./...
 
 ## 不要做
 
-- 不要越过里程碑提前实现 MCP 的 Resources / Prompts / Sampling / OAuth、权限模块、WebUI 或子代理。`sprout update` 只更新程序本身，不要顺带改数据目录里的配置。
+- 不要越过里程碑提前实现权限模块、WebUI 或子代理。MCP 的工具结果图片、Resources、Prompts、Elicitation、MRTR、Sampling、OAuth 已获用户同意，按 `TODOS.md` 里的子项顺序逐个实现，一次只做一项，做完等用户确认再做下一项。`sprout update` 只更新程序本身，不要顺带改数据目录里的配置。
 - 不要为 TUI 或演示引入假模型、假工具、回显模式；测试替身只允许放在 `_test.go`。
 - 不要复制 Crush / Codex / Claude Code 的代码；参考设计可以，注意 Crush 是 FSL-1.1-MIT。
 - 不要提交 `.env`、API key、`auth.json`、构建产物。

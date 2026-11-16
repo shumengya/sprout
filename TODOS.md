@@ -147,7 +147,14 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] 模型选择器、运行中切换模型：`/model`。
 - [x] `花费`：单价来自 models.dev（`sprout models update` 下载到 `<数据目录>/models.dev.json`，启动时只读缓存、不联网）。每次用量到达时按当时模型的单价累加，切换模型不重算历史；`/new` 与恢复会话清零，恢复时按当前模型的价格重算重放出来的用量。没有价格时显示 `—`，一部分用量没价格时显示 `≥` 加金额。**已知限制**：只用基础价，忽略 models.dev 的分档价（`tiers`、`context_over_200k`）；价格没有和真实账单核对过。
 - [ ] 状态栏里还是占位的：`插件`（没有插件机制）。
-- [ ] MCP 只做了工具：Resources、Prompts、Sampling、Elicitation、MRTR、OAuth 均未实现；工具结果里的图片只写占位文本（见 `docs/mcp.md`“已知限制”）。
+- [ ] MCP 的其他能力（目前只做了工具，见 `docs/mcp.md`“已知限制”），按以下顺序逐项实现：
+  - [ ] 工具结果里的图片转成图片块发给模型（现在只写占位文本）；
+  - [ ] Resources：`resources/list`、`resources/templates/list`、`resources/read`；
+  - [ ] Prompts：`prompts/list`、`prompts/get`；
+  - [ ] Elicitation：服务端发起的 `elicitation/create`，需要 TUI 与 JSON-RPC 客户端各自的交互；
+  - [ ] MRTR：工具结果 `resultType: "input_required"` 时补充输入后重发（依赖 Elicitation 的交互）；
+  - [ ] Sampling：服务端发起的 `sampling/createMessage`，用当前模型生成；
+  - [ ] OAuth：PKCE、授权服务器元数据发现、浏览器授权与回环回调、令牌存储与刷新。
 - [x] MCP 工具列表缓存：`<数据目录>/mcp-tools.json`，有效期取服务端的 `ttlMs`（缺省 10 分钟，`0` 表示不缓存），按连接目标指纹失效；`notifications/tools/list_changed` 收到后后台重新列工具，TUI 空闲时重建 agent。
 - [x] 技能正文的裁剪保护：`read` 读取 `SKILL.md` 的工具结果不参与旧输出裁剪（按历史里的调用参数判断，会话恢复重放结果一致）。
 - [ ] 每轮回答结束后的统计行（TPS、输出 / 输入 / 缓存 / 合计 token、耗时、首字耗时）：状态栏已有最近一次调用的速度与首字（TUI 按每次模型调用计时），但每轮下方单独的统计行尚未做。
