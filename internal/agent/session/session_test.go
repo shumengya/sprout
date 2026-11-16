@@ -13,7 +13,7 @@ import (
 	"github.com/shumengya/sprout/internal/agent/event"
 )
 
-var testInfo = Info{Provider: "deepseek", Model: "deepseek-chat", Cwd: `D:\SmyProjects\sprout`, Tools: []string{"powershell", "bash"}, Version: "test"}
+var testInfo = Info{Provider: "deepseek", Model: "deepseek-flash", Cwd: `D:\SmyProjects\sprout`, Tools: []string{"powershell", "bash"}, Version: "test"}
 
 func newRec(t *testing.T) (*Recorder, string) {
 	t.Helper()
@@ -98,7 +98,7 @@ func TestRecordsFullTurn(t *testing.T) {
 		t.Fatalf("记录类型 = %v，期望 %s（delta 与 ToolRequested 不落盘）", types, want)
 	}
 
-	if recs[0]["cwd"] != testInfo.Cwd || recs[0]["model"] != "deepseek-chat" || recs[0]["provider"] != "deepseek" {
+	if recs[0]["cwd"] != testInfo.Cwd || recs[0]["model"] != "deepseek-flash" || recs[0]["provider"] != "deepseek" {
 		t.Errorf("session 头 = %v", recs[0])
 	}
 	if recs[1]["content"] != "看一下目录" {
@@ -181,7 +181,7 @@ func TestMetaJSON(t *testing.T) {
 		t.Fatalf("meta = %+v，应同时登记两个会话", gm)
 	}
 	sm, ok := gm.Sessions[filepath.Base(r.Path())]
-	if !ok || sm.Provider != "deepseek" || sm.Model != "deepseek-chat" || len(sm.Tools) != 2 || sm.StartedAt.IsZero() {
+	if !ok || sm.Provider != "deepseek" || sm.Model != "deepseek-flash" || len(sm.Tools) != 2 || sm.StartedAt.IsZero() {
 		t.Errorf("会话条目 = %+v (存在=%v)", sm, ok)
 	}
 }

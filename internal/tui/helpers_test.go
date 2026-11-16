@@ -33,7 +33,7 @@ func scriptRunner(events ...event.Event) fakeRunner {
 }
 
 var testInfo = Info{
-	Model: "deepseek-chat", Provider: "deepseek", Cwd: `D:\SmyProjects\sprout`, DataDir: `D:\data\.sprout`,
+	Model: "deepseek-flash", Provider: "deepseek", Cwd: `D:\SmyProjects\sprout`, DataDir: `D:\data\.sprout`,
 	Tools: []ToolInfo{{"powershell", "PowerShell 7+  C:\\pwsh.exe"}, {"bash", "Git Bash  C:\\bash.exe"}},
 }
 

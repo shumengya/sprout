@@ -43,7 +43,7 @@ func TestInfoLinesAreAtTheBottomInChinese(t *testing.T) {
 	info := lines[len(lines)-infoRows:]
 	for i, wants := range [][]string{
 		{"路径 " + `D:\SmyProjects\sprout`, "对话轮次 0", "耗时 0s"},
-		{"输入 0", "输出 0", "缓存 0/0", "花费 —", "上下文 —", "模型 deepseek-chat"},
+		{"输入 0", "输出 0", "缓存 0/0", "花费 —", "上下文 —", "模型 deepseek-flash"},
 		{"状态 空闲", "MCP —", "插件 —", "技能 —", "工具 2"},
 	} {
 		for _, want := range wants {
@@ -74,7 +74,7 @@ func TestFooterIsCompactWhenIdle(t *testing.T) {
 	foot := lines[len(lines)-(3+infoRows):]
 	if !strings.HasPrefix(foot[0], "────") || !strings.HasPrefix(foot[1], "❯ 输入消息") ||
 		!strings.HasPrefix(foot[2], "────") || !strings.Contains(foot[3], "路径") ||
-		!strings.Contains(foot[4], "模型 deepseek-chat") || !strings.Contains(foot[5], "状态 空闲") {
+		!strings.Contains(foot[4], "模型 deepseek-flash") || !strings.Contains(foot[5], "状态 空闲") {
 		t.Fatalf("空闲时底部应是 分隔线 / 输入框 / 分隔线 / 三行状态栏:\n%s", strings.Join(foot, "\n"))
 	}
 	mustNotContain(t, plain(m), "Ctrl+C 退出")

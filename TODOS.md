@@ -189,6 +189,6 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] `docs/斜杠命令.md` 已列出 `/new` 与 `/image`。
 - [x] `docs/CLI命令.md`、`docs/快捷键.md`、`docs/斜杠命令.md` 已提交到 git。
 - [ ] `AGENTS.md` 约定的架构 / 协议 / 决策记录文档还没有单独成文（事件协议和会话格式目前散落在 `m1-implementation.md` §10、§15 与 `m2-vision.md` §3）。
-- [ ] 部分测试里仍用旧模型名 `deepseek-chat` 作为随意的字符串（`session_test.go`、`tui/helpers_test.go`），不影响功能，可顺手统一。
+- [x] 测试里的旧模型名 `deepseek-chat` 已统一为模板中的 `deepseek-flash`（`session_test.go`、`tui/helpers_test.go`、`tui/model_test.go`）。
 
 
