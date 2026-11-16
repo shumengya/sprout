@@ -172,7 +172,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 
 ## 五、待你决定
 
-- [ ] **会话路径与 `AGENTS.md` 不一致**：`AGENTS.md` 决策表写 `sessions/<工作目录 slug>/<session-id>.jsonl`，实际按 `m1-minimal.md` 实现为 `sessions/--<cwd slug>--/<时间戳>_<id>.jsonl`。要改代码还是改决策表？
+- [x] **会话路径与 `AGENTS.md` 不一致**：已定以实际实现为准，`sessions/--<cwd slug>--/<时间戳>_<id>.jsonl`；`AGENTS.md` 决策表与 `README.md` 已同步。
 - [ ] **`meta.json` 语义**：现在是工作目录分组下所有会话的索引；如果你想要“每个会话一份元数据”，需要改格式。
 - [x] **是否提供关闭思考的开关**：已由 `/effort off` 实现，模板里 DeepSeek 的 off 档位发送 `thinking: {"type":"disabled"}`。
 - [x] **按模型切换 `max_tokens` / `max_completion_tokens`**：已由 `models.jsonc` 的 `maxTokensParam` 实现。

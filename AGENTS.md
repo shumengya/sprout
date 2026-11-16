@@ -40,7 +40,7 @@ go vet ./...
 | --- | --- |
 | LLM 协议 | OpenAI Chat Completions → OpenAI Responses → Anthropic Messages → Google Gemini，四种均已实现；其他供应商通过 `models.jsonc` 配置，不写死在代码里 |
 | 模型参数 | `contextWindow`、`maxOutput` 优先级：`models.jsonc` 手写 > models.dev 本地缓存 > 默认值（400000 / 16000）；价格只来自 models.dev，没有默认值。缓存由 `sprout models update` 更新，启动不联网 |
-| 会话 | JSONL 追加写，按 agent 工作目录分组：`<数据目录>/sessions/<工作目录 slug>/<session-id>.jsonl`，同目录放 `meta.json` |
+| 会话 | JSONL 追加写，按 agent 工作目录分组：`<数据目录>/sessions/--<工作目录 slug>--/<yyyymmdd-hhmmss>_<id>.jsonl`（slug 规则见 `session.Slug`），同目录放 `meta.json` |
 | 数据目录 | 默认 `<exeDir>/data/.sprout`（安装级/系统级，跟随二进制）；`--data-dir` / `SPROUT_DATA_DIR` 覆盖；默认不写 `~/.sprout` |
 | 工具 | 内置 `bash`、`powershell`、`read`、`write`、`edit`、`delete`，另可在 `tools.jsonc` 里用 `exec` 把外部命令包装成工具；条目必须 `"enable": true` 才注册给模型（见 `docs/tools.md`） |
 | MCP | 自带最小客户端（`internal/agent/mcp`，stdio + Streamable HTTP），配置在数据目录 `mcp.jsonc`；工具注册为 `mcp__<服务端>__<工具>`；启动时**后台**连接（界面不等服务端），连好后重建 agent 接入工具；协商版本缓存在 `<数据目录>/mcp-versions.json`；当前自写客户端，是否引入外部库按「架构边界」里的依赖成本规则判断（见 `docs/mcp.md`） |

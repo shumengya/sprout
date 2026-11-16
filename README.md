@@ -36,7 +36,7 @@
 | LLM 协议 | OpenAI Chat Completions → OpenAI Responses → Anthropic Messages → Google Gemini | 先覆盖最广的兼容协议，再补新协议与原生协议 |
 | 模型配置 | `models.jsonc`（JSONC，可写注释） | 供应商、模型、能力、默认参数集中配置；用户配置统一 JSONC |
 | 内部状态 | JSON / JSONL | 用户很少直接编辑，保持严格、好解析 |
-| 会话 | JSONL 追加写，按工作目录分组 | 无 CGO、可恢复、可重放；目录形如 `<exeDir>/data/.sprout/sessions/<工作目录>/<session-id>.jsonl` |
+| 会话 | JSONL 追加写，按工作目录分组 | 无 CGO、可恢复、可重放；目录形如 `<exeDir>/data/.sprout/sessions/--<工作目录 slug>--/<时间戳>_<id>.jsonl` |
 | 数据目录 | `<exeDir>/data/.sprout`（安装级/系统级） | 跟随二进制，不写用户 home 或项目目录；`--data-dir` / `SPROUT_DATA_DIR` 可覆盖 |
 | 工具 | `bash`、`powershell`、`read`、`write`、`edit`、`delete` | 六个内置工具地位相同，都由数据目录的 `tools.jsonc` 显式启用（`"enable": true`）才会交给模型；只有 `bash` / `powershell` 额外要求本机装有可用的 shell，见 `docs/tools.md` |
 | 系统提示词 | 数据目录的 `SYSTEMPROMPT.md`（Go `text/template` 模板） | 缺失或为空时写入内置模板；环境、工具、识图等动态内容用 `{{.Cwd}}`、`{{if .Has "bash"}}` 等占位，见 `docs/system-prompt.md` |
