@@ -23,7 +23,7 @@ func (a *app) resume(selector string) (*session.State, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	st, err := session.Load(brief.Path)
+	st, notes, err := a.attach(brief.Path)
 	if err != nil {
 		return nil, "", err
 	}
@@ -31,6 +31,39 @@ func (a *app) resume(selector string) (*session.State, string, error) {
 	if brief.Name != "" {
 		notice = fmt.Sprintf("已恢复会话「%s」%s（%d 轮）", brief.Name, st.ID, st.Turns)
 	}
+	return st, notice + notes, nil
+}
+
+// branch 把当前会话的前 turns 轮（0 为全部）复制成新会话并切换过去，原会话文件不动。
+// 调用方必须保证此时没有 Run 在进行。
+func (a *app) branch(turns int) (*session.State, string, error) {
+	if a.ag == nil || a.rec == nil {
+		return nil, "", errors.New("当前没有可用的 agent，无法分支会话")
+	}
+	src := a.rec.Path()
+	if src == "" {
+		return nil, "", errors.New("当前会话还没有任何内容，不需要分支")
+	}
+	dst, err := session.Fork(config.SessionsDir(a.dataDir), src, turns)
+	if err != nil {
+		return nil, "", err
+	}
+	st, notes, err := a.attach(dst)
+	if err != nil {
+		// 分支文件已经写好，只是没切过去：告诉用户它在哪，可以之后 /resume。
+		return nil, "", fmt.Errorf("分支会话已创建（%s），但切换过去失败: %w", dst, err)
+	}
+	return st, fmt.Sprintf("已分支出新会话 %s（保留 %d 轮），之后的对话写进新会话；原会话不变，可以 /resume 回去", st.ID, st.Turns) + notes, nil
+}
+
+// attach 载入 path 指向的会话，让 agent 换成它的历史、记录器接着写这个文件。
+// 返回的 notes 是附加说明（以“；”开头，没有时为空），由调用方拼在自己的提示后面。
+func (a *app) attach(path string) (*session.State, string, error) {
+	st, err := session.Load(path)
+	if err != nil {
+		return nil, "", err
+	}
+	notice := ""
 	if st.Info.Cwd != "" && !platform.SamePath(st.Info.Cwd, a.cwd) {
 		// 工具仍在当前目录执行，不随会话切过去；提醒一下，免得模型按旧目录的上下文去找文件。
 		notice += fmt.Sprintf("；这是在 %s 下的会话，命令仍在当前目录 %s 执行", st.Info.Cwd, a.cwd)
@@ -129,3 +162,11 @@ func (s sessionStore) Resume(selector string) (*tui.Restored, error) {
 }
 
 func (s sessionStore) New() error { return s.a.newSession() }
+
+func (s sessionStore) Branch(turns int) (*tui.Restored, error) {
+	st, notice, err := s.a.branch(turns)
+	if err != nil {
+		return nil, err
+	}
+	return &tui.Restored{Events: st.Events, Notice: notice}, nil
+}

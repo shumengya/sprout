@@ -27,6 +27,7 @@ sprout serve [--data-dir DIR] [-c | --resume ID] [--effort 档位]
 | `session/new` | 无 | `{}`：开始空白会话，旧会话文件保留 |
 | `session/list` | `{all?}` | `{sessions: [...]}`：当前工作目录的会话（`all` 为 true 时是全部目录），最近使用的在前 |
 | `session/resume` | `{selector}` | `{id, path, notice, turns, events}`：恢复会话，`events` 是重放出的历史事件 |
+| `session/branch` | `{turns?}` | `{id, path, notice, turns, events}`：把当前会话的前 `turns` 轮（省略或 0 为全部）复制成新会话并切过去，原会话不变 |
 | `session/rename` | `{path, name}` | `{}`：`name` 为空表示清除名字 |
 | `session/delete` | `{path}` | `{}`：不能删除当前会话 |
 | `session/compact` | `{focus?}` | `{tokensBefore, tokensAfter, dropped, summary}`：把全部历史总结成摘要 |
@@ -69,7 +70,8 @@ sprout serve [--data-dir DIR] [-c | --resume ID] [--effort 档位]
   `notice` 说明恢复情况（换了模型时丢弃了旧的思维链、会话属于别的目录等）。
 - `session/compact` 要调一次模型，**结束后**才写响应；期间算作忙碌（`turn/start`、`session/resume` 等返回 `-32001`），
   可用 `turn/cancel` 取消，取消后返回 `-32005`。压缩不是一轮对话，不推送 `event`。`focus` 是希望摘要侧重的内容。
-- `session/resume`、`session/compact` 在忙碌时返回 `-32001`，不可用时返回 `-32002`；`session/list`、`rename`、`delete` 随时可调。
+- `session/branch` 的结果格式与 `session/resume` 相同（`events` 是新会话重放出的历史）。当前会话还没有提问、`turns` 超过已有轮数时返回 `-32003`，`turns` 为负数时返回 `-32602`。
+- `session/resume`、`session/branch`、`session/compact` 在忙碌时返回 `-32001`，不可用时返回 `-32002`；`session/list`、`rename`、`delete` 随时可调。
 
 模型与思考程度（与 TUI 的 `/model`、`/effort` 是同一套实现，切换结果会记住，下次启动沿用）：
 

@@ -50,6 +50,34 @@ func (s *Server) resumeSession(params json.RawMessage) (any, func(), *Error) {
 	if err != nil {
 		return nil, nil, errorf(CodeSession, "%v", err)
 	}
+	return restoredResult(r), nil, nil
+}
+
+// branchSession 把当前会话的前 turns 轮（省略或 0 为全部）复制成新会话并切过去，结果格式与 session/resume 相同。
+func (s *Server) branchSession(params json.RawMessage) (any, func(), *Error) {
+	var p struct {
+		Turns int `json:"turns"`
+	}
+	if err := decodeParams(params, &p); err != nil {
+		return nil, nil, err
+	}
+	if p.Turns < 0 {
+		return nil, nil, errorf(CodeInvalidParams, "turns 不能为负数")
+	}
+	if s.busy() {
+		return nil, nil, errBusy()
+	}
+	if err := s.unavailable(); err != nil {
+		return nil, nil, err
+	}
+	r, err := s.b.BranchSession(p.Turns)
+	if err != nil {
+		return nil, nil, errorf(CodeSession, "%v", err)
+	}
+	return restoredResult(r), nil, nil
+}
+
+func restoredResult(r Restored) map[string]any {
 	// 回放的事件不带 turn：turn 是本进程里 turn/start 的编号，历史轮次没有对应的编号，
 	// 硬编一个会和之后实时的编号撞上。客户端按 turn.started 分轮即可。
 	evs := make([]map[string]any, 0, len(r.Events))
@@ -59,7 +87,7 @@ func (s *Server) resumeSession(params json.RawMessage) (any, func(), *Error) {
 			evs = append(evs, w)
 		}
 	}
-	return map[string]any{"id": r.ID, "path": r.Path, "notice": r.Notice, "turns": r.Turns, "events": evs}, nil, nil
+	return map[string]any{"id": r.ID, "path": r.Path, "notice": r.Notice, "turns": r.Turns, "events": evs}
 }
 
 func (s *Server) renameSession(params json.RawMessage) (any, func(), *Error) {

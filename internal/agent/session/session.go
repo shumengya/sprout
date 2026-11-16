@@ -217,9 +217,7 @@ func (r *Recorder) fail(err error) {
 
 // open 创建会话文件，写入 session 头记录并登记 meta.json。调用方持有 mu。
 func (r *Recorder) open() bool {
-	var rnd [4]byte
-	_, _ = rand.Read(rnd[:])
-	id := hex.EncodeToString(rnd[:])
+	id := newID()
 	started := r.now()
 	file := fmt.Sprintf("%s_%s.jsonl", started.Format("20060102-150405"), id)
 
@@ -251,6 +249,13 @@ func (r *Recorder) open() bool {
 		r.log.Warn("update meta.json failed", "error", err.Error())
 	}
 	return !r.failed
+}
+
+// newID 生成 8 位十六进制的会话 id。
+func newID() string {
+	var rnd [4]byte
+	_, _ = rand.Read(rnd[:])
+	return hex.EncodeToString(rnd[:])
 }
 
 // write 追加一行。一条记录一次 Write，避免崩溃时留下半行。调用方持有 mu。

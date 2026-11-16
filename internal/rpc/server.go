@@ -21,7 +21,7 @@ const ProtocolVersion = 1
 
 // Backend 是服务端眼中的运行时：当前 agent、会话记录器和配置都在它背后。
 // 除 Run、Compact 外的方法都在读循环里串行调用，实现不需要自己加锁防并发；
-// 会替换 agent 或历史的方法（Prepare、NewSession、ResumeSession、SwitchModel）只在没有一轮进行时调用。
+// 会替换 agent 或历史的方法（Prepare、NewSession、ResumeSession、BranchSession、SwitchModel）只在没有一轮进行时调用。
 type Backend interface {
 	Info() Info
 	// Prepare 在空闲时调用（开始一轮之前、initialize 时），把后台连好的 MCP 工具等接进 agent，
@@ -33,6 +33,8 @@ type Backend interface {
 	ListSessions(all bool) ([]SessionInfo, error)
 	// ResumeSession 按选择器恢复会话：latest、ListSessions(false) 里的序号、ID 前缀或会话文件路径。
 	ResumeSession(selector string) (Restored, error)
+	// BranchSession 把当前会话的前 turns 轮（0 为全部）复制成新会话并切过去，原会话不变。
+	BranchSession(turns int) (Restored, error)
 	RenameSession(path, name string) error
 	DeleteSession(path string) error
 	// Compact 把全部历史总结成摘要。和 Run 一样在后台调用，可被取消。
@@ -226,6 +228,8 @@ func (s *Server) call(id json.RawMessage, method string, params json.RawMessage)
 		return s.listSessions(params)
 	case "session/resume":
 		return s.resumeSession(params)
+	case "session/branch":
+		return s.branchSession(params)
 	case "session/rename":
 		return s.renameSession(params)
 	case "session/delete":

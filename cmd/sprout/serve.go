@@ -89,6 +89,14 @@ func (b *rpcBackend) ResumeSession(selector string) (rpc.Restored, error) {
 	return rpc.Restored{ID: st.ID, Path: st.Path, Notice: notice, Turns: st.Turns, Events: st.Events}, nil
 }
 
+func (b *rpcBackend) BranchSession(turns int) (rpc.Restored, error) {
+	st, notice, err := b.a.branch(turns)
+	if err != nil {
+		return rpc.Restored{}, err
+	}
+	return rpc.Restored{ID: st.ID, Path: st.Path, Notice: notice, Turns: st.Turns, Events: st.Events}, nil
+}
+
 func (b *rpcBackend) RenameSession(path, name string) error {
 	return sessionStore{b.a}.Rename(path, name)
 }

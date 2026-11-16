@@ -26,6 +26,7 @@ type fakeBackend struct {
 	sessions []SessionInfo
 	renamed  string
 	deleted  []string
+	branched []int
 	compact  string
 	model    string
 	effort   string
@@ -84,6 +85,17 @@ func (f *fakeBackend) ResumeSession(selector string) (Restored, error) {
 	return Restored{ID: "abc", Path: "/s/abc.jsonl", Notice: "已恢复会话 abc（1 轮）", Turns: 1, Events: []event.Event{
 		event.TurnStarted{Prompt: "旧问题"},
 		event.MessageCompleted{Content: "旧回答", StopReason: "stop"},
+		event.TurnFinished{Reason: event.ReasonStop},
+	}}, nil
+}
+
+func (f *fakeBackend) BranchSession(turns int) (Restored, error) {
+	if turns > 1 {
+		return Restored{}, errors.New("会话只有 1 轮")
+	}
+	f.branched = append(f.branched, turns)
+	return Restored{ID: "new", Path: "/s/new.jsonl", Notice: "已分支", Turns: 1, Events: []event.Event{
+		event.TurnStarted{Prompt: "旧问题"},
 		event.TurnFinished{Reason: event.ReasonStop},
 	}}, nil
 }
@@ -397,6 +409,47 @@ func TestSessionResumeReplaysEventsWithoutTurn(t *testing.T) {
 	}
 	if e := evs[1].(map[string]any); e["kind"] != "message.completed" || e["content"] != "旧回答" {
 		t.Errorf("重放事件内容不对: %v", e)
+	}
+}
+
+func TestSessionBranch(t *testing.T) {
+	b := &fakeBackend{}
+	h := start(t, b)
+	h.send(`{"jsonrpc":"2.0","id":1,"method":"session/branch","params":{"turns":-1}}`)
+	if m := h.next(); errCode(m) != CodeInvalidParams {
+		t.Fatalf("负数轮数应返回 -32602: %v", m)
+	}
+	h.send(`{"jsonrpc":"2.0","id":2,"method":"session/branch","params":{"turns":5}}`)
+	if m := h.next(); errCode(m) != CodeSession {
+		t.Fatalf("轮数超出应返回 -32003: %v", m)
+	}
+	h.send(`{"jsonrpc":"2.0","id":3,"method":"session/branch"}`)
+	r := h.next()["result"].(map[string]any)
+	evs := r["events"].([]any)
+	if r["id"] != "new" || r["path"] != "/s/new.jsonl" || len(evs) != 2 || len(b.branched) != 1 || b.branched[0] != 0 {
+		t.Fatalf("分支结果不对: %v branched=%v", r, b.branched)
+	}
+	for _, e := range evs {
+		if _, ok := e.(map[string]any)["turn"]; ok {
+			t.Errorf("重放事件不应带 turn: %v", e)
+		}
+	}
+}
+
+func TestSessionBranchBusyAndUnavailable(t *testing.T) {
+	h := start(t, &fakeBackend{block: true})
+	h.send(`{"jsonrpc":"2.0","id":1,"method":"turn/start","params":{"text":"慢"}}`)
+	h.next()
+	h.next()
+	h.send(`{"jsonrpc":"2.0","id":2,"method":"session/branch"}`)
+	if m := h.next(); errCode(m) != CodeBusy {
+		t.Fatalf("进行中 session/branch 应返回 busy: %v", m)
+	}
+
+	h2 := start(t, &fakeBackend{disabled: "缺少 API Key"})
+	h2.send(`{"jsonrpc":"2.0","id":1,"method":"session/branch"}`)
+	if m := h2.next(); errCode(m) != CodeUnavailable {
+		t.Fatalf("不可用时 session/branch 应返回 -32002: %v", m)
 	}
 }
 

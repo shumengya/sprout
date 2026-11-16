@@ -25,6 +25,7 @@ type fakeSessions struct {
 	renamed   map[string]string
 	deleted   []string
 	opErr     error
+	branched  []int // 每次 Branch 的轮数参数
 }
 
 func (f *fakeSessions) List(all bool) ([]SessionInfo, error) {
@@ -66,6 +67,10 @@ func (f *fakeSessions) Resume(sel string) (*Restored, error) {
 func (f *fakeSessions) New() error {
 	f.newCalled = true
 	return f.newErr
+}
+func (f *fakeSessions) Branch(turns int) (*Restored, error) {
+	f.branched = append(f.branched, turns)
+	return f.res, f.resumeErr
 }
 
 func oldConversation() []event.Event {
@@ -263,4 +268,67 @@ func TestNewUnavailableWithoutSessions(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 100, 30)
 	submit(m, "/new")
 	mustContain(t, plain(m), "当前不能新建会话")
+}
+
+func TestBranchRebuildsTranscriptFromNewSession(t *testing.T) {
+	f := &fakeSessions{res: &Restored{Events: oldConversation(), Notice: "已分支出新会话 beef0001（保留 1 轮）"}}
+	m := sessionsModel(t, f)
+	begin(m, "分支前屏幕上的内容")
+	m.running = false
+
+	m.in.SetValue("/branch 1")
+	_, cmd := m.Update(keyEnter)
+	if !m.resuming || cmd == nil {
+		t.Fatal("分支期间应禁止发送，并返回异步命令")
+	}
+	runCmd(m, cmd)
+	if len(f.branched) != 1 || f.branched[0] != 1 || m.resuming {
+		t.Fatalf("Branch 参数 = %v resuming=%v", f.branched, m.resuming)
+	}
+	s := plain(m)
+	mustContain(t, s, "上次的提问", "上次的回答", "已分支出新会话 beef0001")
+	mustNotContain(t, s, "分支前屏幕上的内容")
+
+	m.in.SetValue("/branch")
+	_, cmd = m.Update(keyEnter)
+	runCmd(m, cmd)
+	if len(f.branched) != 2 || f.branched[1] != 0 {
+		t.Fatalf("不带参数应传 0（整个会话）: %v", f.branched)
+	}
+}
+
+func TestBranchRejectsBadArgAndReportsFailure(t *testing.T) {
+	f := &fakeSessions{resumeErr: errors.New("会话只有 2 轮，不能保留前 5 轮")}
+	m := sessionsModel(t, f)
+	for _, arg := range []string{"0", "abc", "-1"} {
+		m.in.SetValue("/branch " + arg)
+		_, cmd := m.Update(keyEnter)
+		if cmd != nil || m.resuming {
+			t.Fatalf("/branch %s 应直接报用法错误", arg)
+		}
+	}
+	if len(f.branched) != 0 {
+		t.Fatalf("参数不对时不应调用 Branch: %v", f.branched)
+	}
+	mustContain(t, plain(m), "用法：/branch")
+
+	begin(m, "还在的内容")
+	m.running = false
+	m.in.SetValue("/branch 5")
+	_, cmd := m.Update(keyEnter)
+	runCmd(m, cmd)
+	mustContain(t, plain(m), "还在的内容", "分支会话失败：会话只有 2 轮")
+	mustNotContain(t, plain(m), "恢复会话失败")
+}
+
+func TestCannotBranchWhileRunning(t *testing.T) {
+	f := &fakeSessions{}
+	m := sessionsModel(t, f)
+	begin(m, "进行中")
+	m.in.SetValue("/branch")
+	_, cmd := m.Update(keyEnter)
+	runCmd(m, cmd)
+	if len(f.branched) != 0 {
+		t.Fatal("生成中不应分支")
+	}
 }

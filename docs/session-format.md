@@ -24,6 +24,7 @@
 - 带图片的轮次或工具结果：图片写盘失败时整条 `user` / `tool` 记录不写，记录器转为失败状态，避免重放出的历史和运行时不一致。
 - `Attach(path)`：恢复会话时改为向原文件追加，并写一条 `resume` 记录。
 - `Reset(info)`：`/new` 时结束当前文件，下一条记录写进新会话；`info` 换成当前模型。
+- `Fork(dir, src, turns)`：分支会话，见第 6 节。
 - `NoteModelChange`：会话中途切换模型时写一条 `resume` 记录；还没有文件时不写。
 
 ## 3. 记录类型
@@ -32,7 +33,7 @@
 
 | type | 来源 | 字段 |
 | --- | --- | --- |
-| `session` | 文件创建时 | `id`、`cwd`、`provider`、`model`、`tools`、`version`（省略） |
+| `session` | 文件创建时 | `id`、`cwd`、`provider`、`model`、`tools`、`version`（省略）、`parent`（省略）、`parent_turns`（省略） |
 | `user` | `turn.started` | `content`、`images`（省略） |
 | `assistant` | `message.completed` | `content`、`reasoning`（省略）、`tool_calls: [{id, name, arguments}]`（省略）、`stop_reason`（省略）、`native`（省略） |
 | `tool` | `tool.finished` | `tool_call_id`、`name`、`command`、`stdout`、`stderr`、`exit_code`、`truncated`、`timed_out`、`cancelled`、`duration_ms`、`error`、`content`、`images`；除 `tool_call_id`、`name`、`exit_code`、`duration_ms` 外都省略零值 |
@@ -82,3 +83,13 @@
 - 图片按 `file` 读回，`tool` 记录的图片跟在结果文本后面（与运行时的 tool 消息顺序一致）；文件丢失或损坏时换成“（图片无法恢复：路径）”文本块，不让整轮无法恢复。
 - 无法解析的行跳过并计数；`retry`、`resume` 和未知类型只用于审计，重放时忽略。
 - 换了模型或服务商时，调用方用 `State.StripReasoning` 清掉旧思维链和 `native`。
+
+## 6. 分支（`session.Fork`）
+
+`/branch [轮数]` 与 RPC `session/branch` 把当前会话复制成一个新会话，之后的对话写进新会话，原会话不变。
+
+- 重放 JSONL 的任意前缀得到的就是当时的状态，所以分支就是截取：保留第 `turns`+1 条 `user` 记录之前的全部记录（`turns` 为 0 时保留整个文件，`parent_turns` 记为总轮数），只把开头的 `session` 头换掉。被保留下来的 `compact` 记录照常生效，分支后的状态就是当时压缩后的状态。
+- 新头记录有新的 `id`，`parent` 是原会话的 `id`，`parent_turns` 是保留的轮数；这两个字段只用于追溯，重放时不使用。
+- 图片复制到新会话自己的 `.images/` 目录，只复制被保留的记录引用到的，`file` 的目录前缀改成新会话的；删除原会话不影响分支。原图片已经丢失时跳过，重放时按第 5 节的规则换成文本。
+- 新文件用独占创建写入，写失败时删掉已写的文件和图片目录；随后登记 `meta.json`（失败只是警告），再由调用方 `Attach` 到新文件。
+- 当前会话还没有提问、`turns` 超过已有轮数时报错，不创建文件。

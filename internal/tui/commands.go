@@ -30,6 +30,7 @@ const helpText = `快捷键
   /model              打开模型选择器，切换后保留对话历史；/model 引用 直接切换
   /effort             调整思考程度（档位来自 models.jsonc）；/effort 档位 直接切换，生成中也能改，下次请求生效
   /new                开始新会话（清空对话区和上下文，旧会话可用 /resume 找回）
+  /branch             把当前会话复制成新会话并切过去，原会话不变；/branch 轮数 只保留前几轮，从那里重新问
   /compact            把前面的对话总结成摘要，腾出上下文；/compact 说明 可以告诉模型摘要要特别保留什么，压缩中 Esc 取消
   /image 路径          附加一张图片到下一条消息；/image 查看待发送的图片，/image clear 清空
                       消息里直接写现有图片文件的路径（png / jpeg / gif / webp）也会自动附上
@@ -61,6 +62,9 @@ func (m *Model) slash(text string) (handled bool, cmd tea.Cmd) {
 		m.effortCmd(strings.TrimSpace(arg))
 	case "/new":
 		m.newSessionCmd()
+	case "/branch":
+		m.follow = true
+		return true, m.branchCmd(strings.TrimSpace(arg))
 	case "/compact":
 		m.follow = true
 		return true, m.compactCmd(strings.TrimSpace(arg))
