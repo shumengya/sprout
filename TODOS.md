@@ -69,7 +69,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] `/compact [说明]` 手动压缩：把前面的全部对话总结成摘要（分层摘要，说明可以让摘要特别保留某些内容），压缩期间禁止发送与切换，Esc 取消；会话落盘后恢复得到同样的结果。设计见 `docs/m1-implementation.md` §15。
 - [x] 斜杠命令补全：输入 `/` 列出候选，Tab 填入、↑↓/Ctrl+P/N 选择、Esc 关闭；`/effort` 与 `/model` 的参数也参与补全。命令与快捷键说明见 `docs/斜杠命令.md`、`docs/快捷键.md`。
 - [x] `/model` 模型选择器：↑↓ 或直接输入过滤，Enter 切换；保留对话历史、清空旧模型思维链；生成中或恢复/切换中拒绝。
-- [x] 记住上次的模型与思考档位：`/model`、`/effort` 切换成功后写进数据目录的 `state.json`，下次启动沿用；优先级 `--effort` > 上次档位 > `models.jsonc` 默认值；记下的模型已不在配置里或记录损坏时退回默认并提示（`internal/agent/config/state.go`，见 `docs/effort.md`）。
+- [x] 记住上次的模型与思考档位：`/model`、`/effort` 切换成功后写进数据目录的 `settings.jsonc`，下次启动沿用；优先级 `--effort` > 上次档位 > `models.jsonc` 默认值；记下的模型已不在配置里或记录损坏时退回默认并提示（`internal/agent/config/state.go`，见 `docs/effort.md`）。
 - [x] 生成中排队发送：生成中按 Enter 把消息排进队列，本轮结束（正常、出错、取消）后按顺序自动发出；排队的消息在对话区标暗色，不计入对话轮次；`/new` 清空队列。报错为亮红 ✗，重试提示为黄色 ⟳。
 - [x] `/new` 清空对话区与上下文开始新会话，旧会话仍可用 `/resume` 找回。
 - [x] `/image 路径` 附加图片，粘贴或消息里直接写图片路径时自动附加（`internal/media`、`internal/tui/image.go`）。

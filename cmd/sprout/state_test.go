@@ -8,12 +8,12 @@ import (
 	"github.com/shumengya/sprout/internal/agent/config"
 )
 
-// 启动时优先用 state.json 里记的模型，而不是 models.jsonc 的 default。
+// 启动时优先用 settings.jsonc 里记的模型，而不是 models.jsonc 的 default。
 func TestStartupRestoresLastModelAndEffort(t *testing.T) {
 	dir := t.TempDir()
 	writeConfig(t, dir, effortConfig)
 	// models.jsonc 的 default 是 ds/flash（默认 high），上次用的是 claude/opus + xhigh。
-	if err := config.SaveState(config.StatePath(dir), config.State{Model: "claude/opus", Effort: "xhigh"}); err != nil {
+	if err := config.SaveSettings(config.SettingsPath(dir), config.Settings{Model: "claude/opus", Effort: "xhigh"}); err != nil {
 		t.Fatal(err)
 	}
 	a, err := buildApp(dir, testEnv(nil, shellSet(true, true)), nil)
@@ -35,7 +35,7 @@ func TestStartupRestoresLastModelAndEffort(t *testing.T) {
 func TestStartupFallsBackWhenRememberedModelGone(t *testing.T) {
 	dir := t.TempDir()
 	writeConfig(t, dir, effortConfig)
-	if err := config.SaveState(config.StatePath(dir), config.State{Model: "gone/model"}); err != nil {
+	if err := config.SaveSettings(config.SettingsPath(dir), config.Settings{Model: "gone/model"}); err != nil {
 		t.Fatal(err)
 	}
 	a, err := buildApp(dir, testEnv(nil, shellSet(true, true)), nil)
@@ -55,7 +55,7 @@ func TestStartupEffortPriority(t *testing.T) {
 	dir := t.TempDir()
 	writeConfig(t, dir, effortConfig)
 	// claude/opus 只声明了 low..max，记下的 off 不存在。
-	if err := config.SaveState(config.StatePath(dir), config.State{Model: "claude/opus", Effort: "off"}); err != nil {
+	if err := config.SaveSettings(config.SettingsPath(dir), config.Settings{Model: "claude/opus", Effort: "off"}); err != nil {
 		t.Fatal(err)
 	}
 	a, err := buildApp(dir, testEnv(nil, shellSet(true, true)), nil)
@@ -77,11 +77,11 @@ func TestStartupEffortPriority(t *testing.T) {
 	}
 }
 
-// state.json 坏掉只是回到默认值，不影响启动。
+// settings.jsonc 坏掉只是回到默认值，不影响启动。
 func TestStartupIgnoresBrokenState(t *testing.T) {
 	dir := t.TempDir()
 	writeConfig(t, dir, effortConfig)
-	if err := os.WriteFile(config.StatePath(dir), []byte("{oops"), 0o600); err != nil {
+	if err := os.WriteFile(config.SettingsPath(dir), []byte("{oops"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	a, err := buildApp(dir, testEnv(nil, shellSet(true, true)), nil)
@@ -91,8 +91,8 @@ func TestStartupIgnoresBrokenState(t *testing.T) {
 	if a.sel.Ref() != "ds/flash" || a.effort != "high" {
 		t.Errorf("应退回默认：model=%s effort=%q", a.sel.Ref(), a.effort)
 	}
-	if !strings.Contains(strings.Join(a.notices, "\n"), "state.json") {
-		t.Errorf("应提示 state.json 解析失败：%v", a.notices)
+	if !strings.Contains(strings.Join(a.notices, "\n"), "settings.jsonc") {
+		t.Errorf("应提示 settings.jsonc 解析失败：%v", a.notices)
 	}
 }
 
@@ -108,7 +108,7 @@ func TestSwitchAndEffortArePersisted(t *testing.T) {
 	if _, err := (effortStore{a}).Set("max"); err != nil {
 		t.Fatal(err)
 	}
-	st, err := config.LoadState(config.StatePath(a.dataDir))
+	st, err := config.LoadSettings(config.SettingsPath(a.dataDir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,18 +122,23 @@ func TestSwitchAndEffortArePersisted(t *testing.T) {
 	if _, err := (effortStore{a}).Set("ultra"); err == nil {
 		t.Fatal("不存在的档位应报错")
 	}
-	if st, _ := config.LoadState(config.StatePath(a.dataDir)); st.Effort != "xhigh" {
+	if st, _ := config.LoadSettings(config.SettingsPath(a.dataDir)); st.Effort != "xhigh" {
 		t.Errorf("失败的 Set 不应改记录：%+v", st)
 	}
 }
 
-// run 模式不写记录：脚本里临时用 --effort 不该改掉用户交互时的选择。
+// run 模式不改记录：脚本里临时用 --effort 不该改掉用户交互时的选择。
+// 启动会补一份 settings.jsonc 模板，但里面的 model 与 effort 必须是空的。
 func TestBuildAppDoesNotPersistOnStartup(t *testing.T) {
 	a, err := effortApp(t, "low")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(config.StatePath(a.dataDir)); !os.IsNotExist(err) {
-		t.Errorf("启动本身不该写 state.json：%v", err)
+	st, err := config.LoadSettings(config.SettingsPath(a.dataDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Model != "" || st.Effort != "" {
+		t.Errorf("启动不该记下这次的选择：%+v", st)
 	}
 }
