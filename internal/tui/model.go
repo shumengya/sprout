@@ -138,6 +138,9 @@ type Options struct {
 	MCP MCPPanel
 	// Skills 提供 /skills 面板的读写操作；为 nil 时 /skills 不可用。
 	Skills SkillPanel
+	// Asks 是 MCP 服务端向用户要输入时的通道（表单或采样确认）。
+	// 为 nil 表示当前界面不处理这类请求（如 sprout run）。TUI 答完后向 Ask.Reply 回一次。
+	Asks <-chan *Ask
 }
 
 // 输入框按内容增高：空时一行，最多显示这么多行，再多就在输入框内部滚动。
@@ -170,6 +173,8 @@ type Model struct {
 	browser   *sessionBrowser // /resume 会话浏览器；同上
 	mcpPicker *mcpPicker      // /mcp 服务端面板；同上
 	skillPick *skillPicker    // /skills 技能面板；同上
+	ask       *askState       // MCP 服务端请求输入时的表单；同上，优先级最高
+	askQueue  []*Ask          // 已到达但还没轮到的请求，按先后顺序作答
 	sug       suggestState    // 输入 / 开头时输入框上方的命令候选
 
 	running    bool
@@ -290,7 +295,7 @@ func New(o Options) *Model {
 }
 
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(m.in.Focus(), m.resourceCmd(0), m.gitCmd(0), m.mcpReadyCmd(), m.mcpChangedCmd(), m.updateCheckCmd())
+	return tea.Batch(m.in.Focus(), m.resourceCmd(0), m.gitCmd(0), m.mcpReadyCmd(), m.mcpChangedCmd(), m.updateCheckCmd(), m.askCmd())
 }
 
 // mcpChangedMsg 表示某个 MCP 服务端的工具列表变了。
@@ -400,6 +405,8 @@ func (m *Model) overlay() (string, bool) {
 		return m.mcpView(max(m.w, 1)), true
 	case m.skillPick != nil:
 		return m.skillView(max(m.w, 1)), true
+	case m.ask != nil:
+		return m.askView(max(m.w, 1)), true
 	}
 	return "", false
 }
@@ -460,6 +467,7 @@ func (m *Model) Shutdown(wait time.Duration) {
 	if m.cancel != nil {
 		m.cancel()
 	}
+	m.cancelAsks() // 程序已退出，Update 不会再跑，这里不存在并发访问
 	m.quitOnce.Do(func() { close(m.quit) })
 	if m.finished != nil {
 		select {

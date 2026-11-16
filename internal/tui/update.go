@@ -152,6 +152,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mcpDone = m.opts.ApplyMCP != nil
 		return m, m.mcpChangedCmd()
 
+	case askMsg:
+		m.onAsk(msg.a)
+		return m, m.askCmd()
+
 	case turnClosedMsg:
 		if msg.turn != m.turn {
 			return m, nil
@@ -178,6 +182,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) onKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.askKey(k) { // 服务端请求输入时优先接管，否则 MCP 调用会一直等不到回答
+		m.refresh()
+		return m, nil
+	}
 	if handled, cmd := m.pickerKey(k); handled { // 选择器打开时接管全部按键
 		m.refresh()
 		return m, cmd

@@ -95,7 +95,7 @@ func realMain(argv []string, stdout, stderr io.Writer) (code int) {
 	}
 	ap, err := buildApp(dataDir, env{
 		getenv: os.Getenv, cwd: cwd, home: homeDir(), version: version, now: time.Now,
-		detect: platform.DetectShells, effort: a.effort,
+		detect: platform.DetectShells, effort: a.effort, interactive: a.runPrompt == nil && !a.serve,
 	}, log)
 	if err != nil {
 		log.Error("startup failed", "error", err.Error())
@@ -189,6 +189,9 @@ func runTUI(ap *app, resume string, stderr io.Writer) int {
 		opts.Compactor = compactor{ap}
 		opts.MCP = mcpStore{ap}
 		opts.Skills = skillStore{ap}
+		if ap.input != nil {
+			opts.Asks = ap.input.asks
+		}
 		// 面板改了开关后要重建注册表与 agent；没配置 MCP 服务端时 ApplyMCP 只刷展示，无害。
 		opts.ApplyMCP = ap.applyMCP
 		if resume != "" {

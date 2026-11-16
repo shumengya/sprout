@@ -36,6 +36,8 @@ type env struct {
 	http    *http.Client       // nil 表示使用 provider 的默认客户端
 	retry   *agent.RetryPolicy // nil 表示使用 agent 的默认重试策略；测试用它避免真的退避等待
 	effort  string             // 命令行 --effort；空表示用 models.jsonc 的 default
+	// interactive 表示当前界面能向用户要输入（TUI）。为 false 时握手不声明 elicitation 与 sampling。
+	interactive bool
 }
 
 // app 是装配好的运行时。ag 为 nil 表示当前不能对话，原因在 disabled 里。
@@ -62,6 +64,7 @@ type app struct {
 	mcpVersions *mcp.Versions
 	mcpTools    *mcp.ToolCache // 工具列表缓存（mcp-tools.json）
 	mcpChanged  chan struct{}  // 服务端通知工具列表变了；TUI 据此在空闲时重建 agent
+	input       *mcpInput      // 服务端要用户填表或确认采样时的通道；非交互界面为 nil
 	mcpReady    chan struct{}
 	mcpCancel   context.CancelFunc
 	key         string // 当前模型的 API Key；后台重建 agent 时要用
@@ -76,6 +79,9 @@ type app struct {
 }
 
 func (a *app) close() {
+	if a.input != nil {
+		a.input.close() // 之后到达的输入请求直接失败，不再等一个已经退出的界面
+	}
 	if a.mcpCancel != nil {
 		a.mcpCancel() // 正在连接的服务端随请求取消，不再等它们
 	}
@@ -205,6 +211,9 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 		mcpTools: mcp.LoadTools(config.MCPToolsPath(dataDir)), mcpChanged: make(chan struct{}, 1),
 		prompt: prompt, instr: instr, skills: skillList, skillCfg: skillCfg, env: e, log: log, sel: sel, effort: effort,
 		statusline: statusline,
+	}
+	if e.interactive {
+		a.input = newMCPInput()
 	}
 	a.notices = append(a.notices, statusProblems...)
 	a.notices = append(a.notices, stateProblems...)

@@ -67,7 +67,7 @@ func (m *Model) syncSuggest() {
 		s.forValue, s.sel, s.moved = v, 0, false
 	}
 	s.items, s.token = nil, ""
-	if m.picker != nil || m.effort != nil || m.browser != nil || m.mcpPicker != nil || m.skillPick != nil || v == s.off {
+	if m.picker != nil || m.effort != nil || m.browser != nil || m.mcpPicker != nil || m.skillPick != nil || m.ask != nil || v == s.off {
 		return
 	}
 	s.items, s.token = m.suggestionsFor(v)

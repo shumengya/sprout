@@ -1,15 +1,5 @@
 package main
 
-import "github.com/shumengya/sprout/internal/agent/mcp"
-
-// specTweak 给连接配置接上工具列表缓存和变更回调。缓存为 nil 时 Dial 每次都重新 tools/list。
-func (a *app) specTweak() func(*mcp.Spec) {
-	return func(s *mcp.Spec) {
-		s.Cache = a.mcpTools
-		s.OnToolsChanged = a.onMCPToolsChanged
-	}
-}
-
 // saveMCPTools 把工具缓存写盘；写不进去只记调试日志，缓存不是权威，不影响使用。
 func (a *app) saveMCPTools() {
 	if err := a.mcpTools.Save(); err != nil {

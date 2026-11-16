@@ -78,8 +78,16 @@ func (s modelStore) Switch(ref string) (*tui.SwitchResult, error) {
 
 	// 工具是全局能力，不随模型变；只有 tools=false 的模型不提供工具。
 	oldSel, oldReg, oldInfo, oldEffort := a.sel, a.reg, a.info, a.effort
-	restore := func() { a.sel, a.reg, a.info, a.effort = oldSel, oldReg, oldInfo, oldEffort }
+	// sel 与 key 会被后台的 MCP 采样请求读取，所以写入时加锁。
+	restore := func() {
+		a.mu.Lock()
+		a.sel = oldSel
+		a.mu.Unlock()
+		a.reg, a.info, a.effort = oldReg, oldInfo, oldEffort
+	}
+	a.mu.Lock()
 	a.sel = sel
+	a.mu.Unlock()
 	a.effort = carryEffort(sel, a.effort)
 	a.info.Model, a.info.Provider = sel.ModelName, sel.ProviderName+"，"+sel.Provider.Protocol
 	a.info.Vision = sel.Model.SupportsVision()
@@ -106,7 +114,10 @@ func (s modelStore) Switch(ref string) (*tui.SwitchResult, error) {
 	}
 	ag.Restore(history, summary)
 	// key 要跟着换：后台 MCP 连好后 applyMCP 用它重建 agent，留着旧 Key 会打到新模型的服务端上失败。
-	a.ag, a.reg, a.key = ag, reg, key
+	a.mu.Lock()
+	a.key = key
+	a.mu.Unlock()
+	a.ag, a.reg = ag, reg
 	a.rec.NoteModelChange(sel.ProviderName, sel.ModelName, reg.Names())
 	a.remember()
 
