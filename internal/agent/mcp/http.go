@@ -144,6 +144,14 @@ func (t *httpTransport) post(ctx context.Context, data []byte, method, name stri
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
+	if t.spec.Auth != nil {
+		token, err := t.spec.Auth.Token(ctx)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	// 用户在 headers 里显式写的 Authorization 优先于 OAuth 令牌。
 	for k, v := range t.spec.Headers {
 		req.Header.Set(k, v)
 	}
@@ -176,6 +184,10 @@ func (t *httpTransport) post(ctx context.Context, data []byte, method, name stri
 		}
 		return resp, nil
 	}
+	if err := t.authFailure(resp); err != nil {
+		resp.Body.Close()
+		return nil, err
+	}
 	// 非 2xx：有的服务端仍会给 JSON-RPC 错误体，优先用它。
 	if strings.HasPrefix(resp.Header.Get("Content-Type"), "application/json") {
 		if _, jerr := readJSONResponse(resp.Body, method); jerr == nil {
@@ -188,6 +200,22 @@ func (t *httpTransport) post(ctx context.Context, data []byte, method, name stri
 	}
 	defer resp.Body.Close()
 	return nil, httpError(resp, method)
+}
+
+// authFailure 把认证相关的失败翻译成告诉用户下一步怎么做的错误；不是认证问题时返回 nil。
+func (t *httpTransport) authFailure(resp *http.Response) error {
+	name := t.spec.Name
+	challenge := strings.Join(resp.Header.Values("Www-Authenticate"), ", ")
+	switch {
+	case resp.StatusCode == http.StatusUnauthorized && t.spec.Auth != nil:
+		return fmt.Errorf("%s 拒绝了登录令牌（HTTP 401），请重新运行 sprout mcp login %s", name, name)
+	case resp.StatusCode == http.StatusUnauthorized && strings.HasPrefix(strings.ToLower(strings.TrimSpace(challenge)), "bearer"):
+		return fmt.Errorf("%s 要求认证（HTTP 401）：在 mcp.jsonc 里给它加上 \"oauth\": {} 后运行 sprout mcp login %s，或用 headers 提供令牌", name, name)
+	case resp.StatusCode == http.StatusForbidden && t.spec.Auth != nil && authParam(challenge, "error") == "insufficient_scope":
+		// RFC 6750：令牌有效但权限不够，需要带上更多 scope 重新授权。
+		return fmt.Errorf("%s 的登录令牌权限不足（HTTP 403 insufficient_scope），请重新运行 sprout mcp login %s", name, name)
+	}
+	return nil
 }
 
 var errNoBody = errors.New("响应体里没有结果")

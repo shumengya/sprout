@@ -36,6 +36,18 @@ type MCPServer struct {
 	TimeoutSeconds int `json:"timeoutSeconds"`
 	// ExcludeTools 是不交给模型的工具名（服务端上的原始名字）。
 	ExcludeTools []string `json:"excludeTools"`
+	// OAuth 非 nil 表示这个远程服务端用 OAuth 登录（sprout mcp login <名字>）；写 {} 即可，字段都可省略。
+	OAuth *MCPOAuth `json:"oauth"`
+}
+
+// MCPOAuth 是 oauth 段。
+type MCPOAuth struct {
+	// ClientID 是在授权服务器上预先注册的客户端；不写时动态注册。
+	ClientID string `json:"clientId"`
+	// Scopes 是要申请的权限；不写时用服务端要求的。
+	Scopes []string `json:"scopes"`
+	// CallbackPort 是本机回调端口，默认随机；预先注册了固定 redirect_uri 的客户端需要指定。
+	CallbackPort int `json:"callbackPort"`
 }
 
 // MCPPath 是 mcp.jsonc 的路径。
@@ -92,6 +104,14 @@ func (f *MCPFile) problems() []string {
 		}
 		if s.TimeoutSeconds > 600 {
 			add("%s.timeoutSeconds 不能超过 600", prefix)
+		}
+		if s.OAuth != nil {
+			if hasCmd {
+				add("%s.oauth 只用于 url 服务端：stdio 服务端不经过网络，凭证请放 env", prefix)
+			}
+			if p := s.OAuth.CallbackPort; p < 0 || p > 65535 {
+				add("%s.oauth.callbackPort 必须在 0～65535 之间", prefix)
+			}
 		}
 		for _, t := range s.ExcludeTools {
 			if strings.TrimSpace(t) == "" {

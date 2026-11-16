@@ -85,6 +85,9 @@ func MCPVersionsPath(dataDir string) string { return joinDataDir(dataDir, "mcp-v
 // MCPToolsPath 是 MCP 工具列表缓存的路径：有效期内启动时直接用，省掉一次 tools/list。
 func MCPToolsPath(dataDir string) string { return joinDataDir(dataDir, "mcp-tools.json") }
 
+// MCPAuthPath 是 MCP OAuth 令牌的存储路径（权限 0600）。令牌只放这里，不进其他缓存。
+func MCPAuthPath(dataDir string) string { return joinDataDir(dataDir, "mcp-auth.json") }
+
 // joinDataDir 是数据目录下文件的统一拼接入口；单独抽出来方便测试替换，也避免各处手拼分隔符。
 func joinDataDir(dataDir, name string) string { return filepath.Join(dataDir, name) }
 

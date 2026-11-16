@@ -31,6 +31,9 @@ type args struct {
 	updateRepo string
 	// serve 表示 `sprout serve`：在 stdin / stdout 上提供 JSON-RPC 服务。
 	serve bool
+	// mcpAuth 是 `sprout mcp login|logout <名字>` 的动作，mcpServer 是服务端名。
+	mcpAuth   string
+	mcpServer string
 }
 
 // stringList 收集可重复出现的字符串选项（--image a --image b）。
@@ -53,6 +56,8 @@ const usage = `用法:
   sprout serve [--data-dir DIR] [-c | --resume ID] [--effort 档位]
                                                    在 stdin / stdout 上提供 JSON-RPC 2.0 服务（见 docs/rpc.md）
   sprout models update [--data-dir DIR]            从 models.dev 更新模型参数与价格的本地缓存
+  sprout mcp login [--data-dir DIR] 服务端名      在浏览器里完成 OAuth 授权，令牌存进数据目录的 mcp-auth.json
+  sprout mcp logout [--data-dir DIR] 服务端名     删除保存的 OAuth 令牌
   sprout update [--repo OWNER/NAME] [--check]     更新到 GitHub Releases 上的最新版本（--check 只检查）
   sprout --version
 
@@ -113,6 +118,9 @@ func parseArgs(argv []string) (args, error) {
 	if rest[0] == "update" {
 		return parseUpdateArgs(&a, rest[1:])
 	}
+	if rest[0] == "mcp" {
+		return parseMCPArgs(&a, rest[1:])
+	}
 	if rest[0] == "serve" {
 		sfs := flag.NewFlagSet("sprout serve", flag.ContinueOnError)
 		register(sfs)
@@ -165,6 +173,34 @@ func parseModelsArgs(a *args, argv []string) (args, error) {
 		return *a, fmt.Errorf("%w: sprout models update 不接受额外参数 %q", errUsage, fs.Args()[0])
 	}
 	a.modelsUpdate = true
+	return *a, nil
+}
+
+// parseMCPArgs 解析 `sprout mcp login|logout <服务端名>`。
+func parseMCPArgs(a *args, argv []string) (args, error) {
+	if len(argv) == 0 || (argv[0] != "login" && argv[0] != "logout") {
+		return *a, fmt.Errorf("%w: sprout mcp 需要子命令 login 或 logout", errUsage)
+	}
+	fs := flag.NewFlagSet("sprout mcp "+argv[0], flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.StringVar(&a.dataDir, "data-dir", a.dataDir, "")
+	if err := fs.Parse(argv[1:]); err != nil {
+		return *a, fmt.Errorf("%w: %v", errUsage, err)
+	}
+	// 允许把 --data-dir 写在服务端名后面。
+	rest := fs.Args()
+	if len(rest) > 1 {
+		if err := fs.Parse(rest[1:]); err != nil {
+			return *a, fmt.Errorf("%w: %v", errUsage, err)
+		}
+		if len(fs.Args()) > 0 {
+			return *a, fmt.Errorf("%w: sprout mcp %s 只接受一个服务端名", errUsage, argv[0])
+		}
+	}
+	if len(rest) == 0 || strings.TrimSpace(rest[0]) == "" {
+		return *a, fmt.Errorf("%w: sprout mcp %s 需要服务端名，例如 sprout mcp %s github", errUsage, argv[0], argv[0])
+	}
+	a.mcpAuth, a.mcpServer = argv[0], rest[0]
 	return *a, nil
 }
 

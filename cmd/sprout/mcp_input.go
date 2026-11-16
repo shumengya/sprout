@@ -89,6 +89,9 @@ func (a *app) specTweak() func(*mcp.Spec) {
 	return func(s *mcp.Spec) {
 		s.Cache = a.mcpTools
 		s.OnToolsChanged = a.onMCPToolsChanged
+		if s.OAuth != nil && s.IsHTTP() && a.mcpAuth != nil {
+			s.Auth = mcp.NewTokenSource(a.mcpAuth, s.Name, s.URL, a.env.http)
+		}
 		if a.input == nil {
 			return
 		}

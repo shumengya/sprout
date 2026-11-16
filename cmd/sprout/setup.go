@@ -65,15 +65,18 @@ type app struct {
 	mu          sync.Mutex
 	mcpVersions *mcp.Versions
 	mcpTools    *mcp.ToolCache // 工具列表缓存（mcp-tools.json）
-	mcpChanged  chan struct{}  // 服务端通知工具列表变了；TUI 据此在空闲时重建 agent
-	input       *mcpInput      // 服务端要用户填表或确认采样时的通道；非交互界面为 nil
-	mcpReady    chan struct{}
-	mcpCancel   context.CancelFunc
-	key         string // 当前模型的 API Key；后台重建 agent 时要用
-	ag          *agent.Agent
-	rec         *session.Recorder
-	info        tui.Info
-	effort      string // 当前思考档位，跨 /new、/resume 保留；切模型时尽量沿用
+	// mcpAuth 是 OAuth 令牌存储（mcp-auth.json）。各服务端共用一个实例：后台刷新令牌时整份文件读改写，
+	// 多个实例各自加锁会互相覆盖。
+	mcpAuth    *mcp.AuthStore
+	mcpChanged chan struct{} // 服务端通知工具列表变了；TUI 据此在空闲时重建 agent
+	input      *mcpInput     // 服务端要用户填表或确认采样时的通道；非交互界面为 nil
+	mcpReady   chan struct{}
+	mcpCancel  context.CancelFunc
+	key        string // 当前模型的 API Key；后台重建 agent 时要用
+	ag         *agent.Agent
+	rec        *session.Recorder
+	info       tui.Info
+	effort     string // 当前思考档位，跨 /new、/resume 保留；切模型时尽量沿用
 	// statusline 是状态栏布局，来自 statusline.jsonc。
 	statusline []tui.StatusItem
 	disabled   string
@@ -211,7 +214,8 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 	a := &app{
 		dataDir: dataDir, cwd: e.cwd, cfg: cfg, tools: toolsCfg, mcpCfg: mcpCfg,
 		mcpTools: mcp.LoadTools(config.MCPToolsPath(dataDir)), mcpChanged: make(chan struct{}, 1),
-		prompt: prompt, instr: instr, skills: skillList, skillCfg: skillCfg, env: e, log: log, sel: sel, effort: effort,
+		mcpAuth: mcp.NewAuthStore(config.MCPAuthPath(dataDir)),
+		prompt:  prompt, instr: instr, skills: skillList, skillCfg: skillCfg, env: e, log: log, sel: sel, effort: effort,
 		statusline: statusline,
 	}
 	if e.interactive {

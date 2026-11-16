@@ -59,6 +59,10 @@ type Spec struct {
 	// 为 nil 表示当前界面不支持：握手时不声明对应能力，服务端也就不该发这类请求。
 	Elicit ElicitFunc
 	Sample SampleFunc
+	// Auth 非 nil 时给每个 HTTP 请求加 Authorization: Bearer 头；stdio 服务端不用。
+	Auth Authorizer
+	// OAuth 是配置里的 oauth 段，非 nil 表示这个服务端要用 OAuth 登录；Auth 由上层据此接上令牌来源。
+	OAuth *OAuthSpec
 }
 
 // IsHTTP 报告这个服务端是否走 HTTP。

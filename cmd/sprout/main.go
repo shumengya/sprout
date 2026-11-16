@@ -87,6 +87,10 @@ func realMain(argv []string, stdout, stderr io.Writer) (code int) {
 	if a.modelsUpdate {
 		return updateModels(dataDir, stdout, stderr)
 	}
+	// mcp login / logout 只读 mcp.jsonc、写令牌文件，同样不需要装配 agent。
+	if a.mcpAuth != "" {
+		return runMCPAuth(dataDir, a.mcpAuth, a.mcpServer, os.Getenv, nil, defaultOpenURL, stdout, stderr)
+	}
 
 	cwd, err := os.Getwd()
 	if err != nil {

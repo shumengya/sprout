@@ -267,6 +267,9 @@ func mcpSpec(name string, s config.MCPServer, getenv func(string) string) mcp.Sp
 	if s.TimeoutSeconds > 0 {
 		spec.Timeout = time.Duration(s.TimeoutSeconds) * time.Second
 	}
+	if o := s.OAuth; o != nil {
+		spec.OAuth = &mcp.OAuthSpec{ClientID: expandEnv(o.ClientID, getenv), Scopes: o.Scopes, CallbackPort: o.CallbackPort}
+	}
 	return spec
 }
 

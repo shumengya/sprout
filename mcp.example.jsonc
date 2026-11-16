@@ -10,6 +10,8 @@
 //   enable         是否启用（必须显式写 true）
 //   timeoutSeconds 单次请求超时，默认 60，最大 600
 //   headers        远程服务端的请求头，用来放令牌等
+//   oauth          远程服务端用 OAuth 登录：写 {} 后运行 sprout mcp login <服务端名>；
+//                  可选 clientId（预先注册的客户端，不写则动态注册）、scopes、callbackPort
 //   excludeTools   不交给模型的工具名（服务端上的原始名字）
 //
 // 服务端提供的工具会以 mcp__<服务端名>__<工具名> 的名字注册给模型；
@@ -23,6 +25,13 @@
     //   "headers": { "Authorization": "Bearer 你的令牌" },
     //   "timeoutSeconds": 60,
     //   "excludeTools": ["tavily_crawl"]
+    // },
+
+    // 需要 OAuth 登录的远程服务端：配置好后运行 sprout mcp login github 在浏览器里授权。
+    // "github": {
+    //   "enable": true,
+    //   "url": "https://api.example.com/mcp",
+    //   "oauth": {}
     // },
 
     // 本地服务端示例：npx 启动的社区服务端。apiKey 这类机密建议放在 env 里，
