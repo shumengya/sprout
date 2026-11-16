@@ -82,6 +82,21 @@ stdio 的读循环按 id 分发响应到等待者，所以同一批工具调用�
 
 冲突：与内置工具、外部工具、其他 MCP 工具重名时先注册的赢（内置 > 外部 > MCP），被跳过的那条写在 `/tools` 的不可用列表里。
 
+### 资源
+
+服务端在握手时声明了 `resources` 能力，才会注册两个资源工具（`mcp.ResourceTools`）；没声明的不注册，模型不会白调一次才知道没有。名字同样走 `mcp.ToolName`：
+
+| 工具 | 作用 |
+| --- | --- |
+| `mcp__<服务端>__list_resources` | 调 `resources/list` 与 `resources/templates/list`，列出资源与模板。模板的 `uriTemplate` 里有 `{参数}`，要先填好再读 |
+| `mcp__<服务端>__read_resource` | 调 `resources/read`，参数 `{"uri": "..."}` |
+
+两个方法都跟着 `nextCursor` 翻页（最多 20 页）。服务端只实现了其中一个（另一个回 `-32601` 方法不存在）时，那一半当作空列表。
+
+`resources/read` 可能返回多段内容：文本原样输出，多段时每段前加 `--- uri ---`；二进制内容（`blob`，base64）按与工具结果图片相同的规则校验（格式、大小），合格的图片作为图片块附在结果后，不合格或不是图片的只在文本里说明字节数和原因，不把 base64 原文塞给模型。
+
+这两个工具不进 `excludeTools`：服务端的工具列表里没有这两个名字，面板里也就看不到它们。不支持 `resources/subscribe`，资源列表的变更通知也不处理。
+
 ## 启动与生命周期
 
 - 只连接 `enable: true` 的服务端；模型 `tools=false` 时完全不连——注册了也发不下去。
@@ -141,7 +156,7 @@ MCP 服务端                                                    已启用 1/2
 
 ## 已知限制
 
-- 只支持工具（`tools`）。Resources、Prompts、Sampling、Elicitation 都没实现；服务端发起的 `elicitation/create` 等请求一律回“方法不支持”。
+- 只支持工具（`tools`）与资源（`resources`，见「工具」一节）。Prompts、Sampling、Elicitation 都没实现；服务端发起的 `elicitation/create` 等请求一律回“方法不支持”。
 - 多轮请求（`resultType: "input_required"`，MRTR）不处理：服务端要求中途补充输入时会返回错误文本。
 - 工具列表有缓存（`<数据目录>/mcp-tools.json`）：服务端返回的 `ttlMs` 决定有效期，没给时按 10 分钟；`ttlMs: 0` 表示不缓存。指纹按连接目标计算，改地址或命令后旧缓存自动失效。`/mcp` 面板的 `r` 会先清缓存再重连。`ttlMs` 与 `cacheScope` 里只用了 `ttlMs`，`cacheScope`（`public` / `private`）忽略——缓存只在本机、单用户。
 - 没有 OAuth：远程服务端需要令牌时，自己用 `headers` 配。要接的话按「为什么自己实现」里的结论做——PKCE + 元数据发现 + 令牌存储，标准库足够，不需要 JWT 库；工作量主要在浏览器授权跳转与回环回调。
@@ -156,7 +171,8 @@ MCP 服务端                                                    已启用 1/2
 - `internal/agent/mcp/toolcache.go`：工具列表缓存（`ttlMs` 有效期、目标指纹失效）与 `list_changed` 后的刷新
 - `internal/agent/mcp/stdio.go`、`http.go`：两种传输
 - `internal/agent/mcp/jsonrpc.go`：JSON-RPC 消息结构
-- `internal/agent/mcp/tool.go`：把 MCP 工具适配成 `tool.Tool`
+- `internal/agent/mcp/resource.go`：资源列表与读取（`resources/list`、`resources/templates/list`、`resources/read`）
+- `internal/agent/mcp/resourcetool.go`：把资源适配成两个 `tool.Tool`
 - `internal/agent/config/mcp.go`、`mcp_template.go`：`mcp.jsonc` 的解析、校验与模板；`mcp_edit.go` 是保留注释的单键写回（`SetMCPServerEnabled` / `SetMCPToolExcluded`）；`paths.go` 的 `MCPVersionsPath` 是缓存文件位置
 - `cmd/sprout/mcp.go`：后台连接（`startMCP` / `waitMCP` / `applyMCP`）、环境变量展开、工具注册，以及 `/mcp` 面板的实现（`mcpStore`）；`mcp_cache.go` 接工具列表缓存与变更回调
 - `internal/tui/mcp.go`：`/mcp` 面板的交互与渲染；`model.go` 的 `Options.MCP` / `Options.ApplyMCP` 与“连接中”状态，`update.go` 在空闲时接入
@@ -164,6 +180,7 @@ MCP 服务端                                                    已启用 1/2
 ## 测试
 
 - `internal/agent/mcp/mcp_test.go`：旧版 HTTP 握手与调用、无状态 `server/discover`、SSE 响应、HTTP 错误、工具名清洗。
+- `internal/agent/mcp/resource_test.go`：资源能力检测、分页列表、`-32601` 当作空、文本与图片资源的读取、非图片二进制只写说明。
 - `internal/agent/mcp/versions_test.go`：版本缓存往返、目标变化失效、令牌不落盘、坏文件容错、按缓存版本跳过探测、过期缓存回退。
 - `internal/agent/mcp/stdio_test.go`：真实子进程充当服务端（测试二进制自举），验证握手、分页外的调用、`isError`、命令不存在、超时。
 - `internal/agent/config/mcp_test.go`：模板合法、示例与模板一致、缺文件不报错、校验一次报全、按 enable 过滤。

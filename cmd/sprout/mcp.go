@@ -313,6 +313,16 @@ func registerMCPTools(reg *tool.Registry, set *mcpSet, f *config.MCPFile, add fu
 			}
 			log.Info("已注册 MCP 工具", "server", name, "tool", info.Name, "name", full)
 		}
+		// 资源工具不受 excludeTools 控制：服务端的工具列表里没有这两个名字。
+		for _, rt := range mcp.ResourceTools(c) {
+			if _, exists := reg.Get(rt.Name()); exists {
+				notes = append(notes, "MCP 工具 "+rt.Name()+" 与已注册的工具重名，已跳过")
+				continue
+			}
+			if err := add(rt, "MCP  "+name+"  资源"); err != nil {
+				notes = append(notes, err.Error())
+			}
+		}
 	}
 	return notes
 }

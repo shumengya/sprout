@@ -1,5 +1,6 @@
 // Package mcp 是一个最小可用的 MCP（Model Context Protocol）客户端：
-// 支持 stdio 与 Streamable HTTP 两种传输，只处理工具（tools/list、tools/call）。
+// 支持 stdio 与 Streamable HTTP 两种传输，处理工具（tools/list、tools/call）与
+// 资源（resources/list、resources/templates/list、resources/read）。
 //
 // 为什么自己写而不用官方 SDK：本项目的四个模型协议适配器都是手写的，MCP 需要的
 // 只是 JSON-RPC 2.0 的收发与两次方法调用，引一个带 OAuth、JSON Schema、JWT 依赖的
@@ -76,9 +77,11 @@ type Client struct {
 	log       *slog.Logger
 	close     func()
 
-	// tools、version 由 mu 保护：list_changed 通知会在后台刷新工具列表，同时别处在读。
+	// tools 由 mu 保护：list_changed 通知会在后台刷新工具列表，同时别处在读。
 	mu    sync.Mutex
 	tools []ToolInfo
+	// resources 在握手时确定，之后只读。
+	resources bool
 }
 
 // ServerInfo 是服务端自报的身份。
@@ -217,12 +220,14 @@ func (c *Client) handshake(ctx context.Context) error {
 	c.tr.setVersion(ProtocolStateless)
 	if raw, err := c.tr.request(ctx, "server/discover", "", params); err == nil {
 		var res struct {
-			SupportedVersions []string   `json:"supportedVersions"`
-			ServerInfo        ServerInfo `json:"serverInfo"`
+			SupportedVersions []string        `json:"supportedVersions"`
+			Capabilities      json.RawMessage `json:"capabilities"`
+			ServerInfo        ServerInfo      `json:"serverInfo"`
 		}
 		if jsonErr := json.Unmarshal(raw, &res); jsonErr == nil && supportsVersion(res.SupportedVersions, ProtocolStateless) {
 			c.version, c.stateless = ProtocolStateless, true
 			c.info = res.ServerInfo
+			c.resources = hasCapability(res.Capabilities, "resources")
 			return nil
 		}
 	}
@@ -254,8 +259,9 @@ func (c *Client) handshakeKnown(ctx context.Context, v string) error {
 			return err
 		}
 		var res struct {
-			SupportedVersions []string   `json:"supportedVersions"`
-			ServerInfo        ServerInfo `json:"serverInfo"`
+			SupportedVersions []string        `json:"supportedVersions"`
+			Capabilities      json.RawMessage `json:"capabilities"`
+			ServerInfo        ServerInfo      `json:"serverInfo"`
 		}
 		if err := json.Unmarshal(raw, &res); err != nil {
 			return err
@@ -264,6 +270,7 @@ func (c *Client) handshakeKnown(ctx context.Context, v string) error {
 			return fmt.Errorf("服务端不再支持 %s", ProtocolStateless)
 		}
 		c.version, c.stateless, c.info = ProtocolStateless, true, res.ServerInfo
+		c.resources = hasCapability(res.Capabilities, "resources")
 		return nil
 	}
 	c.tr.setVersion("")
@@ -282,8 +289,9 @@ func (c *Client) initialize(ctx context.Context, declared string) error {
 		return err
 	}
 	var res struct {
-		ProtocolVersion string     `json:"protocolVersion"`
-		ServerInfo      ServerInfo `json:"serverInfo"`
+		ProtocolVersion string          `json:"protocolVersion"`
+		Capabilities    json.RawMessage `json:"capabilities"`
+		ServerInfo      ServerInfo      `json:"serverInfo"`
 	}
 	if err := json.Unmarshal(raw, &res); err != nil {
 		return fmt.Errorf("解析 initialize 结果失败: %w", err)
@@ -293,6 +301,7 @@ func (c *Client) initialize(ctx context.Context, declared string) error {
 		c.version = declared
 	}
 	c.info = res.ServerInfo
+	c.resources = hasCapability(res.Capabilities, "resources")
 	// 谈定的版本要立刻用于后续请求的 MCP-Protocol-Version 头。
 	c.tr.setVersion(c.version)
 	// initialized 通知失败不影响后续请求：有的服务端不等它就开始工作。
@@ -304,6 +313,16 @@ func (c *Client) initialize(ctx context.Context, declared string) error {
 
 func clientInfo() map[string]any {
 	return map[string]any{"name": "sprout", "version": "1.0"}
+}
+
+// hasCapability 报告服务端的 capabilities 里是否声明了某项（值为对象即算，空对象也算）。
+func hasCapability(caps json.RawMessage, name string) bool {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(caps, &m) != nil {
+		return false
+	}
+	v, ok := m[name]
+	return ok && string(v) != "null"
 }
 
 func supportsVersion(list []string, want string) bool {

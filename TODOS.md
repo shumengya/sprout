@@ -149,7 +149,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [ ] 状态栏里还是占位的：`插件`（没有插件机制）。
 - [ ] MCP 的其他能力（目前只做了工具，见 `docs/mcp.md`“已知限制”），按以下顺序逐项实现：
   - [x] 工具结果里的图片转成图片块发给模型；
-  - [ ] Resources：`resources/list`、`resources/templates/list`、`resources/read`；
+  - [x] Resources：`resources/list`、`resources/templates/list`、`resources/read`；
   - [ ] Prompts：`prompts/list`、`prompts/get`；
   - [ ] Elicitation：服务端发起的 `elicitation/create`，需要 TUI 与 JSON-RPC 客户端各自的交互；
   - [ ] MRTR：工具结果 `resultType: "input_required"` 时补充输入后重发（依赖 Elicitation 的交互）；

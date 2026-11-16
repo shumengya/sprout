@@ -193,7 +193,7 @@ func (t *stdioTransport) request(ctx context.Context, method, _ string, params a
 	select {
 	case resp := <-ch:
 		if resp.Error != nil {
-			return nil, fmt.Errorf("%s 返回错误 %d: %s", method, resp.Error.Code, resp.Error.Message)
+			return nil, fmt.Errorf("%s 返回错误 %d: %w", method, resp.Error.Code, resp.Error)
 		}
 		return resp.Result, nil
 	case <-ctx.Done():

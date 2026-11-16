@@ -185,7 +185,7 @@ func readJSONResponse(r io.Reader, method string) (json.RawMessage, error) {
 
 func unwrapResponse(resp rpcResponse, method string) (json.RawMessage, error) {
 	if resp.Error != nil {
-		return nil, fmt.Errorf("%s 返回错误 %d: %s", method, resp.Error.Code, resp.Error.Message)
+		return nil, fmt.Errorf("%s 返回错误 %d: %w", method, resp.Error.Code, resp.Error)
 	}
 	if len(resp.Result) == 0 {
 		return nil, errNoBody
