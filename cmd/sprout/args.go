@@ -29,6 +29,8 @@ type args struct {
 	updateCheckOnly bool
 	// updateRepo 是 update 查询的 GitHub 仓库（owner/name），空串用默认仓库。
 	updateRepo string
+	// serve 表示 `sprout serve`：在 stdin / stdout 上提供 JSON-RPC 服务。
+	serve bool
 }
 
 // stringList 收集可重复出现的字符串选项（--image a --image b）。
@@ -48,6 +50,8 @@ const usage = `用法:
                                                    启动终端界面
   sprout run [--data-dir DIR] [-c | --resume ID] [--effort 档位] [--image 文件]... "提问"
                                                    单次运行，答案写 stdout，进度写 stderr
+  sprout serve [--data-dir DIR] [-c | --resume ID] [--effort 档位]
+                                                   在 stdin / stdout 上提供 JSON-RPC 2.0 服务（见 docs/rpc.md）
   sprout models update [--data-dir DIR]            从 models.dev 更新模型参数与价格的本地缓存
   sprout update [--repo OWNER/NAME] [--check]     更新到 GitHub Releases 上的最新版本（--check 只检查）
   sprout --version
@@ -108,6 +112,19 @@ func parseArgs(argv []string) (args, error) {
 	}
 	if rest[0] == "update" {
 		return parseUpdateArgs(&a, rest[1:])
+	}
+	if rest[0] == "serve" {
+		sfs := flag.NewFlagSet("sprout serve", flag.ContinueOnError)
+		register(sfs)
+		if err := sfs.Parse(rest[1:]); err != nil {
+			return a, fmt.Errorf("%w: %v", errUsage, err)
+		}
+		if len(sfs.Args()) > 0 {
+			return a, fmt.Errorf("%w: sprout serve 不接受额外参数 %q", errUsage, sfs.Args()[0])
+		}
+		finish()
+		a.serve = true
+		return a, nil
 	}
 	if rest[0] != "run" {
 		return a, fmt.Errorf("%w: 未知命令 %q", errUsage, rest[0])

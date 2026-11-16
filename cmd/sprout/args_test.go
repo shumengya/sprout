@@ -65,14 +65,22 @@ func TestParseModelsUpdate(t *testing.T) {
 	}
 }
 
+func TestParseServeArgs(t *testing.T) {
+	a, err := parseArgs([]string{"--data-dir", "D:/x", "serve", "-c", "--effort", "high"})
+	if err != nil || !a.serve || a.dataDir != "D:/x" || a.resume != "latest" || a.effort != "high" || a.runPrompt != nil {
+		t.Fatalf("serve 选项解析不对: %+v %v", a, err)
+	}
+}
+
 func TestParseArgsErrors(t *testing.T) {
 	cases := map[string][]string{
-		"未知命令":    {"serve"},
-		"未知选项":    {"--nope"},
-		"run 无内容": {"run"},
-		"run 全空白": {"run", "   "},
-		"选项缺值":    {"--data-dir"},
-		"run 选项错": {"run", "--bogus", "q"},
+		"未知命令":     {"bogus"},
+		"serve 多余": {"serve", "extra"},
+		"未知选项":     {"--nope"},
+		"run 无内容":  {"run"},
+		"run 全空白":  {"run", "   "},
+		"选项缺值":     {"--data-dir"},
+		"run 选项错":  {"run", "--bogus", "q"},
 	}
 	for name, argv := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -109,6 +109,9 @@ func realMain(argv []string, stdout, stderr io.Writer) (code int) {
 	if a.runPrompt != nil {
 		return runOnce(ap, *a.runPrompt, a.images, a.resume, stdout, stderr)
 	}
+	if a.serve {
+		return runServe(ap, a.resume, os.Stdin, stdout, stderr)
+	}
 	return runTUI(ap, a.resume, stderr)
 }
 

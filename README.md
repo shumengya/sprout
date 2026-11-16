@@ -70,7 +70,7 @@ internal/
   tui/                   Bubble Tea v2 终端界面
   cli/                   非交互 CLI
   webui/                 WebUI 模块（占位，未实现）
-  rpc/                   JSON-RPC 服务（占位，未实现）
+  rpc/                   JSON-RPC 服务（sprout serve，stdio）
 docs/                    设计文档
 ```
 
@@ -119,7 +119,7 @@ TUI、WebUI、CLI、JSON-RPC 都只是这套协议的适配器。
 
 ## 当前状态
 
-**M1（最小可用闭环）、M2（识图）与 M5 中的 MCP、skills 已实现。** 终端界面、单次运行、OpenAI Chat / Responses、Anthropic Messages、Gemini 四种协议、`bash` / `powershell` / `read` / `write` / `edit` / `delete` 与外部命令工具、图片输入、JSONL 会话与恢复、自动重试、上下文压缩、MCP 工具接入（`docs/mcp.md`）、Agent Skills（`docs/skills.md`，含 `skills.jsonc` 注册表、`/skills` 面板与 `/技能名` 手动触发）、`/mcp` 面板、`sprout update` 自动更新（校验后替换程序，TUI 里是 `/update`）、可配置的底部状态栏（数据目录的 `statusline.jsonc`）均可用；JSON-RPC、WebUI、子代理等尚未开始。已实现与未实现的逐项清单见 `TODOS.md`；真实模型服务和真实终端的手工验证状态见 `docs/m1-implementation.md` §12、§15 与 `TODOS.md` 第二节。
+**M1（最小可用闭环）、M2（识图）与 M5 中的 MCP、skills 已实现。** 终端界面、单次运行、OpenAI Chat / Responses、Anthropic Messages、Gemini 四种协议、`bash` / `powershell` / `read` / `write` / `edit` / `delete` 与外部命令工具、图片输入、JSONL 会话与恢复、自动重试、上下文压缩、MCP 工具接入（`docs/mcp.md`）、Agent Skills（`docs/skills.md`，含 `skills.jsonc` 注册表、`/skills` 面板与 `/技能名` 手动触发）、`/mcp` 面板、`sprout update` 自动更新（校验后替换程序，TUI 里是 `/update`）、可配置的底部状态栏（数据目录的 `statusline.jsonc`）均可用；M3 JSON-RPC 已有 `sprout serve` 的对话、取消与新会话（`docs/rpc.md`），会话管理与模型切换仍在进行；WebUI、子代理等尚未开始。已实现与未实现的逐项清单见 `TODOS.md`；真实模型服务和真实终端的手工验证状态见 `docs/m1-implementation.md` §12、§15 与 `TODOS.md` 第二节。
 
 ## 路线图
 
@@ -149,10 +149,11 @@ sprout update          # 更新到 GitHub Releases 上的最新版本（校验�
 
 首次运行会在 `<程序所在目录>/data/.sprout/models.jsonc` 生成带注释的配置，填入 API Key（或设置对应环境变量，如 `DEEPSEEK_API_KEY`）后重启即可。可用 `--data-dir` 或 `SPROUT_DATA_DIR` 指定数据目录；用 `go run` 开发时必须显式指定，例如 `go run ./cmd/sprout --data-dir ./data/.sprout`。
 
+其他程序可以用 `sprout serve` 通过 stdin / stdout 上的 JSON-RPC 2.0 驱动 Sprout，协议见 `docs/rpc.md`。
+
 后续里程碑的目标用法（尚未实现）：
 
 ```bash
-sprout serve           # JSON-RPC
 sprout web             # WebUI
 ```
 

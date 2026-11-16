@@ -24,7 +24,7 @@ func TestVersionAndHelp(t *testing.T) {
 }
 
 func TestUsageErrorsExitWith2(t *testing.T) {
-	for _, argv := range [][]string{{"serve"}, {"--nope"}, {"run"}} {
+	for _, argv := range [][]string{{"serve", "extra"}, {"bogus"}, {"--nope"}, {"run"}} {
 		code, _, errOut := run(argv...)
 		if code != 2 || !strings.Contains(errOut, "用法") {
 			t.Errorf("%v: code=%d stderr=%q", argv, code, errOut)

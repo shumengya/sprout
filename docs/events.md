@@ -1,6 +1,6 @@
 # 事件协议
 
-内核（`internal/agent`）与各 surface（TUI、CLI，以及之后的 JSON-RPC、WebUI）之间只通过事件交互。定义在 `internal/agent/event`，本包不依赖任何其他内部包。会话落盘也订阅同一条事件流，不另开通道（见 `docs/session-format.md`）。
+内核（`internal/agent`）与各 surface（TUI、CLI、JSON-RPC，以及之后的 WebUI）之间只通过事件交互。定义在 `internal/agent/event`，本包不依赖任何其他内部包。会话落盘也订阅同一条事件流，不另开通道（见 `docs/session-format.md`）。
 
 本文以代码为准；改事件时同步更新本文和 `docs/session-format.md`。
 
@@ -13,7 +13,7 @@
 
 ## 2. 事件一览
 
-`Kind` 是稳定标识，供序列化和日志使用，之后 JSON-RPC 对外推送时沿用这些名字。
+`Kind` 是稳定标识，供序列化和日志使用，JSON-RPC 对外推送时沿用这些名字（线上字段见 `docs/rpc.md`）。
 
 | Kind | Go 类型 | 主要字段 | 落盘为 |
 | --- | --- | --- | --- |
