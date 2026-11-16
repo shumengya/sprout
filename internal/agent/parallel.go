@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/shumengya/sprout/internal/agent/event"
+	"github.com/shumengya/sprout/internal/agent/tool"
 )
 
 // DefaultMaxParallelTools 是同一批 tool call 最多同时执行的个数。1 表示严格串行。
@@ -25,6 +26,7 @@ type toolMsg struct {
 // 并发模型：worker goroutine 只负责执行工具；所有事件的发送和对历史的写入都在调用者所在的
 // agent goroutine 里完成。因此 event.Sink 不需要线程安全，也不会有历史上的数据竞争。
 // 同一批调用之间互不保证顺序，模型应当只把互相独立的命令放在同一批里（系统提示词里有说明）。
+// 例外是声明了不可并行（tool.Parallelizable）的工具：它的调用独占执行，前后的调用都不与它重叠。
 func (t *turn) runTools(calls []ToolCall) error {
 	limit := t.a.cfg.MaxParallelTools
 	if limit <= 0 {
@@ -38,14 +40,13 @@ func (t *turn) runTools(calls []ToolCall) error {
 		var wg sync.WaitGroup
 		for i, call := range calls {
 			// 在派发循环里按顺序占位：limit=1 时调用严格按顺序一个接一个开始，事件顺序也就稳定。
-			select {
-			case sem <- struct{}{}:
-			case <-t.ctx.Done():
-				msgs <- toolMsg{idx: i, skipped: true}
-				continue
+			// 声明不可并行的工具占满全部名额：要等前面的调用都结束才拿得齐，
+			// 拿齐之后后面的调用也抢不到，于是它独占执行。未知工具按可并行处理（execTool 只会回错误）。
+			slots := 1
+			if tl, ok := t.lookup(call.Name); ok && !tool.Parallel(tl) {
+				slots = limit
 			}
-			if t.ctx.Err() != nil { // 抢到名额的同时本轮被取消了
-				<-sem
+			if !t.acquire(sem, slots) {
 				msgs <- toolMsg{idx: i, skipped: true}
 				continue
 			}
@@ -53,7 +54,11 @@ func (t *turn) runTools(calls []ToolCall) error {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				defer func() { <-sem }()
+				defer func() {
+					for range slots {
+						<-sem
+					}
+				}()
 				fin, content := t.execTool(call)
 				msgs <- toolMsg{idx: i, fin: fin, content: content}
 			}()
@@ -83,4 +88,23 @@ func (t *turn) runTools(calls []ToolCall) error {
 		return t.cancelled()
 	}
 	return nil
+}
+
+// acquire 按顺序占 n 个名额。本轮被取消时退还已占的名额并返回 false。
+func (t *turn) acquire(sem chan struct{}, n int) bool {
+	got := 0
+	for got < n && t.ctx.Err() == nil {
+		select {
+		case sem <- struct{}{}:
+			got++
+		case <-t.ctx.Done():
+		}
+	}
+	if t.ctx.Err() != nil { // 包括抢齐名额的同时本轮被取消
+		for range got {
+			<-sem
+		}
+		return false
+	}
+	return true
 }

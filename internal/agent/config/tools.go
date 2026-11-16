@@ -49,7 +49,10 @@ type ToolEntry struct {
 	Enable      bool            `json:"enable"`
 	Description string          `json:"description"`
 	Parameters  json.RawMessage `json:"parameters"`
-	Exec        *ExecSpec       `json:"exec"`
+	// Parallel 省略时沿用工具自己的声明（外部工具默认可并行，write / edit / delete 默认不可）。
+	// false 表示同一批里这个工具的调用独占执行，不和别的调用重叠。
+	Parallel *bool     `json:"parallel"`
+	Exec     *ExecSpec `json:"exec"`
 }
 
 // ExecSpec 描述外部工具怎么执行。命令里的 {{参数名}} 会替换成模型传入的值。

@@ -21,6 +21,8 @@ const ToolsTemplate = `// Sprout 工具配置（JSONC：支持 // 和 /* */ 注�
 //   enable       是否启用（必填 true 才算）
 //   description  给模型看的工具说明。内置工具不写则用程序自带的描述
 //   parameters   参数 JSON Schema（type 必须是 object）。内置工具不写则用程序自带的参数
+//   parallel     同一批调用里能否和别的调用并行。false 表示独占执行：等前面的调用结束才开始，
+//                执行期间不启动别的调用。不写则用工具自己的声明：write / edit / delete 为 false，其余为 true
 //   exec         外部工具的执行方式；只有非内置工具需要，内置工具写了会报错
 //
 // exec 的写法：

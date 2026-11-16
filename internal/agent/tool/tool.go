@@ -70,7 +70,8 @@ func (r Result) ForModel() string {
 
 // Tool 是模型可调用的一个工具。
 //
-// Run 可能被并发调用（同一批 tool call 会并行执行），实现必须并发安全。
+// Run 可能被并发调用：同一批 tool call 里声明了可并行的会并行执行，
+// 实现必须并发安全。没实现 Parallelizable 的工具按可并行处理。
 //
 // Run 返回 error 仅表示“没能得到结果”（参数无效、进程起不来、被取消）；
 // 命令本身失败应通过 Result.ExitCode 表达。ctx 被取消时应返回 ctx.Err()，
@@ -80,6 +81,15 @@ type Tool interface {
 	Description() string
 	Parameters() json.RawMessage
 	Run(ctx context.Context, args json.RawMessage) (Result, error)
+}
+
+// Parallelizable 由需要声明“同一批里的多个调用能不能并行”的工具实现。
+//
+// 返回 false 表示这个工具的调用要独占执行：等同一批里排在它前面的调用全部结束才开始，
+// 执行期间不启动别的调用，结束后才轮到后面的。不实现这个接口等于返回 true。
+// 典型场景是改文件的工具：两个 edit 并发改同一个文件会互相覆盖。
+type Parallelizable interface {
+	Parallel() bool
 }
 
 // Registry 按注册顺序保存工具。注册顺序决定下发给模型的顺序。
@@ -116,6 +126,12 @@ func (r *Registry) List() []Tool {
 	return append([]Tool(nil), r.order...)
 }
 
+// Parallel 报告工具的调用能否与同一批里的其他调用并行。没声明的按可并行处理。
+func Parallel(t Tool) bool {
+	p, ok := t.(Parallelizable)
+	return !ok || p.Parallel()
+}
+
 // Names 返回按注册顺序排列的工具名。
 func (r *Registry) Names() []string {
 	names := make([]string, len(r.order))
@@ -140,6 +156,8 @@ type Decorator struct {
 	Tool
 	DescriptionText string
 	ParamSchema     json.RawMessage
+	// ParallelOverride 非 nil 时覆盖工具自己的并行声明（tools.jsonc 的 parallel）。
+	ParallelOverride *bool
 }
 
 func (d Decorator) Description() string {
@@ -152,6 +170,14 @@ func (d Decorator) Description() string {
 		}
 	}
 	return d.DescriptionText
+}
+
+// Parallel 优先用配置里的覆盖值，否则透传被包装工具的声明。
+func (d Decorator) Parallel() bool {
+	if d.ParallelOverride != nil {
+		return *d.ParallelOverride
+	}
+	return Parallel(d.Tool)
 }
 
 func (d Decorator) Parameters() json.RawMessage {

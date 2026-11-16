@@ -287,9 +287,9 @@ func (a *app) registerTools(cfg *config.File, e env) (*tool.Registry, error) {
 	}
 
 	add := func(t tool.Tool, detail string) error {
-		// tools.jsonc 里写了 description / parameters 时覆盖内置值；外部工具本来就用配置值，包一层也无害。
-		if entry, ok := a.tools.Entry(t.Name()); ok && (entry.Description != "" || len(entry.Parameters) > 0) {
-			t = tool.Decorator{Tool: t, DescriptionText: entry.Description, ParamSchema: entry.Parameters}
+		// tools.jsonc 里写了 description / parameters / parallel 时覆盖内置值；外部工具本来就用配置值，包一层也无害。
+		if entry, ok := a.tools.Entry(t.Name()); ok && (entry.Description != "" || len(entry.Parameters) > 0 || entry.Parallel != nil) {
+			t = tool.Decorator{Tool: t, DescriptionText: entry.Description, ParamSchema: entry.Parameters, ParallelOverride: entry.Parallel}
 		}
 		if err := reg.Register(t); err != nil {
 			return err

@@ -19,6 +19,9 @@ func NewWrite(dir string) *Write { return &Write{dir: dir} }
 
 func (t *Write) Name() string { return "write" }
 
+// Parallel 返回 false：同一批里两个调用写同一个文件时，并发会让结果取决于谁后写完。
+func (t *Write) Parallel() bool { return false }
+
 func (t *Write) Description() string {
 	return "创建或覆盖一个文本文件，内容完全由 content 决定（不会追加到原内容后面）。\n" +
 		"相对路径相对启动时的工作目录；缺失的父目录会自动创建。\n" +

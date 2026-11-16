@@ -288,3 +288,113 @@ func TestSystemPromptTellsModelAboutParallelCalls(t *testing.T) {
 		t.Errorf("没有 shell 工具时不应提合并命令:\n%s", q)
 	}
 }
+
+// serialTool 把工具声明成不可并行，模拟 write / edit / delete。
+type serialTool struct{ tool.Tool }
+
+func (serialTool) Parallel() bool { return false }
+
+// timeline 按发生顺序记录每个调用的开始和结束，参数里的 id 区分调用。
+type timeline struct {
+	mu  sync.Mutex
+	log []string
+}
+
+func (tl *timeline) tool(name string, hold time.Duration) tool.Tool {
+	return fakeTool{name: name, run: func(_ context.Context, args json.RawMessage) (tool.Result, error) {
+		var a struct{ ID string }
+		_ = json.Unmarshal(args, &a)
+		tl.add("start:" + a.ID)
+		time.Sleep(hold)
+		tl.add("end:" + a.ID)
+		return tool.Result{Command: name}, nil
+	}}
+}
+
+func (tl *timeline) add(s string) {
+	tl.mu.Lock()
+	tl.log = append(tl.log, s)
+	tl.mu.Unlock()
+}
+
+func (tl *timeline) at(t *testing.T, s string) int {
+	t.Helper()
+	i := slices.Index(tl.log, s)
+	if i < 0 {
+		t.Fatalf("时间线里没有 %s: %v", s, tl.log)
+	}
+	return i
+}
+
+func TestSerialToolRunsAlone(t *testing.T) {
+	var tl timeline
+	p := &scripted{steps: []scriptStep{callTools(
+		call("1", "p", `{"id":"1"}`), call("2", "p", `{"id":"2"}`),
+		call("3", "s", `{"id":"3"}`),
+		call("4", "p", `{"id":"4"}`), call("5", "p", `{"id":"5"}`),
+	), say("好")}}
+	a := parallelAgent(t, p, 0, tl.tool("p", 30*time.Millisecond), serialTool{tl.tool("s", 30*time.Millisecond)})
+	if err := a.Run(context.Background(), Input{Text: "q"}, &collector{}); err != nil {
+		t.Fatal(err)
+	}
+	s, e := tl.at(t, "start:3"), tl.at(t, "end:3")
+	if e != s+1 {
+		t.Fatalf("串行调用执行期间不应有别的调用开始或结束: %v", tl.log)
+	}
+	for _, id := range []string{"1", "2"} {
+		if tl.at(t, "end:"+id) > s {
+			t.Errorf("前面的调用 %s 应在串行调用开始前结束: %v", id, tl.log)
+		}
+	}
+	for _, id := range []string{"4", "5"} {
+		if tl.at(t, "start:"+id) < e {
+			t.Errorf("后面的调用 %s 应在串行调用结束后才开始: %v", id, tl.log)
+		}
+	}
+	// 串行调用前后的可并行调用仍然并发：两个都开始了才有人结束。
+	if tl.at(t, "start:2") > tl.at(t, "end:1") && tl.at(t, "start:1") > tl.at(t, "end:2") {
+		t.Errorf("1 和 2 应并发执行: %v", tl.log)
+	}
+	if tl.at(t, "start:5") > tl.at(t, "end:4") && tl.at(t, "start:4") > tl.at(t, "end:5") {
+		t.Errorf("4 和 5 应并发执行: %v", tl.log)
+	}
+	h := a.History()
+	for i, id := range []string{"1", "2", "3", "4", "5"} {
+		if h[2+i].ToolID != id {
+			t.Fatalf("历史必须按调用顺序: %+v", h)
+		}
+	}
+}
+
+func TestSerialToolSkippedWhenCancelledWhileWaiting(t *testing.T) {
+	// 串行调用在等前面的调用让出名额时本轮被取消：它不该开始，也要有“未执行”的结果。
+	ctx, cancel := context.WithCancel(context.Background())
+	blocker := fakeTool{name: "p", run: func(ctx context.Context, _ json.RawMessage) (tool.Result, error) {
+		cancel()
+		<-ctx.Done()
+		return tool.Result{Command: "sleep"}, ctx.Err()
+	}}
+	var ran atomic.Bool
+	s := serialTool{fakeTool{name: "s", run: func(context.Context, json.RawMessage) (tool.Result, error) {
+		ran.Store(true)
+		return tool.Result{}, nil
+	}}}
+	p := &scripted{steps: []scriptStep{callTools(call("1", "p", `{}`), call("2", "s", `{}`)), say("不该到这")}}
+	a := parallelAgent(t, p, 0, blocker, s)
+	var c collector
+	if err := a.Run(ctx, Input{Text: "q"}, &c); !errors.Is(err, context.Canceled) {
+		t.Fatalf("得到 %v", err)
+	}
+	if ran.Load() {
+		t.Fatal("取消后串行调用不应再执行")
+	}
+	for _, e := range c.events {
+		if r, ok := e.(event.ToolRequested); ok && r.Call.ID == "2" {
+			t.Fatal("没执行的调用不应发 ToolRequested")
+		}
+	}
+	h := a.History()
+	if len(h) < 4 || h[2].ToolID != "1" || h[3].ToolID != "2" || h[3].Text() != cancelledToolReply {
+		t.Fatalf("两个调用都应有对应的 tool 消息: %+v", h)
+	}
+}

@@ -23,6 +23,9 @@ func NewEdit(dir string) *Edit { return &Edit{dir: dir} }
 
 func (t *Edit) Name() string { return "edit" }
 
+// Parallel 返回 false：edit 是读出、替换、写回，两个调用并发改同一个文件时后写的会覆盖先写的。
+func (t *Edit) Parallel() bool { return false }
+
 func (t *Edit) Description() string {
 	return "把文件里的 old_string 替换成 new_string，只改这一处，文件其余部分原样保留。\n" +
 		"old_string 必须和文件内容逐字相同（含缩进），默认还必须在文件里唯一：不唯一时先扩大上下文重试，或按需设 replace_all 替换全部。\n" +

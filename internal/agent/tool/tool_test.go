@@ -117,3 +117,28 @@ func TestDecoratorKeepsPlatformNotes(t *testing.T) {
 		t.Errorf("Description = %q", got)
 	}
 }
+
+type serialStub struct{ stubTool }
+
+func (serialStub) Parallel() bool { return false }
+
+func TestParallelDeclaration(t *testing.T) {
+	no, yes := false, true
+	cases := []struct {
+		name string
+		t    Tool
+		want bool
+	}{
+		{"未声明按可并行", stubTool{"a"}, true},
+		{"声明不可并行", serialStub{stubTool{"a"}}, false},
+		{"Decorator 透传声明", Decorator{Tool: serialStub{stubTool{"a"}}}, false},
+		{"Decorator 透传未声明", Decorator{Tool: stubTool{"a"}}, true},
+		{"配置覆盖成可并行", Decorator{Tool: serialStub{stubTool{"a"}}, ParallelOverride: &yes}, true},
+		{"配置覆盖成不可并行", Decorator{Tool: stubTool{"a"}, ParallelOverride: &no}, false},
+	}
+	for _, c := range cases {
+		if got := Parallel(c.t); got != c.want {
+			t.Errorf("%s: Parallel = %v，期望 %v", c.name, got, c.want)
+		}
+	}
+}

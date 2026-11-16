@@ -40,7 +40,7 @@ surface 可以依赖下面这些规则，内核和测试保证它们成立。
 - 一轮里可以有多次模型调用（中间夹着工具往返）。每次调用的顺序是：零或多个 `reasoning.delta` / `message.delta`，然后一个 `message.completed`，紧接着一个 `usage`。`usage` 和它前面的 `message.completed` 属于同一次调用，中间不会插别的事件。
 - `error` 之后一定跟着 `turn.finished`，`Reason` 为 `error` 或 `max_steps`。
 - `interrupted` 之后一定跟着 `turn.finished`，`Reason` 为 `cancelled` 或 `error`。
-- 同一批工具调用并行执行（上限 `Config.MaxParallelTools`，默认 4）：`tool.requested` 按调用顺序发出，`tool.finished` 按完成顺序发出，用 `ID` 配对。被取消而没来得及执行的调用只有 `tool.finished`（`Cancelled` 为 true），没有 `tool.requested`。
+- 同一批工具调用并行执行（上限 `Config.MaxParallelTools`，默认 4；声明不可并行的工具如 `write` / `edit` / `delete` 独占执行，见 `docs/tools.md`「并行」）：`tool.requested` 按调用顺序发出，`tool.finished` 按完成顺序发出，用 `ID` 配对。被取消而没来得及执行的调用只有 `tool.finished`（`Cancelled` 为 true），没有 `tool.requested`。
 - `retrying` 只在本次调用还没向界面输出任何内容时出现，所以重试不会让 surface 收到重复的增量。
 - `compacted` 可能出现在一轮中间（自动压缩，`Manual` 为 false），也可能由 `Agent.Compact` 在两轮之间发出（`Manual` 为 true）。手动压缩不是一轮，前后没有 `turn.started` / `turn.finished`。历史被改动就一定有这个事件，压缩从不静默发生。
 

@@ -28,6 +28,9 @@ func NewDelete(dir string) *Delete { return &Delete{dir: dir} }
 
 func (t *Delete) Name() string { return "delete" }
 
+// Parallel 返回 false：删除与同一批里对同一路径的写入或编辑并发时，结果取决于执行先后。
+func (t *Delete) Parallel() bool { return false }
+
 func (t *Delete) Description() string {
 	return "删除一个文件或目录，不可恢复：不进回收站，也没有撤销。\n" +
 		"文件直接删除；目录默认只接受空目录，非空目录必须显式设 recursive: true。\n" +
