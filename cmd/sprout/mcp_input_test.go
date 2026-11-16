@@ -77,7 +77,7 @@ func TestParseElicitSchemaRejects(t *testing.T) {
 
 // 回答、界面退出、上下文取消、队列满，四种结局都不能让调用方卡住。
 func TestMCPInputAsk(t *testing.T) {
-	in := newMCPInput()
+	in := newMCPInput(false)
 	go func() {
 		a := <-in.asks
 		a.Reply <- tui.AskAnswer{Action: tui.AskAccept}
@@ -101,7 +101,7 @@ func TestMCPInputAsk(t *testing.T) {
 		t.Fatal("取消后仍卡住")
 	}
 
-	full := newMCPInput()
+	full := newMCPInput(false)
 	for i := 0; i < askCap; i++ {
 		full.asks <- &tui.Ask{}
 	}

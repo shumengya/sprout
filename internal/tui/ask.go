@@ -12,13 +12,18 @@ import (
 // Ask 是 MCP 服务端通过 agent 向用户要的输入：一份表单（Fields 非空），或一次纯确认（Fields 为空）。
 // TUI 只管展示和收集，不认识 MCP；字段由 main 从服务端给的 JSON Schema 转换而来。
 type Ask struct {
-	Server  string
+	Server string
+	// Kind 区分表单与采样确认；终端界面两者的展示一样，RPC 要据此选择请求方法。空表示表单。
+	Kind    string
 	Title   string
 	Message string
 	Fields  []AskField
 	// Reply 容量必须为 1：TUI 恰好发送一次，之后不再碰它。
 	Reply chan<- AskAnswer
 }
+
+// Ask.Kind 的取值。
+const AskKindSample = "sample"
 
 // AskField 是表单里的一个输入项。
 type AskField struct {

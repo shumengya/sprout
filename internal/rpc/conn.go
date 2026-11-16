@@ -38,7 +38,7 @@ func errorf(code int, format string, args ...any) *Error {
 }
 
 // incoming 是从客户端读到的一行。ID 缺省（nil）表示通知；显式的 null 解出来是 "null"，按请求处理。
-// 带 result / error 而没有 method 的是客户端发来的响应：服务端目前不向客户端发请求，直接忽略。
+// 带 result / error 而没有 method 的是客户端发来的响应，对应服务端用 Request 发出的请求。
 type incoming struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id"`

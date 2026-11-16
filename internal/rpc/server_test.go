@@ -150,6 +150,7 @@ type harness struct {
 	in    *io.PipeWriter
 	lines chan map[string]any
 	done  chan error
+	srv   *Server
 }
 
 func start(t *testing.T, b Backend) *harness {
@@ -168,8 +169,9 @@ func start(t *testing.T, b Backend) *harness {
 			h.lines <- m
 		}
 	}()
+	h.srv = NewServer(b, outW, nil)
 	go func() {
-		h.done <- NewServer(b, outW, nil).Serve(context.Background(), inR, time.Second)
+		h.done <- h.srv.Serve(context.Background(), inR, time.Second)
 		outW.Close()
 	}()
 	t.Cleanup(func() { inW.Close() })

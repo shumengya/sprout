@@ -95,7 +95,7 @@ func realMain(argv []string, stdout, stderr io.Writer) (code int) {
 	}
 	ap, err := buildApp(dataDir, env{
 		getenv: os.Getenv, cwd: cwd, home: homeDir(), version: version, now: time.Now,
-		detect: platform.DetectShells, effort: a.effort, interactive: a.runPrompt == nil && !a.serve,
+		detect: platform.DetectShells, effort: a.effort, interactive: a.runPrompt == nil, remote: a.serve,
 	}, log)
 	if err != nil {
 		log.Error("startup failed", "error", err.Error())

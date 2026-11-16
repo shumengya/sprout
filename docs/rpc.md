@@ -12,7 +12,8 @@ sprout serve [--data-dir DIR] [-c | --resume ID] [--effort 档位]
 - 一行一条消息（UTF-8 JSON，以 `\n` 结尾），不用 `Content-Length` 头。
 - stdout 只输出协议消息；日志写数据目录的 `logs/`，启动失败（配置错误、`--resume` 找不到会话）写 stderr 并以退出码 1 结束。
 - 不支持批量请求（数组），返回 `-32600`。
-- 不带 `id` 的是通知，服务端不回响应；客户端发来的响应（只有 `result` / `error`）直接忽略。
+- 不带 `id` 的是通知，服务端不回响应。客户端发来的响应（只有 `result` / `error`）按 `id` 对应到服务端发出的请求
+  （见「服务端请求」）；对不上的（没问过、已取消、重复回答、数字 id）直接忽略。
 - stdin 结束或收到 `shutdown` 时，取消进行中的一轮，最多等 5 秒让它收尾后退出，退出码 0；Ctrl+C 退出码 130。
 - 字段名一律 camelCase，时长单位毫秒（字段名带 `Ms`）。
 
@@ -20,7 +21,7 @@ sprout serve [--data-dir DIR] [-c | --resume ID] [--effort 档位]
 
 | 方法 | 参数 | 结果 |
 | --- | --- | --- |
-| `initialize` | 无 | 见下 |
+| `initialize` | `{capabilities?: {elicitation?, sampling?}}` | 见下 |
 | `turn/start` | `{text, images?: [{path}]}` | `{turn}`：本轮编号，从 1 递增 |
 | `turn/cancel` | 无 | `{cancelled}`：有一轮在进行时为 true |
 | `session/new` | 无 | `{}`：开始空白会话，旧会话文件保留 |
@@ -47,7 +48,8 @@ sprout serve [--data-dir DIR] [-c | --resume ID] [--effort 档位]
 ```
 
 `available` 为 false 时（缺 API Key 等）服务照常运行，`disabled` 是原因；此时 `turn/start` 与 `session/new` 返回 `-32002`。
-`initialize` 不要求先调用，可以随时调用以刷新信息。
+`initialize` 不要求先调用，可以随时调用以刷新信息。`capabilities` 声明客户端愿意回答哪几类服务端请求（见「服务端请求」），
+每次 `initialize` 都以最新一次为准，不带或格式不对都当作什么都不支持，不会让 `initialize` 失败。
 
 `turn/start`：
 
@@ -99,6 +101,45 @@ sprout serve [--data-dir DIR] [-c | --resume ID] [--effort 档位]
 | `turn.finished` | `reason`：`stop` / `cancelled` / `error` / `max_steps` / `length` |
 
 **`notice`**：`{message}`，给用户看的提示，例如后台连接的 MCP 服务端失败。
+
+## 服务端请求
+
+MCP 服务端可以在工具调用中途向用户要输入（elicitation）或请求借用模型（sampling）。TUI 里这是一个表单或确认框；
+`sprout serve` 把它们作为 **JSON-RPC 请求从服务端发给客户端**，客户端回响应后工具调用才继续。
+
+- 客户端必须在 `initialize` 的 `capabilities` 里声明对应能力（`{"elicitation": true}`、`{"sampling": true}`）。
+  没声明就不会发请求：对应的 MCP 调用直接失败并把原因返回给模型，不会等待。
+  MCP 服务端那边也只会在 sprout 声明了能力后才发这类请求。
+- 请求的 `id` 是字符串 `srv-N`，与客户端自己的数字 `id` 不会冲突。客户端用同一个 `id` 回 `result` 或 `error`。
+  收到客户端回的 `error`、连接结束（stdin 关闭或 `shutdown`），都会让等待中的请求立刻结束，不会把进行中的一轮挂住。
+- 服务端请求可以与 `event` 通知交错出现，也可能同时有多个未答的请求，按 `id` 对应即可。
+- 同样的请求在 `sprout run` 里不发起：那里没有人可问，服务端拿到的是“客户端不支持”。
+
+**`mcp/elicit`**：填表。
+
+```
+← {"jsonrpc":"2.0","id":"srv-1","method":"mcp/elicit","params":{"server":"fs","message":"请填写部署参数",
+    "fields":[{"name":"env","title":"环境","kind":"enum","choices":["dev","prod"],"labels":["开发","生产"],"required":true},
+              {"name":"count","kind":"integer","default":3}]}}
+→ {"jsonrpc":"2.0","id":"srv-1","result":{"action":"accept","values":{"env":"prod","count":3}}}
+```
+
+- `fields` 按服务端声明的顺序给出。字段 `kind` 是 `string`、`number`、`integer`、`boolean`、`enum`；
+  `enum` 带 `choices`（取值）与可选的 `labels`（展示名，与 `choices` 对应）。`title`、`description`、`default` 可缺省。
+  嵌套对象、数组类型的 schema 不支持，服务端会收到参数错误；URL 模式（`mode: "url"`）同样不支持。
+- `action` 取 `accept`、`decline`（明确拒绝）或 `cancel`（没有表态就放弃）。只有 `accept` 带 `values`，其他情况的 `values` 被忽略。
+- `accept` 时 sprout 会校验 `values`：必填字段必须有值，类型要对（`integer` 必须是整数，`enum` 必须是 `choices` 之一），
+  不能出现表单里没有的字段。校验不通过当作这次请求失败，值不会交给 MCP 服务端。非必填字段可以不填。
+
+**`mcp/sample`**：MCP 服务端请求用当前模型生成一段回复。
+
+```
+← {"jsonrpc":"2.0","id":"srv-2","method":"mcp/sample","params":{"server":"fs","message":"服务端要借用当前模型生成一段回复（最多 512 token）。\nuser：总结一下"}}
+→ {"jsonrpc":"2.0","id":"srv-2","result":{"action":"accept"}}
+```
+
+- `message` 是请求内容的摘要（最大 token 数、系统提示与各条消息的首行），给用户确认用。`action` 为 `accept` 时 sprout 用当前模型（不带工具）完成请求，
+  其余取值都算拒绝，MCP 服务端收到拒绝的错误。客户端应当让用户确认，不要自动同意。
 
 ## 错误码
 

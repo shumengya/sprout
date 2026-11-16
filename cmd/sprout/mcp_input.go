@@ -20,13 +20,32 @@ const askCap = 8
 // mcpInput 把 MCP 服务端的输入请求（表单、采样确认）转给界面。
 // 没有界面时（sprout run）两个函数都为 nil，握手就不声明对应能力。
 type mcpInput struct {
-	asks  chan *tui.Ask
-	mu    sync.Mutex
-	alive bool
+	asks chan *tui.Ask // 终端界面从这里取请求
+	// forward 非 nil 时请求改走它（sprout serve 转给 RPC 客户端），不再进 asks。
+	forward func(context.Context, *tui.Ask) (tui.AskAnswer, error)
+	mu      sync.Mutex
+	alive   bool
 }
 
-func newMCPInput() *mcpInput {
-	return &mcpInput{asks: make(chan *tui.Ask, askCap), alive: true}
+// newMCPInput 创建输入通道。remote 为 true 表示请求要转给 RPC 客户端，
+// 在 setForward 之前到达的请求直接失败，而不是排进没人读的终端通道。
+func newMCPInput(remote bool) *mcpInput {
+	in := &mcpInput{alive: true}
+	if remote {
+		in.forward = func(context.Context, *tui.Ask) (tui.AskAnswer, error) {
+			return tui.AskAnswer{}, fmt.Errorf("RPC 服务还没就绪")
+		}
+	} else {
+		in.asks = make(chan *tui.Ask, askCap)
+	}
+	return in
+}
+
+// setForward 接上 RPC 客户端。
+func (in *mcpInput) setForward(fn func(context.Context, *tui.Ask) (tui.AskAnswer, error)) {
+	in.mu.Lock()
+	in.forward = fn
+	in.mu.Unlock()
 }
 
 // close 让还在等待的请求立即失败，并拒绝之后到达的。
@@ -44,6 +63,10 @@ func (in *mcpInput) ask(ctx context.Context, a *tui.Ask) (tui.AskAnswer, error) 
 	if !in.alive {
 		in.mu.Unlock()
 		return tui.AskAnswer{}, fmt.Errorf("界面已退出")
+	}
+	if fwd := in.forward; fwd != nil {
+		in.mu.Unlock()
+		return fwd(ctx, a)
 	}
 	select {
 	case in.asks <- a:
@@ -92,7 +115,7 @@ func (a *app) elicit(ctx context.Context, server string, req mcp.ElicitRequest) 
 // 采样是服务端借用用户的模型与额度，不能静默发生；用户拒绝时返回错误，
 // 由协议层转成给服务端的拒绝。
 func (a *app) sample(ctx context.Context, server string, req mcp.SampleRequest) (mcp.SampleResult, error) {
-	ans, err := a.input.ask(ctx, &tui.Ask{Server: server, Title: "请求使用你的模型", Message: sampleSummary(req)})
+	ans, err := a.input.ask(ctx, &tui.Ask{Server: server, Kind: tui.AskKindSample, Title: "请求使用你的模型", Message: sampleSummary(req)})
 	if err != nil {
 		return mcp.SampleResult{}, err
 	}

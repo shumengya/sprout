@@ -95,6 +95,14 @@ type Server struct {
 
 	wmu sync.Mutex // 一条消息一行，事件通知和响应来自不同 goroutine，写入必须整行互斥
 
+	// 服务端向客户端发请求的状态（见 request.go）：待回的请求、客户端声明的能力。
+	rmu       sync.Mutex
+	nextReq   int
+	reqs      map[string]chan incoming
+	caps      map[string]bool
+	closed    chan struct{} // Serve 返回时关闭，让还在等客户端回答的请求结束
+	closeOnce sync.Once
+
 	mu     sync.Mutex
 	turn   int
 	cancel context.CancelFunc
@@ -106,7 +114,7 @@ func NewServer(b Backend, out io.Writer, log *slog.Logger) *Server {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &Server{b: b, out: out, log: log}
+	return &Server{b: b, out: out, log: log, closed: make(chan struct{})}
 }
 
 // Serve 逐行读取请求，直到输入结束、收到 shutdown 或 ctx 取消。
@@ -139,6 +147,8 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, wait time.Duration) er
 	}()
 
 	defer s.stop(wait)
+	// 先于 stop 执行：进行中的一轮可能正卡在等客户端回答，得先放它走，stop 才等得到它结束。
+	defer s.closeOnce.Do(func() { close(s.closed) })
 	for {
 		select {
 		case <-ctx.Done():
@@ -181,7 +191,8 @@ func (s *Server) handle(line []byte) bool {
 	}
 	notify := len(m.ID) == 0
 	if m.Method == "" && (m.Result != nil || m.Error != nil) {
-		return false // 客户端的响应：服务端不发请求，没有要对应的
+		s.deliver(m) // 客户端对 Request 的回答；对不上的直接丢弃
+		return false
 	}
 	if m.JSONRPC != "2.0" || m.Method == "" || (!notify && !validID(m.ID)) {
 		if !notify {
@@ -230,6 +241,7 @@ func (s *Server) call(id json.RawMessage, method string, params json.RawMessage)
 	case "effort/set":
 		return s.setEffort(params)
 	case "initialize":
+		s.setCaps(params)
 		var prepared []string
 		if !s.busy() {
 			prepared = s.b.Prepare()

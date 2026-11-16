@@ -173,6 +173,9 @@ func runServe(ap *app, resume string, stdin io.Reader, stdout, stderr io.Writer)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	srv := rpc.NewServer(&rpcBackend{a: ap}, stdout, ap.log)
+	if ap.input != nil {
+		ap.input.setForward(rpcForward(srv))
+	}
 	if err := srv.Serve(ctx, stdin, 5*time.Second); err != nil {
 		return cli.ExitCancelled
 	}

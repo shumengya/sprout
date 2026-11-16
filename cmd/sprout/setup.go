@@ -38,6 +38,8 @@ type env struct {
 	effort  string             // 命令行 --effort；空表示用 models.jsonc 的 default
 	// interactive 表示当前界面能向用户要输入（TUI）。为 false 时握手不声明 elicitation 与 sampling。
 	interactive bool
+	// remote 表示输入请求要转给 RPC 客户端（sprout serve），而不是终端界面。
+	remote bool
 }
 
 // app 是装配好的运行时。ag 为 nil 表示当前不能对话，原因在 disabled 里。
@@ -213,7 +215,7 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 		statusline: statusline,
 	}
 	if e.interactive {
-		a.input = newMCPInput()
+		a.input = newMCPInput(e.remote)
 	}
 	a.notices = append(a.notices, statusProblems...)
 	a.notices = append(a.notices, stateProblems...)
