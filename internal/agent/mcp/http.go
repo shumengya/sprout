@@ -28,6 +28,51 @@ type httpTransport struct {
 	nextID    atomic.Uint64
 	// notifyHook 是服务端通知的处理函数。通知随任意一次请求的 SSE 流一起到达。
 	notifyHook atomic.Pointer[func(string)]
+	// reqHandler 处理服务端在 SSE 流里发来的请求（旧版协议的 elicitation、sampling 等）。
+	reqHandler atomic.Pointer[requestHandler]
+}
+
+func (t *httpTransport) setRequestHandler(fn requestHandler) {
+	if fn == nil {
+		return
+	}
+	t.reqHandler.Store(&fn)
+}
+
+// sseHandlers 是读 SSE 流时用到的两个回调：通知与服务端请求。
+type sseHandlers struct {
+	notify  func(method string)
+	request func(msg rpcResponse)
+}
+
+// handlers 汇总当前注册的回调。服务端请求要用单独的 POST 回复，所以回调里带上了发送函数。
+func (t *httpTransport) handlers() sseHandlers {
+	h := sseHandlers{notify: t.hook()}
+	if p := t.reqHandler.Load(); p != nil {
+		handle := *p
+		h.request = func(msg rpcResponse) {
+			go t.answerServerRequest(handle, msg)
+		}
+	}
+	return h
+}
+
+// answerServerRequest 执行服务端请求并用一次独立的 POST 把响应送回去。
+// 这个 POST 不能绑定发起请求的那个 ctx：等用户回答可能很久，而那个 ctx 带着工具调用的超时。
+func (t *httpTransport) answerServerRequest(handle requestHandler, msg rpcResponse) {
+	result, rerr := handle(msg.Method, msg.Params)
+	data, err := json.Marshal(replyMessage(msg.ID, result, rerr))
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), t.spec.timeout())
+	defer cancel()
+	resp, err := t.post(ctx, data, "", "")
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 }
 
 func (t *httpTransport) setNotifyHook(fn func(string)) {
@@ -80,7 +125,7 @@ func (t *httpTransport) request(ctx context.Context, method, name string, params
 	ct := resp.Header.Get("Content-Type")
 	switch {
 	case strings.HasPrefix(ct, "text/event-stream"):
-		return readSSEResponse(resp.Body, id, method, t.hook())
+		return readSSEResponse(resp.Body, id, method, t.handlers())
 	case strings.HasPrefix(ct, "application/json"):
 		return readJSONResponse(resp.Body, method)
 	default:
@@ -111,7 +156,7 @@ func (t *httpTransport) post(ctx context.Context, data []byte, method, name stri
 	if version != "" {
 		req.Header.Set("MCP-Protocol-Version", version)
 		// 无状态协议要求把方法名和目标名放进头里，网关只读头就能路由与计量。
-		if version >= ProtocolStateless {
+		if version >= ProtocolStateless && method != "" {
 			req.Header.Set("Mcp-Method", method)
 			if name != "" {
 				req.Header.Set("Mcp-Name", name)
@@ -195,7 +240,7 @@ func unwrapResponse(resp rpcResponse, method string) (json.RawMessage, error) {
 
 // readSSEResponse 读完 SSE 流，返回 id 匹配的那条响应。服务端可能先发若干通知，
 // 通知交给 hook（工具列表变更等），不影响本次响应的等待。
-func readSSEResponse(r io.Reader, id uint64, method string, hook func(string)) (json.RawMessage, error) {
+func readSSEResponse(r io.Reader, id uint64, method string, hook sseHandlers) (json.RawMessage, error) {
 	br := bufio.NewReaderSize(r, 64*1024)
 	var data []string
 	var size int
@@ -237,14 +282,18 @@ func readSSEResponse(r io.Reader, id uint64, method string, hook func(string)) (
 
 // matchEvent 判断一条 SSE 事件是不是我们要的响应；是则返回结果，done 为 true。
 // 带 method 的事件是服务端通知或请求，交给 hook。
-func matchEvent(payload string, id uint64, method string, hook func(string)) (json.RawMessage, bool, error) {
+func matchEvent(payload string, id uint64, method string, hook sseHandlers) (json.RawMessage, bool, error) {
 	var resp rpcResponse
 	if err := json.Unmarshal([]byte(payload), &resp); err != nil {
 		return nil, false, nil // 不是 JSON 的事件，忽略
 	}
 	if resp.Method != "" {
-		if hook != nil && (len(resp.ID) == 0 || string(resp.ID) == "null") {
-			go hook(resp.Method)
+		if len(resp.ID) == 0 || string(resp.ID) == "null" {
+			if hook.notify != nil {
+				go hook.notify(resp.Method)
+			}
+		} else if hook.request != nil {
+			hook.request(resp)
 		}
 		return nil, false, nil // 服务端的通知或请求
 	}

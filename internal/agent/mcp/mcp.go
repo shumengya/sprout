@@ -55,6 +55,10 @@ type Spec struct {
 	// OnToolsChanged 在服务端发来 notifications/tools/list_changed 后调用，参数是刷新后的工具个数。
 	// 它在后台 goroutine 里执行，调用方要自己保证线程安全。
 	OnToolsChanged func(server string, toolCount int)
+	// Elicit 与 Sample 由界面层提供，处理服务端要用户填表单、要借模型生成的请求。
+	// 为 nil 表示当前界面不支持：握手时不声明对应能力，服务端也就不该发这类请求。
+	Elicit ElicitFunc
+	Sample SampleFunc
 }
 
 // IsHTTP 报告这个服务端是否走 HTTP。
@@ -80,8 +84,15 @@ type Client struct {
 	// tools 由 mu 保护：list_changed 通知会在后台刷新工具列表，同时别处在读。
 	mu    sync.Mutex
 	tools []ToolInfo
-	// resources 在握手时确定，之后只读。
+	// resources、prompts 在握手时确定，之后只读。
 	resources bool
+	prompts   bool
+
+	// life 在 Close 时取消：旧版协议里服务端发来的请求（等用户回答）跟着连接的生命周期走，
+	// 不跟某一次工具调用的超时走。
+	life   context.Context
+	stop   context.CancelFunc
+	timers timers
 }
 
 // ServerInfo 是服务端自报的身份。
@@ -119,6 +130,7 @@ func Dial(ctx context.Context, spec Spec, hc *http.Client, log *slog.Logger) (*C
 		log = slog.New(slog.DiscardHandler)
 	}
 	c := &Client{spec: spec, log: log}
+	c.life, c.stop = context.WithCancel(context.Background())
 
 	var (
 		tr  transport
@@ -136,10 +148,12 @@ func Dial(ctx context.Context, spec Spec, hc *http.Client, log *slog.Logger) (*C
 		}
 	}
 	c.tr = tr
+	tr.setRequestHandler(c.serverRequest)
 
 	ctx, cancel := context.WithTimeout(ctx, spec.timeout())
 	defer cancel()
 	if err := c.handshake(ctx); err != nil {
+		c.stop()
 		_ = tr.close()
 		return nil, err
 	}
@@ -149,6 +163,7 @@ func Dial(ctx context.Context, spec Spec, hc *http.Client, log *slog.Logger) (*C
 	} else {
 		tools, ttl, err := c.listTools(ctx)
 		if err != nil {
+			c.stop()
 			_ = tr.close()
 			return nil, err
 		}
@@ -214,7 +229,7 @@ func (c *Client) handshake(ctx context.Context) error {
 		"_meta": map[string]any{
 			"io.modelcontextprotocol/protocolVersion":    ProtocolStateless,
 			"io.modelcontextprotocol/clientInfo":         clientInfo(),
-			"io.modelcontextprotocol/clientCapabilities": map[string]any{},
+			"io.modelcontextprotocol/clientCapabilities": c.spec.clientCapabilities(),
 		},
 	}
 	c.tr.setVersion(ProtocolStateless)
@@ -228,6 +243,7 @@ func (c *Client) handshake(ctx context.Context) error {
 			c.version, c.stateless = ProtocolStateless, true
 			c.info = res.ServerInfo
 			c.resources = hasCapability(res.Capabilities, "resources")
+			c.prompts = hasCapability(res.Capabilities, "prompts")
 			return nil
 		}
 	}
@@ -252,7 +268,7 @@ func (c *Client) handshakeKnown(ctx context.Context, v string) error {
 			"_meta": map[string]any{
 				"io.modelcontextprotocol/protocolVersion":    ProtocolStateless,
 				"io.modelcontextprotocol/clientInfo":         clientInfo(),
-				"io.modelcontextprotocol/clientCapabilities": map[string]any{},
+				"io.modelcontextprotocol/clientCapabilities": c.spec.clientCapabilities(),
 			},
 		})
 		if err != nil {
@@ -271,6 +287,7 @@ func (c *Client) handshakeKnown(ctx context.Context, v string) error {
 		}
 		c.version, c.stateless, c.info = ProtocolStateless, true, res.ServerInfo
 		c.resources = hasCapability(res.Capabilities, "resources")
+		c.prompts = hasCapability(res.Capabilities, "prompts")
 		return nil
 	}
 	c.tr.setVersion("")
@@ -282,7 +299,7 @@ func (c *Client) initialize(ctx context.Context, declared string) error {
 	// 服务端可能谈成比我们声明的更低的版本，原样记下即可。
 	raw, err := c.tr.request(ctx, "initialize", "", map[string]any{
 		"protocolVersion": declared,
-		"capabilities":    map[string]any{},
+		"capabilities":    c.spec.clientCapabilities(),
 		"clientInfo":      clientInfo(),
 	})
 	if err != nil {
@@ -302,6 +319,7 @@ func (c *Client) initialize(ctx context.Context, declared string) error {
 	}
 	c.info = res.ServerInfo
 	c.resources = hasCapability(res.Capabilities, "resources")
+	c.prompts = hasCapability(res.Capabilities, "prompts")
 	// 谈定的版本要立刻用于后续请求的 MCP-Protocol-Version 头。
 	c.tr.setVersion(c.version)
 	// initialized 通知失败不影响后续请求：有的服务端不等它就开始工作。
@@ -388,8 +406,6 @@ func (c *Client) Tools() []ToolInfo {
 
 // Call 调用一个工具。
 func (c *Client) Call(ctx context.Context, name string, args json.RawMessage) (CallResult, error) {
-	ctx, cancel := context.WithTimeout(ctx, c.spec.timeout())
-	defer cancel()
 	params := map[string]any{"name": name}
 	if len(args) > 0 {
 		var v any
@@ -398,7 +414,7 @@ func (c *Client) Call(ctx context.Context, name string, args json.RawMessage) (C
 		}
 		params["arguments"] = v
 	}
-	raw, err := c.tr.request(ctx, "tools/call", name, c.wrap(params))
+	raw, err := c.rpc(ctx, "tools/call", name, params)
 	if err != nil {
 		return CallResult{}, err
 	}
@@ -417,13 +433,16 @@ func (c *Client) wrap(params map[string]any) map[string]any {
 	params["_meta"] = map[string]any{
 		"io.modelcontextprotocol/protocolVersion":    ProtocolStateless,
 		"io.modelcontextprotocol/clientInfo":         clientInfo(),
-		"io.modelcontextprotocol/clientCapabilities": map[string]any{},
+		"io.modelcontextprotocol/clientCapabilities": c.spec.clientCapabilities(),
 	}
 	return params
 }
 
 // Close 结束连接。对 stdio 是关闭子进程，对 HTTP 是尽量发 DELETE 结束会话。
 func (c *Client) Close() error {
+	if c.stop != nil {
+		c.stop()
+	}
 	if c.tr == nil {
 		return nil
 	}
@@ -438,8 +457,14 @@ type transport interface {
 	setVersion(v string)
 	// setNotifyHook 注册服务端通知的处理函数：传输层收到带 method、不带 id 的消息时调用它。
 	setNotifyHook(fn func(method string))
+	// setRequestHandler 注册服务端请求（elicitation/create、sampling/createMessage 等）的处理函数。
+	// 传输层负责在后台调用它并把结果或错误回给服务端，读循环不能被它阻塞。
+	setRequestHandler(fn requestHandler)
 	close() error
 }
+
+// requestHandler 处理一条服务端发来的请求，返回 result 或 JSON-RPC 错误。
+type requestHandler func(method string, params json.RawMessage) (any, *rpcError)
 
 // ToolName 是 MCP 工具注册给模型的名字：mcp__<服务端>__<工具>。
 // 两段都按模型的工具名约束清洗，整体再截到 64 个字符。

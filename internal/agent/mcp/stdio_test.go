@@ -29,6 +29,7 @@ func runFakeStdioServer() {
 	sc := bufio.NewScanner(os.Stdin)
 	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 	out := bufio.NewWriter(os.Stdout)
+	var initCaps json.RawMessage
 	for sc.Scan() {
 		line := sc.Bytes()
 		if len(strings.TrimSpace(string(line))) == 0 {
@@ -46,6 +47,11 @@ func runFakeStdioServer() {
 		var rerr *rpcError
 		switch req.Method {
 		case "initialize":
+			var ip struct {
+				Capabilities json.RawMessage `json:"capabilities"`
+			}
+			_ = json.Unmarshal(req.Params, &ip)
+			initCaps = ip.Capabilities
 			result = map[string]any{
 				"protocolVersion": "2025-06-18",
 				"capabilities":    map[string]any{"tools": map[string]any{}},
@@ -61,7 +67,21 @@ func runFakeStdioServer() {
 				Name string `json:"name"`
 			}
 			_ = json.Unmarshal(req.Params, &p)
-			if p.Name == "fail" {
+			if p.Name == "caps" {
+				result = map[string]any{"content": []map[string]any{{"type": "text", "text": string(initCaps)}}}
+			} else if p.Name == "ask" {
+				// 先向客户端发一条 elicitation 请求，读到它的回复后再给出工具结果。
+				ask, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": "srv-1", "method": "elicitation/create",
+					"params": map[string]any{"message": "颜色？", "requestedSchema": map[string]any{"type": "object"}}})
+				out.Write(ask)
+				out.WriteByte('\n')
+				out.Flush()
+				reply := "没收到回复"
+				if sc.Scan() {
+					reply = sc.Text()
+				}
+				result = map[string]any{"content": []map[string]any{{"type": "text", "text": reply}}}
+			} else if p.Name == "fail" {
 				result = map[string]any{"isError": true, "content": []map[string]any{{"type": "text", "text": "出错了"}}}
 			} else {
 				result = map[string]any{"content": []map[string]any{{"type": "text", "text": "pong"}}}

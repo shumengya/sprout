@@ -43,6 +43,8 @@ type stdioTransport struct {
 	wait    chan struct{} // 子进程退出后关闭
 	// notifyHook 是服务端通知的处理函数，由 Client 在握手后注册。
 	notifyHook atomic.Pointer[func(string)]
+	// reqHandler 处理服务端发来的请求（elicitation、sampling 等），由 Client 在 Dial 时注册。
+	reqHandler atomic.Pointer[requestHandler]
 }
 
 func newStdioTransport(spec Spec) (*stdioTransport, error) {
@@ -139,7 +141,7 @@ func (t *stdioTransport) dispatch(line []byte) {
 		return // 不是 JSON 的行（服务端误写到 stdout 的日志）直接丢弃
 	}
 	if probe.Method != "" {
-		// 服务端的通知或发起的请求。本客户端不支持采样/elicitation，能答的随手答掉。
+		// 服务端的通知或发起的请求。
 		t.handleServerMessage(line, probe.Method, probe.ID)
 		return
 	}
@@ -156,14 +158,27 @@ func (t *stdioTransport) dispatch(line []byte) {
 	}
 }
 
-// handleServerMessage 回应服务端发来的请求。ping 回空结果，roots/list 回空列表，
-// 其余回“方法不支持”，避免服务端一直等。通知（没有 id）交给注册的钩子。
+// handleServerMessage 回应服务端发来的请求。Client 注册了处理函数时全部交给它；
+// 否则 ping 回空结果，roots/list 回空列表，其余回“方法不支持”，避免服务端一直等。
+// 通知（没有 id）交给注册的钩子。
 func (t *stdioTransport) handleServerMessage(line []byte, method string, id json.RawMessage) {
 	if len(id) == 0 || string(id) == "null" {
 		// 通知，无需回应；工具列表变更等由钩子处理。
 		if h := t.notifyHook.Load(); h != nil {
 			go (*h)(method)
 		}
+		return
+	}
+	// 有处理函数时交给它：它可能要等用户回答，必须离开读循环，否则读不到别的响应。
+	if h := t.reqHandler.Load(); h != nil {
+		var env struct {
+			Params json.RawMessage `json:"params"`
+		}
+		_ = json.Unmarshal(line, &env)
+		go func() {
+			result, rerr := (*h)(method, env.Params)
+			_ = t.writeMessage(replyMessage(id, result, rerr))
+		}()
 		return
 	}
 	var result any = map[string]any{}
@@ -199,7 +214,7 @@ func (t *stdioTransport) request(ctx context.Context, method, _ string, params a
 	case <-ctx.Done():
 		// 通知服务端取消，尽力而为。
 		_ = t.notify(context.Background(), "notifications/cancelled", map[string]any{"requestId": id, "reason": "timeout"})
-		return nil, fmt.Errorf("%s 等待超时或被取消: %w", method, ctx.Err())
+		return nil, fmt.Errorf("%s 等待超时或被取消: %w", method, context.Cause(ctx))
 	case <-t.closed:
 		if err, ok := t.readErr.Load().(error); ok && err != nil {
 			return nil, fmt.Errorf("MCP 服务端连接断开: %w", err)
@@ -216,6 +231,13 @@ func (t *stdioTransport) setNotifyHook(fn func(string)) {
 		return
 	}
 	t.notifyHook.Store(&fn)
+}
+
+func (t *stdioTransport) setRequestHandler(fn requestHandler) {
+	if fn == nil {
+		return
+	}
+	t.reqHandler.Store(&fn)
 }
 
 func (t *stdioTransport) notify(_ context.Context, method string, params any) error {

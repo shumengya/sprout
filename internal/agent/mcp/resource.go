@@ -47,9 +47,7 @@ func (c *Client) ListResources(ctx context.Context) (resources, templates []Reso
 
 // ReadResource 按 URI 读一个资源。服务端可能返回多段内容（如目录下的多个文件），原样带回。
 func (c *Client) ReadResource(ctx context.Context, uri string) ([]ResourceContent, error) {
-	ctx, cancel := context.WithTimeout(ctx, c.spec.timeout())
-	defer cancel()
-	raw, err := c.tr.request(ctx, "resources/read", "", c.wrap(map[string]any{"uri": uri}))
+	raw, err := c.rpc(ctx, "resources/read", "", map[string]any{"uri": uri})
 	if err != nil {
 		return nil, err
 	}

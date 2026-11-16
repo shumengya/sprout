@@ -323,6 +323,16 @@ func registerMCPTools(reg *tool.Registry, set *mcpSet, f *config.MCPFile, add fu
 				notes = append(notes, err.Error())
 			}
 		}
+		// 提示词工具同理，名字固定，不受 excludeTools 控制。
+		for _, pt := range mcp.PromptTools(c) {
+			if _, exists := reg.Get(pt.Name()); exists {
+				notes = append(notes, "MCP 工具 "+pt.Name()+" 与已注册的工具重名，已跳过")
+				continue
+			}
+			if err := add(pt, "MCP  "+name+"  提示词"); err != nil {
+				notes = append(notes, err.Error())
+			}
+		}
 	}
 	return notes
 }
