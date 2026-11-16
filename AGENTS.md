@@ -79,7 +79,7 @@ go vet ./...
 - 行为变更补测试；单元测试用 `httptest` 或接口替身，不打真实 API。测试替身只能出现在 `_test.go`，不能进入默认运行路径。
 - 提交前必须通过 build / test / vet；不要靠注释掉测试或缩小检查范围绕过。
 - 不删除、不跳过失败测试；确需跳过时说明原因。
-- 涉及协议、事件、会话格式的改动，同步更新 `docs/` 下的设计文档（M1 起建立）。
+- 涉及协议、事件、会话格式的改动，同步更新 `docs/` 下的设计文档（事件见 `docs/events.md`，会话格式见 `docs/session-format.md`）。
 - 每次完成任务（验证通过并提交）后，自动执行一次 `build.cmd`（非 Windows 用 `CGO_ENABLED=0 go build -o bin/sprout ./cmd/sprout`）更新 `bin/sprout.exe`，不用让用户自己构建；构建失败时报告原因。Windows 上 `sprout.exe` 正在运行时文件被占用会构建失败，提示用户先退出再重试。
 
 ## 不要做
@@ -104,4 +104,6 @@ go vet ./...
 - 思考程度（effort）：`docs/effort.md`
 - 命令行、斜杠命令、快捷键参考：`docs/CLI命令.md`、`docs/斜杠命令.md`、`docs/快捷键.md`
 - 发布流程：`docs/发布.md`
-- 设计文档（M1 起放在 `docs/`）：架构、协议、决策记录。
+- 事件协议（surface 与内核的接口，顺序保证与字段语义）：`docs/events.md`
+- 会话格式（JSONL 记录、`meta.json`、恢复重放规则）：`docs/session-format.md`
+- 已定决策及其原因：`docs/decisions.md`

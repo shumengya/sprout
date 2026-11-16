@@ -188,7 +188,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] `README.md` 与 `AGENTS.md` 的“当前状态”已更新为 M1 + M2，协议表补上 Gemini，深入文档列表补全。
 - [x] `docs/斜杠命令.md` 已列出 `/new` 与 `/image`。
 - [x] `docs/CLI命令.md`、`docs/快捷键.md`、`docs/斜杠命令.md` 已提交到 git。
-- [ ] `AGENTS.md` 约定的架构 / 协议 / 决策记录文档还没有单独成文（事件协议和会话格式目前散落在 `m1-implementation.md` §10、§15 与 `m2-vision.md` §3）。
+- [x] 事件协议、会话格式、决策记录已单独成文：`docs/events.md`、`docs/session-format.md`、`docs/decisions.md`；`m1-implementation.md` §10、§15 与 `m2-vision.md` §3 加了指向新文档的说明。
 - [x] 测试里的旧模型名 `deepseek-chat` 已统一为模板中的 `deepseek-flash`（`session_test.go`、`tui/helpers_test.go`、`tui/model_test.go`）。
 
 

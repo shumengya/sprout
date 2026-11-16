@@ -384,6 +384,8 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
 
 ## 10. 会话
 
+> 当前的完整会话格式见 `docs/session-format.md`，本节保留 M1 落地时的记录。
+
 - 路径：`<dataDir>/sessions/--<cwd slug>--/<yyyymmdd-hhmmss>_<id>.jsonl`。slug 去掉开头的分隔符，把 `/`、`\`、`:` 换成 `-`，如 `D:\SmyProjects\sprout` → `--D--SmyProjects-sprout--`。
 - 记录类型（每行一条，`type` 区分）：`session`（头）、`user`、`assistant`（含 `tool_calls`）、`tool`（含完整 stdout/stderr、退出码、耗时）、`usage`、`turn`（`reason`）、`error`。
 - 带图片的 `user` 记录多一个 `images: [{file, media_type, bytes}]`，`file` 是相对会话文件的路径；
@@ -459,7 +461,7 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
 
 以下是落地时有意偏离上文设计的地方，以代码为准。
 
-**事件协议**（`internal/agent/event`）
+**事件协议**（`internal/agent/event`，当前的完整说明见 `docs/events.md`）
 
 - 事件新增 `interrupted`（`Reason` 为 `cancelled` / `error`，带写进历史的完整文本、思维链和 `Partial` 标志）：中断的那一轮保留在历史里，界面按 `Partial` 决定是补一行说明还是显示整条消息。`content` 不写入 `assistant` 记录，而是单独的 `interrupted` 记录，恢复时还原成同样的 assistant 消息。
 - `tool.finished` 带完整 stdout/stderr（已受 50KB 上限约束）和 `Cancelled`、`Err` 字段。被取消而没来得及执行的调用只有 `tool.finished`，没有 `tool.requested`。

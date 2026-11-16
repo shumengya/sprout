@@ -48,6 +48,8 @@ func (m Message) WithoutImages(placeholder string) Message // 图片换成占位
 
 ## 3. 事件与会话
 
+> 事件与会话记录的当前完整格式见 `docs/events.md`、`docs/session-format.md`。
+
 事件：`event.TurnStarted` 增加 `Images []ImageInfo`，每项带 `Name`、`MediaType`、`Bytes`、`Data`（base64），
 以及落盘后回填的 `Path`。
 
