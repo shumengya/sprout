@@ -94,7 +94,36 @@ func TestServeEndToEnd(t *testing.T) {
 	if strings.Contains(second, "小明") {
 		t.Error("session/new 之后不应带上旧会话的历史")
 	}
-	send(`{"jsonrpc":"2.0","id":5,"method":"shutdown"}`)
+	// 列出会话，恢复第一个（非当前的）会话，重放事件里应有当时的提问，下一轮请求应带上它的历史。
+	send(`{"jsonrpc":"2.0","id":5,"method":"session/list"}`)
+	list := next()["result"].(map[string]any)["sessions"].([]any)
+	if len(list) != 2 {
+		t.Fatalf("session/list 应有两个会话: %v", list)
+	}
+	var old map[string]any
+	for _, s := range list {
+		if s := s.(map[string]any); s["current"] != true {
+			old = s
+		}
+	}
+	if old == nil {
+		t.Fatalf("应有一个非当前会话: %v", list)
+	}
+	send(`{"jsonrpc":"2.0","id":6,"method":"session/resume","params":{"selector":"` + old["id"].(string) + `"}}`)
+	r := next()["result"].(map[string]any)
+	if evs := r["events"].([]any); len(evs) == 0 || evs[0].(map[string]any)["prompt"] != "我叫小明" {
+		t.Fatalf("恢复后的重放事件不对: %v", r)
+	}
+	send(`{"jsonrpc":"2.0","id":7,"method":"turn/start","params":{"text":"我叫什么"}}`)
+	next()
+	answer()
+	srv.mu.Lock()
+	third := srv.bodies[2]
+	srv.mu.Unlock()
+	if !strings.Contains(third, "小明") {
+		t.Error("恢复会话后应带上原会话的历史")
+	}
+	send(`{"jsonrpc":"2.0","id":8,"method":"shutdown"}`)
 	next()
 	if c := <-code; c != 0 || stderr.Len() != 0 {
 		t.Fatalf("退出码 %d stderr=%q", c, stderr.String())

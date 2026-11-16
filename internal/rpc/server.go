@@ -28,6 +28,37 @@ type Backend interface {
 	Prepare() []string
 	Run(ctx context.Context, in agent.Input, sink event.Sink) error
 	NewSession() error
+	// ListSessions 列出当前工作目录（all 为 true 时是全部目录）的会话，最近使用的在前。
+	ListSessions(all bool) ([]SessionInfo, error)
+	// ResumeSession 按选择器恢复会话：latest、ListSessions(false) 里的序号、ID 前缀或会话文件路径。
+	ResumeSession(selector string) (Restored, error)
+	RenameSession(path, name string) error
+	DeleteSession(path string) error
+	// Compact 把全部历史总结成摘要。和 Run 一样在后台调用，可被取消。
+	Compact(ctx context.Context, focus string, sink event.Sink) error
+}
+
+// SessionInfo 是 session/list 里的一项。会话按 Path 定位：重命名、删除都用它。
+type SessionInfo struct {
+	ID       string    `json:"id"`
+	Path     string    `json:"path"`
+	Prompt   string    `json:"prompt"` // 第一条提问
+	Name     string    `json:"name"`   // 用户起的名字，没起过为空
+	Cwd      string    `json:"cwd"`
+	Provider string    `json:"provider"`
+	Model    string    `json:"model"`
+	Updated  time.Time `json:"updated"`
+	Turns    int       `json:"turns"`
+	Current  bool      `json:"current"` // 是当前正在写的会话
+}
+
+// Restored 是恢复会话的结果。Events 是按会话记录重放出的事件，客户端用它画出历史对话。
+type Restored struct {
+	ID     string
+	Path   string
+	Notice string
+	Turns  int
+	Events []event.Event
 }
 
 // Info 是 initialize 的结果。
@@ -154,8 +185,8 @@ func (s *Server) handle(line []byte) bool {
 	}
 
 	s.log.Debug("rpc 请求", "method", m.Method, "notify", notify)
-	result, after, rerr := s.call(m.Method, m.Params)
-	if !notify {
+	result, after, rerr := s.call(m.ID, m.Method, m.Params)
+	if _, later := result.(pending); !notify && !later {
 		s.reply(m.ID, result, rerr)
 	}
 	// 响应先写出去再开始这一轮，客户端拿到 {turn} 之后才会收到这一轮的事件。
@@ -165,8 +196,21 @@ func (s *Server) handle(line []byte) bool {
 	return m.Method == "shutdown" && rerr == nil
 }
 
-func (s *Server) call(method string, params json.RawMessage) (any, func(), *Error) {
+// pending 作为 call 的结果时表示响应由后台操作结束后自己写（session/compact）。
+type pending struct{}
+
+func (s *Server) call(id json.RawMessage, method string, params json.RawMessage) (any, func(), *Error) {
 	switch method {
+	case "session/list":
+		return s.listSessions(params)
+	case "session/resume":
+		return s.resumeSession(params)
+	case "session/rename":
+		return s.renameSession(params)
+	case "session/delete":
+		return s.deleteSession(params)
+	case "session/compact":
+		return s.compact(id, params)
 	case "initialize":
 		var prepared []string
 		if !s.busy() {
@@ -204,7 +248,25 @@ func (s *Server) call(method string, params json.RawMessage) (any, func(), *Erro
 }
 
 func errBusy() *Error {
-	return errorf(CodeBusy, "已有一轮在进行，等收到 turn.finished 再发，或先 turn/cancel")
+	return errorf(CodeBusy, "已有一轮对话或压缩在进行，等它结束再发，或先 turn/cancel")
+}
+
+// begin 标记忙碌，返回这次后台操作的 ctx 和收尾函数。收尾函数先清掉忙碌状态，再调用 last
+// 告诉客户端“结束了”（客户端一收到就可能发下一个请求），最后才让 stop 不再等待，保证最后一条消息写出去。
+func (s *Server) begin() (context.Context, func(last func())) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	s.mu.Lock()
+	s.cancel, s.done = cancel, done
+	s.mu.Unlock()
+	return ctx, func(last func()) {
+		s.mu.Lock()
+		s.cancel, s.done = nil, nil
+		s.mu.Unlock()
+		cancel()
+		last()
+		close(done)
+	}
 }
 
 func (s *Server) busy() bool {
@@ -249,17 +311,13 @@ func (s *Server) startTurn(params json.RawMessage) (any, func(), *Error) {
 		s.notify("notice", map[string]string{"message": n})
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
 	s.mu.Lock()
 	s.turn++
 	n := s.turn
-	s.cancel, s.done = cancel, done
 	s.mu.Unlock()
+	ctx, finish := s.begin()
 
 	run := func() {
-		defer close(done)
-		defer cancel()
 		// turn.finished 压到 Run 返回、忙碌状态清掉之后再发：客户端一收到它就可能发下一个请求，
 		// 这时还没结束的 Run 会被当成 busy；会话记录器也要在它之后才写完这一轮。
 		var finished map[string]any
@@ -276,12 +334,11 @@ func (s *Server) startTurn(params json.RawMessage) (any, func(), *Error) {
 		if err := s.b.Run(ctx, in, sink); err != nil {
 			s.log.Info("本轮以错误结束", "turn", n, "error", err.Error())
 		}
-		s.mu.Lock()
-		s.cancel, s.done = nil, nil
-		s.mu.Unlock()
-		if finished != nil {
-			s.notify("event", finished)
-		}
+		finish(func() {
+			if finished != nil {
+				s.notify("event", finished)
+			}
+		})
 	}
 	return map[string]int{"turn": n}, func() { go run() }, nil
 }

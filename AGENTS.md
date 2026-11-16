@@ -6,7 +6,7 @@
 
 Sprout 是 Go 编写的跨平台通用型 agent runtime：内核是 ReAct 循环，TUI / WebUI / CLI / JSON-RPC 四种入口共用同一套会话与工具。模块路径 `github.com/shumengya/sprout`，Go 1.27+。
 
-M1（最小可用闭环）、M2（识图）已实现，M5 中的 MCP 与 Agent Skills 也已实现：ReAct 循环、OpenAI Chat Completions + Responses、Anthropic Messages、Gemini、`bash` + `powershell` + `read` + `write` + `edit` + `delete` 与外部命令工具、Bubble Tea v2 TUI（含 `/mcp`、`/skills` 面板）、`sprout run`、`sprout update`、JSONL 会话与恢复、自动重试与上下文压缩、MCP 客户端（`mcp.jsonc`）、技能注册表（`skills.jsonc`）与手动触发（`/技能名 任务`）；M3 JSON-RPC 正在实现，`sprout serve` 已有对话、取消与新会话（`docs/rpc.md`）。M1 范围与实现差异见 `docs/m1-minimal.md`、`docs/m1-implementation.md`（§15 列出了与原计划的差异和尚未验证的部分），识图设计见 `docs/m2-vision.md`，MCP 与技能见 `docs/mcp.md`、`docs/skills.md`，逐项的完成与待办状态见 `TODOS.md`。未经用户确认，不要提前实现后续里程碑（WebUI、子代理）。
+M1（最小可用闭环）、M2（识图）已实现，M5 中的 MCP 与 Agent Skills 也已实现：ReAct 循环、OpenAI Chat Completions + Responses、Anthropic Messages、Gemini、`bash` + `powershell` + `read` + `write` + `edit` + `delete` 与外部命令工具、Bubble Tea v2 TUI（含 `/mcp`、`/skills` 面板）、`sprout run`、`sprout update`、JSONL 会话与恢复、自动重试与上下文压缩、MCP 客户端（`mcp.jsonc`）、技能注册表（`skills.jsonc`）与手动触发（`/技能名 任务`）；M3 JSON-RPC 正在实现，`sprout serve` 已有对话、取消与会话管理（`docs/rpc.md`）。M1 范围与实现差异见 `docs/m1-minimal.md`、`docs/m1-implementation.md`（§15 列出了与原计划的差异和尚未验证的部分），识图设计见 `docs/m2-vision.md`，MCP 与技能见 `docs/mcp.md`、`docs/skills.md`，逐项的完成与待办状态见 `TODOS.md`。未经用户确认，不要提前实现后续里程碑（WebUI、子代理）。
 
 ## 常用命令
 

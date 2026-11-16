@@ -10,6 +10,7 @@ import (
 
 	"github.com/shumengya/sprout/internal/agent"
 	"github.com/shumengya/sprout/internal/agent/event"
+	"github.com/shumengya/sprout/internal/agent/platform"
 	"github.com/shumengya/sprout/internal/cli"
 	"github.com/shumengya/sprout/internal/rpc"
 )
@@ -64,6 +65,42 @@ func (b *rpcBackend) Run(ctx context.Context, in agent.Input, sink event.Sink) e
 }
 
 func (b *rpcBackend) NewSession() error { return b.a.newSession() }
+
+func (b *rpcBackend) ListSessions(all bool) ([]rpc.SessionInfo, error) {
+	list, active, err := b.a.listSessions(all)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]rpc.SessionInfo, len(list))
+	for i, s := range list {
+		out[i] = rpc.SessionInfo{
+			ID: s.ID, Path: s.Path, Prompt: s.Prompt, Name: s.Name, Cwd: s.Cwd, Provider: s.Provider, Model: s.Model,
+			Updated: s.Updated, Turns: s.Turns, Current: active != "" && platform.SamePath(s.Path, active),
+		}
+	}
+	return out, nil
+}
+
+func (b *rpcBackend) ResumeSession(selector string) (rpc.Restored, error) {
+	st, notice, err := b.a.resume(selector)
+	if err != nil {
+		return rpc.Restored{}, err
+	}
+	return rpc.Restored{ID: st.ID, Path: st.Path, Notice: notice, Turns: st.Turns, Events: st.Events}, nil
+}
+
+func (b *rpcBackend) RenameSession(path, name string) error {
+	return sessionStore{b.a}.Rename(path, name)
+}
+
+func (b *rpcBackend) DeleteSession(path string) error {
+	return sessionStore{b.a}.Delete(path)
+}
+
+// Compact 同样每次取当前的 agent。
+func (b *rpcBackend) Compact(ctx context.Context, focus string, sink event.Sink) error {
+	return b.a.ag.Compact(ctx, focus, sink)
+}
 
 var _ rpc.Backend = (*rpcBackend)(nil)
 

@@ -24,6 +24,11 @@ sprout serve [--data-dir DIR] [-c | --resume ID] [--effort 档位]
 | `turn/start` | `{text, images?: [{path}]}` | `{turn}`：本轮编号，从 1 递增 |
 | `turn/cancel` | 无 | `{cancelled}`：有一轮在进行时为 true |
 | `session/new` | 无 | `{}`：开始空白会话，旧会话文件保留 |
+| `session/list` | `{all?}` | `{sessions: [...]}`：当前工作目录的会话（`all` 为 true 时是全部目录），最近使用的在前 |
+| `session/resume` | `{selector}` | `{id, path, notice, turns, events}`：恢复会话，`events` 是重放出的历史事件 |
+| `session/rename` | `{path, name}` | `{}`：`name` 为空表示清除名字 |
+| `session/delete` | `{path}` | `{}`：不能删除当前会话 |
+| `session/compact` | `{focus?}` | `{tokensBefore, tokensAfter, dropped, summary}`：把全部历史总结成摘要 |
 | `shutdown` | 无 | `{}`，随后退出 |
 
 `initialize` 的结果：
@@ -46,6 +51,19 @@ sprout serve [--data-dir DIR] [-c | --resume ID] [--effort 档位]
   读不了时整个请求返回 `-32602`，不会开始这一轮。文本里写的图片路径**不会**自动附加（与 TUI / `run` 不同），程序调用方应显式放进 `images`。
 - 响应先于本轮的任何事件写出。一轮进行中再调用返回 `-32001`，服务端不排队。
 - 一轮结束以 `turn.finished` 事件为准；收到它之后服务端已经空闲，可以立刻开始下一轮。
+
+会话方法：
+
+- `session/list` 的每一项是 `{id, path, prompt, name, cwd, provider, model, updated, turns, current}`。`prompt` 是第一条提问，
+  `name` 是起过的名字（没有为空），`updated` 是 RFC 3339 时间，`current` 表示正在写的会话。没有会话时是空数组。
+- 重命名和删除用 `path` 定位，取 `session/list` 里的值；路径必须在数据目录的 `sessions/` 下。
+- `session/resume` 的 `selector`：空串或 `latest` 是最近使用的，1～3 位数字是 `session/list`（`all` 为 false）里的序号（从 1 起），
+  以 `.jsonl` 结尾的是会话文件路径（用来恢复别的目录的会话），其余按 ID 前缀匹配。
+  `events` 的元素和 `event` 通知的 `params` 相同，但**不带 `turn`**：`turn` 是本进程 `turn/start` 的编号，历史轮次没有对应编号；按 `turn.started` 分轮即可。
+  `notice` 说明恢复情况（换了模型时丢弃了旧的思维链、会话属于别的目录等）。
+- `session/compact` 要调一次模型，**结束后**才写响应；期间算作忙碌（`turn/start`、`session/resume` 等返回 `-32001`），
+  可用 `turn/cancel` 取消，取消后返回 `-32005`。压缩不是一轮对话，不推送 `event`。`focus` 是希望摘要侧重的内容。
+- `session/resume`、`session/compact` 在忙碌时返回 `-32001`，不可用时返回 `-32002`；`session/list`、`rename`、`delete` 随时可调。
 
 ## 通知
 
@@ -76,13 +94,16 @@ sprout serve [--data-dir DIR] [-c | --resume ID] [--effort 档位]
 | `-32601` | 未知方法 |
 | `-32602` | 参数无效 |
 | `-32603` | 内部错误 |
-| `-32001` | 已有一轮在进行 |
+| `-32001` | 已有一轮对话或压缩在进行 |
 | `-32002` | 当前不能对话，`message` 是原因 |
+| `-32003` | 会话操作失败：找不到、选择器有歧义、不能删除当前会话、路径不在 `sessions/` 下等 |
+| `-32005` | 操作被 `turn/cancel` 取消（目前只有 `session/compact`） |
+| `-32006` | 压缩失败：没有可压缩的对话，或生成摘要失败；历史保持原样 |
 
 ## 会话与 MCP
 
 - 一个进程同一时刻只有一个活动会话，和 TUI 一样记录到 `sessions/` 下（格式见 `docs/session-format.md`）。
-  启动时 `-c` / `--resume` 恢复会话。
+  启动时 `-c` / `--resume` 恢复会话，运行中用 `session/resume` 切换。
 - MCP 在后台连接，不阻塞启动。连好之前的提问只用内置工具；连好（或服务端通知工具列表变了）之后，
   在下一次 `initialize` 或 `turn/start` 时接入，连接失败的提示放进 `initialize` 的 `notices` 或作为 `notice` 通知推送。
 

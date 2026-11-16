@@ -70,8 +70,10 @@ func (a *app) newSession() error {
 // sessionStore 把 app 适配成 tui.Sessions。
 type sessionStore struct{ a *app }
 
-func (s sessionStore) List(all bool) ([]tui.SessionInfo, error) {
-	dir := config.SessionsDir(s.a.dataDir)
+// listSessions 列出当前目录（all 时为全部目录）的会话，并返回当前正在写的会话文件（没有时为空）。
+// TUI 的 /resume 和 RPC 的 session/list 共用。
+func (a *app) listSessions(all bool) ([]session.Brief, string, error) {
+	dir := config.SessionsDir(a.dataDir)
 	var (
 		list []session.Brief
 		err  error
@@ -79,14 +81,22 @@ func (s sessionStore) List(all bool) ([]tui.SessionInfo, error) {
 	if all {
 		list, err = session.ListAll(dir)
 	} else {
-		list, err = session.List(dir, s.a.cwd)
+		list, err = session.List(dir, a.cwd)
 	}
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	active := ""
-	if s.a.rec != nil {
-		active = s.a.rec.Path()
+	if a.rec != nil {
+		active = a.rec.Path()
+	}
+	return list, active, nil
+}
+
+func (s sessionStore) List(all bool) ([]tui.SessionInfo, error) {
+	list, active, err := s.a.listSessions(all)
+	if err != nil {
+		return nil, err
 	}
 	out := make([]tui.SessionInfo, len(list))
 	for i, b := range list {

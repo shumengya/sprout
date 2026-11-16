@@ -23,6 +23,10 @@ type fakeBackend struct {
 	inputs   []agent.Input
 	newCount int
 	prepared []string
+	sessions []SessionInfo
+	renamed  string
+	deleted  []string
+	compact  string
 }
 
 func (f *fakeBackend) Info() Info {
@@ -57,6 +61,53 @@ func (f *fakeBackend) NewSession() error {
 		return errors.New("不可用")
 	}
 	f.newCount++
+	return nil
+}
+
+func (f *fakeBackend) ListSessions(all bool) ([]SessionInfo, error) {
+	if all {
+		return append(f.sessions, SessionInfo{ID: "other", Path: "/s/other.jsonl"}), nil
+	}
+	return f.sessions, nil
+}
+
+func (f *fakeBackend) ResumeSession(selector string) (Restored, error) {
+	if selector != "1" {
+		return Restored{}, errors.New("找不到会话 " + selector)
+	}
+	return Restored{ID: "abc", Path: "/s/abc.jsonl", Notice: "已恢复会话 abc（1 轮）", Turns: 1, Events: []event.Event{
+		event.TurnStarted{Prompt: "旧问题"},
+		event.MessageCompleted{Content: "旧回答", StopReason: "stop"},
+		event.TurnFinished{Reason: event.ReasonStop},
+	}}, nil
+}
+
+func (f *fakeBackend) RenameSession(path, name string) error {
+	f.renamed = path + "=" + name
+	return nil
+}
+
+func (f *fakeBackend) DeleteSession(path string) error {
+	if path == "/s/current.jsonl" {
+		return errors.New("不能删除当前会话")
+	}
+	f.deleted = append(f.deleted, path)
+	return nil
+}
+
+// Compact 按 compact 决定行为：block 等到取消，empty 没有可压缩的，fail 摘要失败，其余成功。
+func (f *fakeBackend) Compact(ctx context.Context, focus string, sink event.Sink) error {
+	switch f.compact {
+	case "block":
+		<-ctx.Done()
+		return ctx.Err()
+	case "empty":
+		return agent.ErrNothingToCompact
+	case "fail":
+		sink.Emit(event.Compacted{Mode: event.CompactSummary, Err: "模型超时", Manual: true})
+		return errors.New("模型超时")
+	}
+	sink.Emit(event.Compacted{Mode: event.CompactSummary, TokensBefore: 100, TokensAfter: 20, Dropped: 4, Summary: "摘要:" + focus, Manual: true})
 	return nil
 }
 
@@ -257,5 +308,106 @@ func TestUnavailableBackend(t *testing.T) {
 	h.send(`{"jsonrpc":"2.0","id":2,"method":"session/new"}`)
 	if m := h.next(); errCode(m) != CodeUnavailable {
 		t.Fatalf("不可用时 session/new 也应返回 -32002: %v", m)
+	}
+}
+
+func TestSessionListRenameDelete(t *testing.T) {
+	b := &fakeBackend{}
+	h := start(t, b)
+	h.send(`{"jsonrpc":"2.0","id":1,"method":"session/list"}`)
+	if s := h.next()["result"].(map[string]any)["sessions"].([]any); len(s) != 0 {
+		t.Fatalf("没有会话时应返回空数组: %v", s)
+	}
+	b.sessions = []SessionInfo{{ID: "abc", Path: "/s/abc.jsonl", Turns: 2, Current: true}}
+	h.send(`{"jsonrpc":"2.0","id":2,"method":"session/list","params":{"all":true}}`)
+	s := h.next()["result"].(map[string]any)["sessions"].([]any)
+	if first := s[0].(map[string]any); len(s) != 2 || first["id"] != "abc" || first["turns"].(float64) != 2 || first["current"] != true {
+		t.Fatalf("all 列表不对: %v", s)
+	}
+
+	h.send(`{"jsonrpc":"2.0","id":3,"method":"session/rename","params":{"path":"/s/abc.jsonl","name":"重构"}}`)
+	if m := h.next(); errCode(m) != 0 || b.renamed != "/s/abc.jsonl=重构" {
+		t.Fatalf("重命名不对: %v %q", m, b.renamed)
+	}
+	h.send(`{"jsonrpc":"2.0","id":4,"method":"session/rename","params":{"name":"x"}}`)
+	if m := h.next(); errCode(m) != CodeInvalidParams {
+		t.Fatalf("缺 path 应返回 -32602: %v", m)
+	}
+	h.send(`{"jsonrpc":"2.0","id":5,"method":"session/delete","params":{"path":"/s/current.jsonl"}}`)
+	if m := h.next(); errCode(m) != CodeSession {
+		t.Fatalf("删除当前会话应返回 -32003: %v", m)
+	}
+	h.send(`{"jsonrpc":"2.0","id":6,"method":"session/delete","params":{"path":"/s/old.jsonl"}}`)
+	if m := h.next(); errCode(m) != 0 || len(b.deleted) != 1 {
+		t.Fatalf("删除不对: %v %v", m, b.deleted)
+	}
+}
+
+func TestSessionResumeReplaysEventsWithoutTurn(t *testing.T) {
+	h := start(t, &fakeBackend{})
+	h.send(`{"jsonrpc":"2.0","id":1,"method":"session/resume","params":{"selector":"9"}}`)
+	if m := h.next(); errCode(m) != CodeSession {
+		t.Fatalf("找不到会话应返回 -32003: %v", m)
+	}
+	h.send(`{"jsonrpc":"2.0","id":2,"method":"session/resume","params":{"selector":"1"}}`)
+	r := h.next()["result"].(map[string]any)
+	evs := r["events"].([]any)
+	if r["id"] != "abc" || r["turns"].(float64) != 1 || len(evs) != 3 {
+		t.Fatalf("恢复结果不对: %v", r)
+	}
+	for _, e := range evs {
+		if _, ok := e.(map[string]any)["turn"]; ok {
+			t.Errorf("重放事件不应带 turn: %v", e)
+		}
+	}
+	if e := evs[1].(map[string]any); e["kind"] != "message.completed" || e["content"] != "旧回答" {
+		t.Errorf("重放事件内容不对: %v", e)
+	}
+}
+
+func TestCompactResults(t *testing.T) {
+	b := &fakeBackend{}
+	h := start(t, b)
+	h.send(`{"jsonrpc":"2.0","id":1,"method":"session/compact","params":{"focus":" 接口 "}}`)
+	r := h.next()["result"].(map[string]any)
+	if r["tokensBefore"].(float64) != 100 || r["tokensAfter"].(float64) != 20 || r["dropped"].(float64) != 4 || r["summary"] != "摘要:接口" {
+		t.Fatalf("压缩结果不对: %v", r)
+	}
+	for _, c := range []struct {
+		mode string
+		code int
+	}{{"empty", CodeCompactFailed}, {"fail", CodeCompactFailed}} {
+		b.compact = c.mode
+		h.send(`{"jsonrpc":"2.0","id":2,"method":"session/compact"}`)
+		if m := h.next(); errCode(m) != c.code {
+			t.Errorf("%s: 期望 %d，得到 %v", c.mode, c.code, m)
+		}
+	}
+}
+
+func TestCompactIsBusyAndCancellable(t *testing.T) {
+	h := start(t, &fakeBackend{compact: "block"})
+	h.send(`{"jsonrpc":"2.0","id":1,"method":"session/compact"}`)
+	// 压缩期间不能开新一轮；用一个立即返回的请求确认 compact 已经进入忙碌状态。
+	h.send(`{"jsonrpc":"2.0","id":2,"method":"turn/start","params":{"text":"插队"}}`)
+	if m := h.next(); m["id"].(float64) != 2 || errCode(m) != CodeBusy {
+		t.Fatalf("压缩中 turn/start 应返回 busy: %v", m)
+	}
+	h.send(`{"jsonrpc":"2.0","id":3,"method":"session/resume","params":{"selector":"1"}}`)
+	if m := h.next(); errCode(m) != CodeBusy {
+		t.Fatalf("压缩中 session/resume 应返回 busy: %v", m)
+	}
+	h.send(`{"jsonrpc":"2.0","id":4,"method":"turn/cancel"}`)
+	got := map[float64]map[string]any{}
+	for range 2 {
+		m := h.next()
+		got[m["id"].(float64)] = m
+	}
+	if got[4]["result"].(map[string]any)["cancelled"] != true || errCode(got[1]) != CodeCancelled {
+		t.Fatalf("取消压缩的结果不对: %v", got)
+	}
+	h.send(`{"jsonrpc":"2.0","id":5,"method":"turn/start","params":{"text":"继续"}}`)
+	if m := h.next(); errCode(m) != 0 {
+		t.Fatalf("取消后应恢复空闲: %v", m)
 	}
 }
