@@ -50,6 +50,7 @@ Sprout 内置一个最小化的 MCP（Model Context Protocol）客户端，把�
 | `command` / `args` / `env` / `cwd` | 本地服务端。`command` 不经 shell，含空格会被拒绝（请写程序路径 + `args`） |
 | `timeoutSeconds` | 单次请求超时，默认 60，最大 600 |
 | `excludeTools` | 不注册的工具（服务端上的原始名字，大小写不敏感） |
+| `oauth` | 远程服务端用 OAuth 登录，`{}` 即可；可选 `clientId`（支持 `${VAR}`）、`scopes`、`callbackPort`（0–65535，0 表示随机端口）。只能用在 `url` 服务端上，见「OAuth」一节 |
 
 `${VAR}` 会展开成当前进程的环境变量（`url`、`args`、`env`、`headers` 里的值），用来避免把令牌明文写进配置文件。展开发生在装载阶段，启动后改环境变量不影响已连接的会话。
 
@@ -96,6 +97,82 @@ stdio 的读循环按 id 分发响应到等待者，所以同一批工具调用�
 `resources/read` 可能返回多段内容：文本原样输出，多段时每段前加 `--- uri ---`；二进制内容（`blob`，base64）按与工具结果图片相同的规则校验（格式、大小），合格的图片作为图片块附在结果后，不合格或不是图片的只在文本里说明字节数和原因，不把 base64 原文塞给模型。
 
 这两个工具不进 `excludeTools`：服务端的工具列表里没有这两个名字，面板里也就看不到它们。不支持 `resources/subscribe`，资源列表的变更通知也不处理。
+
+### 提示词（Prompts）
+
+服务端声明了 `prompts` 能力才注册（`mcp.PromptTools`），规则同资源工具：
+
+| 工具 | 作用 |
+| --- | --- |
+| `mcp__<服务端>__list_prompts` | 调 `prompts/list`（跟着 `nextCursor` 翻页），列出模板名、标题、说明和参数（必填 / 可选） |
+| `mcp__<服务端>__get_prompt` | 调 `prompts/get`，参数 `{"name": "...", "arguments": {"键": "字符串值"}}`，返回展开后的消息，每条标出角色；图片按工具结果图片的规则校验后附上 |
+
+提示词作为工具交给模型，不做成斜杠命令；`/技能名` 只对应 Agent Skills。
+
+### 服务端向用户要输入：Elicitation 与 Sampling
+
+两种请求都由界面层处理（`Spec.Elicit` / `Spec.Sample`），**只有接了处理函数时握手才声明对应的客户端能力**，规范要求服务端不得使用未声明的能力：
+
+| 入口 | elicitation | sampling |
+| --- | --- | --- |
+| TUI | 底部弹表单 | 弹确认框，同意后用当前模型生成 |
+| `sprout serve` | 客户端在 `initialize` 声明了才转发（`mcp/elicit`，见 `docs/rpc.md`） | 同左（`mcp/sample`） |
+| `sprout run` | 不声明 | 不声明 |
+
+- **Elicitation**（`elicitation/create`）：只支持 `form` 模式，`url` 模式回 `-32602`。`requestedSchema` 必须是扁平对象，属性只能是 `string`、`number`、`integer`、`boolean` 与枚举，嵌套或未知类型直接拒绝；字段按 JSON 里的顺序排列（服务端有意安排的先后）。用户的回答是 `accept`（带内容）、`decline` 或 `cancel`。
+- **Sampling**（`sampling/createMessage`）：服务端借用的是用户的模型和额度，不能静默发生。确认框显示是哪个服务端、最多生成多少 token、服务端建议的模型，以及系统提示和每条消息的首行；拒绝时回错误码 `-1`。同意后用**当前模型**生成，服务端的 `modelPreferences` 只做展示，不切换模型。图片、音频等非文本内容换成占位文字。
+- 等用户回答的时间不计入请求超时：输入期间暂停该客户端所有进行中请求的计时。
+- 界面已退出、等待队列已满或上下文取消时立即拒绝，不堵住 MCP 的读循环。
+
+旧版协议里这两种请求是服务端发来的 JSON-RPC 请求（stdio 读循环、HTTP 的 SSE 流里收到，回复用 POST 发回）；`ping`、`roots/list` 仍随手回掉，其他方法回 `-32601`。
+
+### 多轮请求（MRTR）
+
+2026-07-28 协议把服务端的输入请求改成结果里的 `resultType: "input_required"`。`tools/call`、`resources/read`、`prompts/get` 都走同一个循环（`Client.rpc`）：
+
+1. 结果是 `input_required` 时，按键名顺序逐个处理 `inputRequests`（与上面的 elicitation / sampling 共用处理逻辑）；
+2. 用**新请求**重发原参数，附上 `inputResponses`，服务端给了 `requestState` 时原样回传；
+3. 直到拿到最终结果。连续超过 8 轮（`maxInputRounds`）放弃并报错，防止服务端无限追问。
+
+任何一项输入失败（用户拒绝采样、客户端没声明能力）都让这次调用失败，错误文本交给模型。
+
+### OAuth
+
+远程服务端需要登录时，在配置里加 `"oauth": {}`，然后在终端执行一次：
+
+```bash
+sprout mcp login github     # 打开浏览器授权，令牌存进数据目录
+sprout mcp logout github    # 删掉保存的令牌（客户端注册信息一并删除）
+```
+
+登录流程（`mcp.Login`）：
+
+1. **探测**：不带令牌 POST 一次 MCP 端点，必须得到 401；从 `WWW-Authenticate` 里取 `resource_metadata` 与 `scope`。服务端不要求认证时报“不需要登录”。
+2. **受保护资源元数据**（RFC 9728）：优先用 `resource_metadata` 给的地址，否则按 well-known 路径找（先带 URL 路径，再不带）。`resource` 必须等于配置里的 URL，防止被别家服务端冒用。
+3. **授权服务器元数据**：依次试 `oauth-authorization-server` 与 `openid-configuration`；`issuer` 必须与取文档的地址一致，`code_challenge_methods_supported` 必须含 `S256`，否则拒绝登录。
+4. **客户端 ID**：配置的 `clientId` > 上次登录注册的（同一 issuer）> 动态注册（RFC 7591，公开客户端，`token_endpoint_auth_method: none`）。不能动态注册又没配 `clientId` 时报错，提示去服务商那里建应用。不支持 Client ID Metadata Document。
+5. **授权**：PKCE S256 + 32 字节随机 `state`，`resource` 参数指向 MCP 端点；scope 取配置的 `scopes`，没有时用 401 里的 `scope`。回调地址是 `http://127.0.0.1:<端口>/callback`（`callbackPort` 为 0 时随机端口；有些服务商要求预先登记回调地址，这时固定一个端口）。浏览器打不开时把地址打印出来让用户手动复制。等待 5 分钟，Ctrl+C 取消。
+6. **回调校验**：`state` 不对或 `Host` 不是回环地址的请求回 400，但**不结束登录**（防止别的网页抢先打一个错误请求把登录搅掉）。授权服务器声明了 RFC 9207 时 `iss` 必须带且一致；没声明但带了，也必须一致。
+7. **换令牌**：`token_type` 必须是 Bearer。授权、令牌、注册端点都必须是 https，或回环地址的 http。
+
+令牌存在 `<数据目录>/mcp-auth.json`（权限 0600，先写临时文件再改名），按服务端名分组并记下登录时的 URL：配置里的 URL 改了，旧令牌不会发给新地址，需要重新登录。文件损坏时报错，不覆盖写入。令牌不进日志，也不进 `mcp-versions.json`。
+
+连接时（`mcp.TokenSource`）：
+
+- 令牌离过期不足 1 分钟就用 `refresh_token` 刷新，同一服务端的并发请求只刷新一次；服务端没轮换 `refresh_token` 时沿用旧的。
+- 刷新得到 `invalid_grant`：清掉令牌、保留客户端 ID，提示运行 `sprout mcp login <名字>`。
+- 还没登录时不发请求，直接报需要登录。
+- `headers` 里手写的 `Authorization` 优先于 OAuth 令牌。
+
+认证失败的提示：
+
+| 情况 | 提示 |
+| --- | --- |
+| 配了 `oauth`，服务端回 401 | 令牌被拒，重新运行 `sprout mcp login <名字>` |
+| 没配 `oauth`，服务端回 401 且要求 Bearer | 在配置里加 `"oauth": {}` 后登录 |
+| 配了 `oauth`，403 `insufficient_scope` | 令牌权限不足，重新运行 `sprout mcp login <名字>`（需要的 scope 写进配置的 `scopes`） |
+
+登录在独立命令里完成，不在 TUI 里弹浏览器；正在运行的 sprout 登录后在 `/mcp` 面板按 `r` 重连即可。
 
 ## 启动与生命周期
 
@@ -156,10 +233,9 @@ MCP 服务端                                                    已启用 1/2
 
 ## 已知限制
 
-- 只支持工具（`tools`）与资源（`resources`，见「工具」一节）。Prompts、Sampling、Elicitation 都没实现；服务端发起的 `elicitation/create` 等请求一律回“方法不支持”。
-- 多轮请求（`resultType: "input_required"`，MRTR）不处理：服务端要求中途补充输入时会返回错误文本。
+- Elicitation 只支持 `form` 模式，不支持 `url` 模式；Sampling 不支持工具调用（`tools` / `toolChoice`），图片、音频等非文本输入换成占位文字，只生成文本。
 - 工具列表有缓存（`<数据目录>/mcp-tools.json`）：服务端返回的 `ttlMs` 决定有效期，没给时按 10 分钟；`ttlMs: 0` 表示不缓存。指纹按连接目标计算，改地址或命令后旧缓存自动失效。`/mcp` 面板的 `r` 会先清缓存再重连。`ttlMs` 与 `cacheScope` 里只用了 `ttlMs`，`cacheScope`（`public` / `private`）忽略——缓存只在本机、单用户。
-- 没有 OAuth：远程服务端需要令牌时，自己用 `headers` 配。要接的话按「为什么自己实现」里的结论做——PKCE + 元数据发现 + 令牌存储，标准库足够，不需要 JWT 库；工作量主要在浏览器授权跳转与回环回调。
+- OAuth 只做公开客户端（PKCE，无 client secret），不支持 Client ID Metadata Document；登录只能在终端用 `sprout mcp login`，TUI 与 `sprout serve` 里不触发浏览器授权。令牌文件明文存储（靠文件权限保护），没有接系统钥匙串。
 - 开关只有 TUI 的 `/mcp` 面板；没有 WebUI 管理面板（WebUI 是 M4）。面板不做配置编辑（加服务端、改地址），这些仍要手改 `mcp.jsonc`。
 - 没有 `resources/subscribe`；`notifications/tools/list_changed` 已处理：收到后客户端在后台重新 `tools/list`，TUI 在空闲时重建 agent，工具变化不需要重启。
 - 通知只在已有请求的 SSE 流里接收（Streamable HTTP 没有单独开长连接），stdio 服务端则直接读 stdin/stdout。HTTP 服务端如果只在独立的 GET 流里发通知，改动要等到下一次工具调用后才生效。
@@ -173,8 +249,14 @@ MCP 服务端                                                    已启用 1/2
 - `internal/agent/mcp/jsonrpc.go`：JSON-RPC 消息结构
 - `internal/agent/mcp/resource.go`：资源列表与读取（`resources/list`、`resources/templates/list`、`resources/read`）
 - `internal/agent/mcp/resourcetool.go`：把资源适配成两个 `tool.Tool`
+- `internal/agent/mcp/prompt.go`：提示词列出与读取，以及 `list_prompts` / `get_prompt` 两个工具
+- `internal/agent/mcp/input.go`：elicitation / sampling 请求的处理、MRTR 重试循环（`Client.rpc`）、等待输入时暂停超时
+- `internal/agent/mcp/oauth_*.go`：OAuth 登录（`oauth_login.go`）、元数据发现与动态注册（`oauth_discover.go`）、令牌刷新（`oauth_token.go`）、令牌文件（`oauth_store.go`）
 - `internal/agent/config/mcp.go`、`mcp_template.go`：`mcp.jsonc` 的解析、校验与模板；`mcp_edit.go` 是保留注释的单键写回（`SetMCPServerEnabled` / `SetMCPToolExcluded`）；`paths.go` 的 `MCPVersionsPath` 是缓存文件位置
 - `cmd/sprout/mcp.go`：后台连接（`startMCP` / `waitMCP` / `applyMCP`）、环境变量展开、工具注册，以及 `/mcp` 面板的实现（`mcpStore`）；`mcp_cache.go` 接工具列表缓存与变更回调
+- `cmd/sprout/mcp_input.go`：把输入请求转成 TUI 表单或 RPC 请求（`mcp_rpc.go`），采样用当前模型生成；`mcp_login.go` 是 `sprout mcp login/logout`
+- `internal/tui/ask.go`：表单与采样确认框
+- `internal/agent/platform/open_url.go`：用系统浏览器打开授权地址
 - `internal/tui/mcp.go`：`/mcp` 面板的交互与渲染；`model.go` 的 `Options.MCP` / `Options.ApplyMCP` 与“连接中”状态，`update.go` 在空闲时接入
 
 ## 测试
@@ -183,7 +265,13 @@ MCP 服务端                                                    已启用 1/2
 - `internal/agent/mcp/resource_test.go`：资源能力检测、分页列表、`-32601` 当作空、文本与图片资源的读取、非图片二进制只写说明。
 - `internal/agent/mcp/versions_test.go`：版本缓存往返、目标变化失效、令牌不落盘、坏文件容错、按缓存版本跳过探测、过期缓存回退。
 - `internal/agent/mcp/stdio_test.go`：真实子进程充当服务端（测试二进制自举），验证握手、分页外的调用、`isError`、命令不存在、超时。
+- `internal/agent/mcp/prompt_test.go`：提示词能力检测、分页、参数传递、消息渲染。
+- `internal/agent/mcp/input_test.go`、`legacy_input_test.go`：能力只在接了处理函数时声明、表单与采样的请求解析和回复、旧版协议下 stdio 与 HTTP SSE 里的服务端请求、等待输入时不超时。
+- `internal/agent/mcp/mrtr_test.go`、`mrtr2_test.go`：`input_required` 补充输入后重发、`requestState` 原样回传、多轮、轮数上限、输入失败。
+- `internal/agent/mcp/oauth_test.go`（替身服务在 `oauth_fake_test.go`）：完整登录流程、授权参数、复用客户端 ID、拒绝不安全的服务端（无 S256、issuer / resource 不一致、无法注册）、回调校验（iss、state、Host、报错）、取消、刷新与并发、`invalid_grant`、URL 变化、令牌文件损坏、401 / 403 提示、`headers` 优先。
 - `internal/agent/config/mcp_test.go`：模板合法、示例与模板一致、缺文件不报错、校验一次报全、按 enable 过滤。
 - `internal/agent/config/mcp_edit_test.go`：写回保留注释/BOM/权限、非法改动回滚、工具开关与 `excludeTools` 的双向切换、单行与空对象的插入排版。
 - `internal/tui/mcp_test.go`：面板列出服务端与工具、开关服务端与工具、展开/收起、刷新、失败提示、忙时忽略按键、生成中拒绝打开。
+- `cmd/sprout/mcp_input_test.go`、`mcp_rpc_test.go`：表单字段转换与顺序、采样确认与拒绝、RPC 转发的能力检查与回答校验、客户端断开。
+- `cmd/sprout/mcp_login_test.go`：`sprout mcp login/logout` 的参数解析、真实配置与令牌文件上的登录退出、连接时接上令牌来源、`oauth` 配置校验。
 - `cmd/sprout/mcp_test.go`：`${VAR}` 展开、`excludeTools` 生效、注册名前缀、连接失败只记录不致命、后台连接后工具接入且保留历史、面板开关写回配置并重建注册表、刷新重读配置。
