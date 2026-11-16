@@ -196,7 +196,9 @@ type Model struct {
 	speed            float64
 	genStart, genEnd time.Time
 	// ttft 是最近一次调用从开始请求到收到第一个输出的时间；0 表示还没有数据（没回答过或非流式）。
-	ttft time.Duration
+	// callStart 是这次模型调用的请求起点：一轮里有工具往返时会有多次调用，不能都从整轮的 started 起算。
+	ttft      time.Duration
+	callStart time.Time
 	// compactions 是本会话成功压缩上下文的次数。
 	compactions int
 	// statusline 是按当前布局排好序的、要显示的状态栏各项（含行号和颜色）。

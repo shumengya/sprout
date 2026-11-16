@@ -173,7 +173,7 @@ func TestFirstTokenLatencyIsShownNextToElapsed(t *testing.T) {
 	}
 	clock := m.now()
 	m.now = func() time.Time { return clock }
-	m.started = clock
+	m.callStart = clock
 	clock = clock.Add(1200 * time.Millisecond)
 	apply(m, event.MessageDelta{Text: "a"})
 	if line := infoText(m, 0); !strings.Contains(line, "首字 1.2s") {
@@ -184,6 +184,26 @@ func TestFirstTokenLatencyIsShownNextToElapsed(t *testing.T) {
 	apply(m, event.MessageDelta{Text: "b"})
 	if line := infoText(m, 0); !strings.Contains(line, "首字 1.2s") || strings.Contains(line, "首字 1.7s") {
 		t.Errorf("首字延迟只记第一次: %q", line)
+	}
+}
+
+// 一轮里有工具往返时，后面几次调用的首字只算那次请求自己的等待，不含前面的调用和工具耗时。
+func TestFirstTokenLatencyRestartsAfterToolCall(t *testing.T) {
+	m := newSized(t, Options{Runner: scriptRunner()}, 200, 24)
+	clock := m.now()
+	m.now = func() time.Time { return clock }
+	m.started, m.callStart = clock, clock
+	clock = clock.Add(1 * time.Second)
+	apply(m, event.MessageDelta{Text: "a"})
+	apply(m, event.MessageCompleted{})
+	apply(m, event.Usage{})
+	apply(m, event.ToolRequested{Call: event.ToolCall{ID: "t1", Name: "bash"}})
+	clock = clock.Add(30 * time.Second) // 工具执行很久
+	apply(m, event.ToolFinished{ID: "t1", Name: "bash"})
+	clock = clock.Add(2 * time.Second)
+	apply(m, event.MessageDelta{Text: "b"})
+	if line := infoText(m, 0); !strings.Contains(line, "首字 2.0s") {
+		t.Errorf("第二次调用的首字应从工具结束起算: %q", line)
 	}
 }
 

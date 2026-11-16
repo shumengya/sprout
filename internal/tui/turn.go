@@ -40,6 +40,7 @@ func (m *Model) startTurn(in agent.Input) tea.Cmd {
 	m.turn++
 	turn := m.turn
 	m.started = m.now()
+	m.callStart = m.started
 	m.busyStart()
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
@@ -136,6 +137,7 @@ func (m *Model) onEvent(e event.Event) {
 			m.tools[e.ID] = t
 		}
 		t.running, t.fin = false, e
+		m.callStart = m.now() // 工具结束后模型才会发下一次请求，首字从这里重新计
 		if t.command == "" {
 			t.command = e.Command
 		}
@@ -196,8 +198,8 @@ func (m *Model) addUsage(e event.Usage) {
 func (m *Model) markGen() {
 	if m.genStart.IsZero() {
 		m.genStart = m.now()
-		if !m.started.IsZero() {
-			m.ttft = max(m.genStart.Sub(m.started), 0) // 时钟回拨时不写负数
+		if !m.callStart.IsZero() {
+			m.ttft = max(m.genStart.Sub(m.callStart), 0) // 时钟回拨时不写负数
 		}
 	}
 }
