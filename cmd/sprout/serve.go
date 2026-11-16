@@ -30,7 +30,7 @@ func (b *rpcBackend) Info() rpc.Info {
 	}
 	return rpc.Info{
 		Version: a.env.version, Model: a.sel.Ref(), Provider: a.sel.ProviderName,
-		Cwd: a.cwd, DataDir: a.dataDir, Tools: tools, Vision: a.info.Vision,
+		Cwd: a.cwd, DataDir: a.dataDir, Tools: tools, Vision: a.info.Vision, Effort: a.info.Effort,
 		Available: a.ag != nil, Disabled: a.disabled,
 		Notices: append(append([]string{}, a.notices...), a.info.Unavailable...),
 	}
@@ -100,6 +100,61 @@ func (b *rpcBackend) DeleteSession(path string) error {
 // Compact 同样每次取当前的 agent。
 func (b *rpcBackend) Compact(ctx context.Context, focus string, sink event.Sink) error {
 	return b.a.ag.Compact(ctx, focus, sink)
+}
+
+func (b *rpcBackend) ListModels() []rpc.ModelInfo {
+	a := b.a
+	sels := a.cfg.All()
+	out := make([]rpc.ModelInfo, 0, len(sels))
+	for _, sel := range sels {
+		out = append(out, rpc.ModelInfo{
+			Ref: sel.Ref(), Provider: sel.ProviderName, Model: sel.ModelName, Protocol: sel.Provider.Protocol,
+			ContextWindow: sel.Model.ContextWindow, MaxOutput: sel.Model.MaxOutput,
+			Tools: sel.Model.SupportsTools(), Vision: sel.Model.SupportsVision(),
+			Current: sel.Ref() == a.sel.Ref(),
+		})
+	}
+	return out
+}
+
+// SwitchModel 复用 TUI 的 /model，包括记住选择（下次启动沿用）。
+// 切到当前模型不算错误：程序调用方常常只想“确保在用某个模型”。
+func (b *rpcBackend) SwitchModel(ref string) (string, error) {
+	a := b.a
+	sel, err := a.cfg.Select(ref)
+	if err != nil {
+		return "", rpc.NotFoundError{Err: err}
+	}
+	if sel.Ref() == a.sel.Ref() {
+		return "已经在使用 " + sel.Ref(), nil
+	}
+	res, err := modelStore{a}.Switch(ref)
+	if err != nil {
+		return "", err
+	}
+	return res.Notice, nil
+}
+
+func (b *rpcBackend) Efforts() rpc.EffortList {
+	s := effortStore{b.a}
+	l := rpc.EffortList{Current: effortLabel(b.a.sel, b.a.effort)}
+	for _, c := range s.Choices() {
+		l.Levels = append(l.Levels, rpc.EffortLevel{Name: c.Name, Detail: c.Detail})
+	}
+	if b.a.sel.Model.Effort == nil {
+		l.Unsupported = s.Unsupported()
+	}
+	return l
+}
+
+// SetEffort 复用 TUI 的 /effort。服务端已经排除了不可用的情况，
+// 剩下的失败只有模型没声明 effort 和档位不存在，都按“找不到”返回。
+func (b *rpcBackend) SetEffort(name string) (string, error) {
+	notice, err := effortStore{b.a}.Set(name)
+	if err != nil {
+		return "", rpc.NotFoundError{Err: err}
+	}
+	return notice, nil
 }
 
 var _ rpc.Backend = (*rpcBackend)(nil)

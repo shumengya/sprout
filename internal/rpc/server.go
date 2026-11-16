@@ -20,7 +20,8 @@ import (
 const ProtocolVersion = 1
 
 // Backend 是服务端眼中的运行时：当前 agent、会话记录器和配置都在它背后。
-// 除 Run 外的方法只在没有一轮进行时调用，实现不需要自己加锁防并发。
+// 除 Run、Compact 外的方法都在读循环里串行调用，实现不需要自己加锁防并发；
+// 会替换 agent 或历史的方法（Prepare、NewSession、ResumeSession、SwitchModel）只在没有一轮进行时调用。
 type Backend interface {
 	Info() Info
 	// Prepare 在空闲时调用（开始一轮之前、initialize 时），把后台连好的 MCP 工具等接进 agent，
@@ -36,6 +37,14 @@ type Backend interface {
 	DeleteSession(path string) error
 	// Compact 把全部历史总结成摘要。和 Run 一样在后台调用，可被取消。
 	Compact(ctx context.Context, focus string, sink event.Sink) error
+	ListModels() []ModelInfo
+	// SwitchModel 切换到 ref（provider/model），对话历史带过去，返回给用户看的说明。
+	// 模型不存在时返回 NotFoundError；失败时保持原模型。
+	SwitchModel(ref string) (string, error)
+	Efforts() EffortList
+	// SetEffort 切换思考档位，下一次请求生效；档位不存在或模型不支持时返回 NotFoundError。
+	// 可以在一轮进行中调用。
+	SetEffort(name string) (string, error)
 }
 
 // SessionInfo 是 session/list 里的一项。会话按 Path 定位：重命名、删除都用它。
@@ -71,6 +80,7 @@ type Info struct {
 	DataDir         string   `json:"dataDir"`
 	Tools           []string `json:"tools"`
 	Vision          bool     `json:"vision"`
+	Effort          string   `json:"effort"` // 当前思考档位；模型没有声明 effort 时为空
 	// Available 为 false 表示当前不能对话（缺 API Key 等），原因在 Disabled 里；turn/start 会返回 -32002。
 	Available bool     `json:"available"`
 	Disabled  string   `json:"disabled,omitempty"`
@@ -211,6 +221,14 @@ func (s *Server) call(id json.RawMessage, method string, params json.RawMessage)
 		return s.deleteSession(params)
 	case "session/compact":
 		return s.compact(id, params)
+	case "model/list":
+		return s.listModels()
+	case "model/switch":
+		return s.switchModel(params)
+	case "effort/list":
+		return s.listEfforts()
+	case "effort/set":
+		return s.setEffort(params)
 	case "initialize":
 		var prepared []string
 		if !s.busy() {

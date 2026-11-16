@@ -4,11 +4,14 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/shumengya/sprout/internal/rpc"
 )
 
 // TestServeEndToEnd 走真实装配：models.jsonc 指向 httptest 服务，经 stdin / stdout 完成两轮对话和一次新会话。
@@ -130,5 +133,56 @@ func TestServeEndToEnd(t *testing.T) {
 	}
 	if files, _ := filepath.Glob(filepath.Join(dir, "sessions", "*", "*.jsonl")); len(files) != 2 {
 		t.Errorf("新会话应写到另一个文件: %v", files)
+	}
+}
+
+// rpcBackend 的模型与档位方法复用 /model、/effort：这里检查适配层的错误分类和结果。
+func TestRPCBackendModelAndEffort(t *testing.T) {
+	a, err := effortApp(t, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &rpcBackend{a: a}
+	cur := a.sel.Ref()
+	var current int
+	for _, m := range b.ListModels() {
+		if m.Current {
+			current++
+			if m.Ref != cur {
+				t.Errorf("current 标错了: %+v", m)
+			}
+		}
+	}
+	if current != 1 {
+		t.Errorf("应恰有一个当前模型: %+v", b.ListModels())
+	}
+
+	if notice, err := b.SwitchModel(cur); err != nil || !strings.Contains(notice, "已经在使用") {
+		t.Errorf("切到当前模型应算成功: %q %v", notice, err)
+	}
+	var nf rpc.NotFoundError
+	if _, err := b.SwitchModel("nope/x"); !errors.As(err, &nf) {
+		t.Errorf("不存在的模型应返回 NotFoundError: %v", err)
+	}
+	if _, err := b.SwitchModel("ds/plain"); err != nil || a.sel.Ref() != "ds/plain" {
+		t.Fatalf("切换失败: %v，当前 %s", err, a.sel.Ref())
+	}
+	l := b.Efforts()
+	if l.Current != "" || len(l.Levels) != 0 || l.Unsupported == "" {
+		t.Errorf("没声明 effort 的模型: %+v", l)
+	}
+	if _, err := b.SetEffort("high"); !errors.As(err, &nf) {
+		t.Errorf("不支持 effort 时应返回 NotFoundError: %v", err)
+	}
+
+	if _, err := b.SwitchModel("ds/flash"); err != nil {
+		t.Fatal(err)
+	}
+	// plain 的档位是 auto，flash 也有 auto，所以沿用 auto 而不是退回 flash 的默认 high。
+	if l := b.Efforts(); l.Current != "auto" || len(l.Levels) == 0 || l.Unsupported != "" {
+		t.Errorf("ds/flash 的档位: %+v", l)
+	}
+	if _, err := b.SetEffort("off"); err != nil || b.Info().Effort != "off" {
+		t.Errorf("SetEffort: %v，Info().Effort=%q", err, b.Info().Effort)
 	}
 }

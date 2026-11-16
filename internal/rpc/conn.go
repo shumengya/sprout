@@ -20,6 +20,7 @@ const (
 	CodeBusy          = -32001 // 已有一轮对话或压缩在进行
 	CodeUnavailable   = -32002 // 当前不能对话（缺 API Key 等），原因在 message 里
 	CodeSession       = -32003 // 会话操作失败：找不到、选择器有歧义、不能删除当前会话等
+	CodeNotFound      = -32004 // 要切换的模型或思考档位不存在
 	CodeCancelled     = -32005 // 操作被 turn/cancel 取消
 	CodeCompactFailed = -32006 // 没有可压缩的对话，或生成摘要失败
 )

@@ -29,6 +29,10 @@ sprout serve [--data-dir DIR] [-c | --resume ID] [--effort 档位]
 | `session/rename` | `{path, name}` | `{}`：`name` 为空表示清除名字 |
 | `session/delete` | `{path}` | `{}`：不能删除当前会话 |
 | `session/compact` | `{focus?}` | `{tokensBefore, tokensAfter, dropped, summary}`：把全部历史总结成摘要 |
+| `model/list` | 无 | `{models: [{ref, provider, model, protocol, contextWindow, maxOutput, tools, vision, current}]}`，按 `ref` 排序 |
+| `model/switch` | `{ref}` | `{model, effort, notice}`：切换模型，对话历史带过去 |
+| `effort/list` | 无 | `{current, levels: [{name, detail}], unsupported?}` |
+| `effort/set` | `{name}` | `{effort, notice}`：下一次请求生效 |
 | `shutdown` | 无 | `{}`，随后退出 |
 
 `initialize` 的结果：
@@ -37,7 +41,7 @@ sprout serve [--data-dir DIR] [-c | --resume ID] [--effort 档位]
 {
   "protocolVersion": 1, "version": "2026.11.16", "model": "deepseek/deepseek-flash",
   "provider": "deepseek", "cwd": "D:\\work", "dataDir": "D:\\sprout\\data\\.sprout",
-  "tools": ["bash", "read"], "vision": false,
+  "tools": ["bash", "read"], "vision": false, "effort": "high",
   "available": true, "disabled": "", "notices": []
 }
 ```
@@ -64,6 +68,17 @@ sprout serve [--data-dir DIR] [-c | --resume ID] [--effort 档位]
 - `session/compact` 要调一次模型，**结束后**才写响应；期间算作忙碌（`turn/start`、`session/resume` 等返回 `-32001`），
   可用 `turn/cancel` 取消，取消后返回 `-32005`。压缩不是一轮对话，不推送 `event`。`focus` 是希望摘要侧重的内容。
 - `session/resume`、`session/compact` 在忙碌时返回 `-32001`，不可用时返回 `-32002`；`session/list`、`rename`、`delete` 随时可调。
+
+模型与思考程度（与 TUI 的 `/model`、`/effort` 是同一套实现，切换结果会记住，下次启动沿用）：
+
+- `model/switch` 的 `ref` 是 `provider/model`，取 `model/list` 里的值。会重建 agent，所以忙碌时返回 `-32001`。
+  模型不存在返回 `-32004`；其他失败（如新模型缺 API Key）返回 `-32603`，仍用原模型。切到当前模型算成功，`notice` 说明已经在用。
+  对话历史原样带过去，但丢弃旧模型的思维链；会话仍写进同一个文件。新模型有同名档位就沿用，否则用它的默认档位，结果在 `effort` 里。
+- `effort`（`initialize`、`model/switch`、`effort/list` 的 `current`）在模型没有在 `models.jsonc` 声明 effort 时为空，
+  此时 `effort/list` 的 `levels` 为空数组，`unsupported` 说明怎么配置。`detail` 用该协议的真实字段名描述这一档会发送什么。
+- `effort/set` 的 `name` 不区分大小写。只改思考参数、不重建 agent，所以**一轮进行中也能调**，从下一次模型请求起生效。
+  档位不存在或模型不支持 effort 返回 `-32004`。
+- `model/list`、`effort/list` 随时可调；`model/switch`、`effort/set` 不可用时返回 `-32002`。
 
 ## 通知
 
@@ -97,6 +112,7 @@ sprout serve [--data-dir DIR] [-c | --resume ID] [--effort 档位]
 | `-32001` | 已有一轮对话或压缩在进行 |
 | `-32002` | 当前不能对话，`message` 是原因 |
 | `-32003` | 会话操作失败：找不到、选择器有歧义、不能删除当前会话、路径不在 `sessions/` 下等 |
+| `-32004` | 要切换的模型或思考档位不存在 |
 | `-32005` | 操作被 `turn/cancel` 取消（目前只有 `session/compact`） |
 | `-32006` | 压缩失败：没有可压缩的对话，或生成摘要失败；历史保持原样 |
 

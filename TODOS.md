@@ -124,10 +124,10 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 
 ### 后续里程碑（见 README 路线图，需用户确认后再做）
 - [x] **里程碑编号**：已统一，以 `docs/m2-vision.md` 为准——M2 是识图（已实现），JSON-RPC 顺延为 M3，WebUI 为 M4，扩展为 M5。README 路线图与 `AGENTS.md` 已同步。
-- [ ] **JSON-RPC（M3）**（`internal/rpc`，协议见 `docs/rpc.md`）：
+- [x] **JSON-RPC（M3）**（`internal/rpc`，协议见 `docs/rpc.md`；尚未用真实模型服务和真实客户端手工验证）：
   - [x] `sprout serve`（stdio、逐行 JSON-RPC 2.0）、`initialize`、`turn/start`、`turn/cancel`、`event` / `notice` 通知、`session/new`、`shutdown`；
   - [x] `session/list`、`session/resume`（返回重放事件）、`session/rename`、`session/delete`、`session/compact`（可取消）；
-  - [ ] `model/list`、`model/switch`、`effort/list`、`effort/set`。
+  - [x] `model/list`、`model/switch`、`effort/list`、`effort/set`（一轮进行中也能调档位）。
 - [ ] **WebUI（M4）**（`internal/webui`，占位）：独立前端模块，复用 JSON-RPC 事件；`sprout web`。
 - [ ] **扩展（M5）**：
   - [x] Anthropic Messages 协议（`internal/provider/anthropic`，已实现并测试）；

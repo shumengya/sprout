@@ -27,10 +27,16 @@ type fakeBackend struct {
 	renamed  string
 	deleted  []string
 	compact  string
+	model    string
+	effort   string
 }
 
 func (f *fakeBackend) Info() Info {
-	return Info{Model: "p/m", Tools: []string{"bash"}, Available: f.disabled == "", Disabled: f.disabled}
+	model := "p/m"
+	if f.model != "" {
+		model = f.model
+	}
+	return Info{Model: model, Effort: f.effort, Tools: []string{"bash"}, Available: f.disabled == "", Disabled: f.disabled}
 }
 
 func (f *fakeBackend) Prepare() []string {
@@ -93,6 +99,33 @@ func (f *fakeBackend) DeleteSession(path string) error {
 	}
 	f.deleted = append(f.deleted, path)
 	return nil
+}
+
+func (f *fakeBackend) ListModels() []ModelInfo {
+	return []ModelInfo{{Ref: "p/m", Provider: "p", Model: "m", Tools: true, Current: f.model == ""}, {Ref: "p/n", Provider: "p", Model: "n"}}
+}
+
+func (f *fakeBackend) SwitchModel(ref string) (string, error) {
+	switch ref {
+	case "p/n":
+		f.model = ref
+		return "已切换模型：p/m → p/n", nil
+	case "p/broken":
+		return "", errors.New("缺少 API Key")
+	}
+	return "", NotFoundError{Err: errors.New("引用的 provider 不存在")}
+}
+
+func (f *fakeBackend) Efforts() EffortList {
+	return EffortList{Current: f.effort, Levels: []EffortLevel{{Name: "auto"}, {Name: "high", Detail: "reasoning_effort: high"}}}
+}
+
+func (f *fakeBackend) SetEffort(name string) (string, error) {
+	if name != "auto" && name != "high" {
+		return "", NotFoundError{Err: errors.New("没有 " + name + " 档位")}
+	}
+	f.effort = name
+	return "思考程度：auto → " + name, nil
 }
 
 // Compact 按 compact 决定行为：block 等到取消，empty 没有可压缩的，fail 摘要失败，其余成功。
@@ -409,5 +442,64 @@ func TestCompactIsBusyAndCancellable(t *testing.T) {
 	h.send(`{"jsonrpc":"2.0","id":5,"method":"turn/start","params":{"text":"继续"}}`)
 	if m := h.next(); errCode(m) != 0 {
 		t.Fatalf("取消后应恢复空闲: %v", m)
+	}
+}
+
+func TestModelListAndSwitch(t *testing.T) {
+	h := start(t, &fakeBackend{})
+	h.send(`{"jsonrpc":"2.0","id":1,"method":"model/list"}`)
+	ms := h.next()["result"].(map[string]any)["models"].([]any)
+	if first := ms[0].(map[string]any); len(ms) != 2 || first["ref"] != "p/m" || first["current"] != true || first["tools"] != true {
+		t.Fatalf("model/list 不对: %v", ms)
+	}
+	h.send(`{"jsonrpc":"2.0","id":2,"method":"model/switch","params":{"ref":"p/n"}}`)
+	if r := h.next()["result"].(map[string]any); r["model"] != "p/n" || !strings.Contains(r["notice"].(string), "p/n") {
+		t.Fatalf("model/switch 结果不对: %v", r)
+	}
+	for _, c := range []struct {
+		line string
+		code int
+	}{
+		{`{"jsonrpc":"2.0","id":3,"method":"model/switch","params":{"ref":"x/y"}}`, CodeNotFound},
+		{`{"jsonrpc":"2.0","id":4,"method":"model/switch","params":{"ref":"p/broken"}}`, CodeInternal},
+		{`{"jsonrpc":"2.0","id":5,"method":"model/switch"}`, CodeInvalidParams},
+	} {
+		h.send(c.line)
+		if m := h.next(); errCode(m) != c.code {
+			t.Errorf("%s: 期望 %d，得到 %v", c.line, c.code, m)
+		}
+	}
+}
+
+func TestEffortListAndSet(t *testing.T) {
+	h := start(t, &fakeBackend{effort: "auto"})
+	h.send(`{"jsonrpc":"2.0","id":1,"method":"effort/list"}`)
+	r := h.next()["result"].(map[string]any)
+	if r["current"] != "auto" || len(r["levels"].([]any)) != 2 {
+		t.Fatalf("effort/list 不对: %v", r)
+	}
+	h.send(`{"jsonrpc":"2.0","id":2,"method":"effort/set","params":{"name":" HIGH "}}`)
+	if r := h.next()["result"].(map[string]any); r["effort"] != "high" {
+		t.Fatalf("effort/set 应规范化名字并返回新档位: %v", r)
+	}
+	h.send(`{"jsonrpc":"2.0","id":3,"method":"effort/set","params":{"name":"max"}}`)
+	if m := h.next(); errCode(m) != CodeNotFound {
+		t.Fatalf("不存在的档位应返回 -32004: %v", m)
+	}
+}
+
+// 一轮进行中：effort/set 可以调（下一次请求生效），model/switch 要重建 agent，必须拒绝。
+func TestEffortSetAllowedWhileBusyButSwitchIsNot(t *testing.T) {
+	h := start(t, &fakeBackend{block: true})
+	h.send(`{"jsonrpc":"2.0","id":1,"method":"turn/start","params":{"text":"慢"}}`)
+	h.next()
+	h.next()
+	h.send(`{"jsonrpc":"2.0","id":2,"method":"model/switch","params":{"ref":"p/n"}}`)
+	if m := h.next(); errCode(m) != CodeBusy {
+		t.Fatalf("进行中 model/switch 应返回 busy: %v", m)
+	}
+	h.send(`{"jsonrpc":"2.0","id":3,"method":"effort/set","params":{"name":"high"}}`)
+	if m := h.next(); errCode(m) != 0 {
+		t.Fatalf("进行中 effort/set 应成功: %v", m)
 	}
 }
