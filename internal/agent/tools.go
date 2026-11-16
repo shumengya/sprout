@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"runtime/debug"
@@ -51,6 +52,7 @@ func (t *turn) execTool(call ToolCall) (fin event.ToolFinished, content string) 
 			content = "工具执行失败: " + err.Error()
 		default:
 			content = res.ForModel()
+			fin.Images = resultImages(res.Images)
 		}
 		t.a.log.Info("tool", "name", call.Name, "command", clip(res.Command, maxLoggedCommand),
 			"exit_code", res.ExitCode, "timed_out", res.TimedOut, "duration", fin.Duration, "error", fin.Err)
@@ -66,6 +68,27 @@ func fillFinished(fin *event.ToolFinished, res tool.Result, wall time.Duration) 
 	if fin.Duration == 0 {
 		fin.Duration = wall
 	}
+}
+
+// resultImages 把工具结果里的图片转成事件里的图片描述；只在工具正常结束时调用，失败或取消时不附图。
+func resultImages(imgs []tool.Image) []event.ImageInfo {
+	var out []event.ImageInfo
+	for _, img := range imgs {
+		out = append(out, event.ImageInfo{
+			MediaType: img.MediaType, Bytes: base64.StdEncoding.DecodedLen(len(img.Data)), Data: img.Data,
+		})
+	}
+	return out
+}
+
+// toolResultMessage 构造工具结果消息：文本在前，图片按原顺序跟在后面。
+// 会话重放（session.replayer.tool）按同样的顺序还原，两处要一起改。
+func toolResultMessage(callID, content string, images []event.ImageInfo) Message {
+	m := toolMessage(callID, content)
+	for _, img := range images {
+		m.Content = append(m.Content, ImageBlock(img.MediaType, img.Data))
+	}
+	return m
 }
 
 func (t *turn) lookup(name string) (tool.Tool, bool) {

@@ -74,7 +74,7 @@ func (t *turn) runTools(calls []ToolCall) error {
 		default:
 			m.fin.Content = m.content
 			t.out.Emit(m.fin)
-			results[m.idx] = toolMessage(call.ID, m.content)
+			results[m.idx] = toolResultMessage(call.ID, m.content, m.fin.Images)
 		}
 	}
 

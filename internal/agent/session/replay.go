@@ -134,14 +134,25 @@ func (r *replayer) tool(rec rawRec) {
 	if content == "" { // 旧版本的会话没有保存回给模型的文本，退而求其次
 		content = legacyContent(rec)
 	}
+	// 与运行时的 toolResultMessage 一致：文本在前，图片按原顺序跟在后面。
 	tm := agent.NewTextMessage(agent.RoleTool, content)
 	tm.ToolID = call.ID
+	var images []event.ImageInfo
+	for _, img := range rec.Images {
+		blk, err := loadImageFile(r.st.Path, img)
+		if err != nil {
+			tm.Content = append(tm.Content, agent.TextBlock("（图片无法恢复："+img.File+"）"))
+			continue
+		}
+		tm.Content = append(tm.Content, blk)
+		images = append(images, event.ImageInfo{Name: filepath.Base(img.File), MediaType: img.MediaType, Bytes: img.Bytes})
+	}
 	r.results[call.ID] = tm
 	r.emit(event.ToolRequested{Call: event.ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments}})
 	r.emit(event.ToolFinished{
 		ID: call.ID, Name: rec.Name, Command: rec.Command, Stdout: rec.Stdout, Stderr: rec.Stderr,
 		ExitCode: rec.ExitCode, Truncated: rec.Truncated, TimedOut: rec.TimedOut, Cancelled: rec.Cancelled,
-		Duration: time.Duration(rec.DurationMS) * time.Millisecond, Err: rec.Error, Content: content,
+		Duration: time.Duration(rec.DurationMS) * time.Millisecond, Err: rec.Error, Content: content, Images: images,
 	})
 }
 

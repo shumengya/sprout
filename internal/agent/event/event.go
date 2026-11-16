@@ -132,6 +132,9 @@ type ToolFinished struct {
 	Content string
 	// Err 非空表示工具没能产出正常结果（参数无效、进程起不来等）。
 	Err string
+	// Images 是结果里附带、已交给模型的图片。和 TurnStarted 一样，会话记录器把 Data 落盘后回填 Path，
+	// 转发给 surface 的副本仍带 Data；恢复会话重放出的事件不带 Data。
+	Images []ImageInfo
 }
 
 // Usage 是一次模型调用的 token 用量。它紧跟在同一次调用的 MessageCompleted 之后发出。

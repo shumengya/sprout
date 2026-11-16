@@ -78,7 +78,7 @@ stdio 的读循环按 id 分发响应到等待者，所以同一批工具调用�
 
 `tools/list` 会跟着 `nextCursor` 翻页（最多 20 页，防止环状 cursor）。工具名清洗后拼上前缀：`mcp__` + 服务端名 + `__` + 原始工具名，只保留字母、数字、`_`、`-`，字母开头，最长 64 字符（`mcp.ToolName`）。
 
-`tools/call` 的结果按内容类型转成文本：`text` 直接拼接，图片/音频/资源链接写成 `[图片内容：image/png]` 这样的占位（`tool.Result` 只能承载文本）；`structuredContent` 附在后面；`isError: true` 映射成退出码 1，让模型看到失败但不会中断 agent。
+`tools/call` 的结果按内容类型转换：`text` 直接拼接；`image` 校验后作为图片块跟在 tool 消息的文本后面交给模型，文本里留一行 `[图片 1：image/png，已附在结果后]`。校验要求 base64 能解开、解码后不超过 3 MB、内容嗅探是 png / jpeg / gif / webp（类型以嗅探为准，不信 `mimeType`），不合格的只写 `[图片内容：image/png，未附上：原因]`。模型不支持识图时，图片块和用户输入的图片一样换成占位文本。音频、资源、资源链接仍写成占位；`structuredContent` 附在后面；`isError: true` 映射成退出码 1，让模型看到失败但不会中断 agent。
 
 冲突：与内置工具、外部工具、其他 MCP 工具重名时先注册的赢（内置 > 外部 > MCP），被跳过的那条写在 `/tools` 的不可用列表里。
 
@@ -142,7 +142,6 @@ MCP 服务端                                                    已启用 1/2
 ## 已知限制
 
 - 只支持工具（`tools`）。Resources、Prompts、Sampling、Elicitation 都没实现；服务端发起的 `elicitation/create` 等请求一律回“方法不支持”。
-- 工具结果里的图片不会转成图片块发给模型，只写占位文本。
 - 多轮请求（`resultType: "input_required"`，MRTR）不处理：服务端要求中途补充输入时会返回错误文本。
 - 工具列表有缓存（`<数据目录>/mcp-tools.json`）：服务端返回的 `ttlMs` 决定有效期，没给时按 10 分钟；`ttlMs: 0` 表示不缓存。指纹按连接目标计算，改地址或命令后旧缓存自动失效。`/mcp` 面板的 `r` 会先清缓存再重连。`ttlMs` 与 `cacheScope` 里只用了 `ttlMs`，`cacheScope`（`public` / `private`）忽略——缓存只在本机、单用户。
 - 没有 OAuth：远程服务端需要令牌时，自己用 `headers` 配。要接的话按「为什么自己实现」里的结论做——PKCE + 元数据发现 + 令牌存储，标准库足够，不需要 JWT 库；工作量主要在浏览器授权跳转与回环回调。

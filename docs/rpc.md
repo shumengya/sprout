@@ -90,7 +90,7 @@ sprout serve [--data-dir DIR] [-c | --resume ID] [--effort 档位]
 | `message.delta` / `reasoning.delta` | `text` |
 | `message.completed` | `content`、`reasoning`、`toolCalls: [{id, name, arguments}]`、`stopReason`、`reasoningTokensEst` |
 | `tool.requested` | `id`、`name`、`arguments`（原始 JSON 字符串） |
-| `tool.finished` | `id`、`name`、`command`、`stdout`、`stderr`、`exitCode`、`truncated`、`timedOut`、`cancelled`、`durationMs`、`content`、`error` |
+| `tool.finished` | `id`、`name`、`command`、`stdout`、`stderr`、`exitCode`、`truncated`、`timedOut`、`cancelled`、`durationMs`、`content`、`error`、`images: [{name, mediaType, bytes, path?}]`（不含 base64；`path` 相对会话目录） |
 | `usage` | `inputTokens`、`outputTokens`、`totalTokens`、`reasoningTokens`、`cacheReadTokens`、`cacheWriteTokens` |
 | `retrying` | `attempt`、`max`、`delayMs`、`reason` |
 | `compacted` | `mode`、`tokensBefore`、`tokensAfter`、`dropped`、`summary`、`error`、`manual` |

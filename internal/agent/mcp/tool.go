@@ -2,8 +2,10 @@ package mcp
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -53,27 +55,9 @@ func (t *Tool) Run(ctx context.Context, raw json.RawMessage) (tool.Result, error
 		return tool.Result{Command: "mcp " + t.client.spec.Name + "/" + t.remote, Duration: dur}, err
 	}
 
+	text, images := renderContent(res.Content)
 	var out strings.Builder
-	for _, c := range res.Content {
-		switch c.Type {
-		case "text":
-			out.WriteString(c.Text)
-			if !strings.HasSuffix(c.Text, "\n") {
-				out.WriteByte('\n')
-			}
-		case "image":
-			// 图片暂时不转成图片块：tool.Result 只承载文本，这里如实告诉模型有图。
-			fmt.Fprintf(&out, "[图片内容：%s]\n", orUnknown(c.MimeType))
-		case "audio":
-			fmt.Fprintf(&out, "[音频内容：%s]\n", orUnknown(c.MimeType))
-		case "resource":
-			fmt.Fprintf(&out, "[资源：%s]\n", orUnknown(c.URI))
-		case "resource_link":
-			fmt.Fprintf(&out, "[资源链接：%s]\n", orUnknown(c.URI))
-		default:
-			fmt.Fprintf(&out, "[%s 内容]\n", orUnknown(c.Type))
-		}
-	}
+	out.WriteString(text)
 	if len(res.StructuredContent) > 0 && string(res.StructuredContent) != "null" {
 		out.WriteString("\n--- structuredContent ---\n")
 		out.Write(res.StructuredContent)
@@ -92,7 +76,65 @@ func (t *Tool) Run(ctx context.Context, raw json.RawMessage) (tool.Result, error
 		Stderr:   stderr,
 		ExitCode: exit,
 		Duration: dur,
+		Images:   images,
 	}, nil
+}
+
+// renderContent 把结果内容转成给模型的文本和图片；不合格的图片只在文本里说明原因。
+func renderContent(content []Content) (string, []tool.Image) {
+	var out strings.Builder
+	var images []tool.Image
+	for _, c := range content {
+		switch c.Type {
+		case "text":
+			out.WriteString(c.Text)
+			if !strings.HasSuffix(c.Text, "\n") {
+				out.WriteByte('\n')
+			}
+		case "image":
+			img, err := toolImage(c)
+			if err != nil {
+				fmt.Fprintf(&out, "[图片内容：%s，未附上：%v]\n", orUnknown(c.MimeType), err)
+				continue
+			}
+			images = append(images, img)
+			// 文本里留一行标记：界面的工具输出里看得到有图，模型也知道第几张图对应哪里。
+			fmt.Fprintf(&out, "[图片 %d：%s，已附在结果后]\n", len(images), img.MediaType)
+		case "audio":
+			fmt.Fprintf(&out, "[音频内容：%s]\n", orUnknown(c.MimeType))
+		case "resource":
+			fmt.Fprintf(&out, "[资源：%s]\n", orUnknown(c.URI))
+		case "resource_link":
+			fmt.Fprintf(&out, "[资源链接：%s]\n", orUnknown(c.URI))
+		default:
+			fmt.Fprintf(&out, "[%s 内容]\n", orUnknown(c.Type))
+		}
+	}
+	return out.String(), images
+}
+
+// maxImageBytes 与用户输入图片的上限（media.MaxImageBytes）一致：多数服务商限制 base64 后 5MB 左右。
+// 不 import media，免得 mcp 包为一个常量多依赖一层。
+const maxImageBytes = 3 << 20
+
+// toolImage 校验服务端给的图片：base64 要能解开、不超过上限、内容是四种支持的格式之一。
+// 类型以内容嗅探为准，mimeType 只是声明，服务端写错时照样能发对。
+func toolImage(c Content) (tool.Image, error) {
+	raw, err := base64.StdEncoding.DecodeString(c.Data)
+	if err != nil {
+		return tool.Image{}, fmt.Errorf("base64 无效")
+	}
+	if len(raw) == 0 {
+		return tool.Image{}, fmt.Errorf("数据为空")
+	}
+	if len(raw) > maxImageBytes {
+		return tool.Image{}, fmt.Errorf("有 %d 字节，超过上限 %d", len(raw), maxImageBytes)
+	}
+	switch mt := http.DetectContentType(raw); mt {
+	case "image/png", "image/jpeg", "image/gif", "image/webp":
+		return tool.Image{MediaType: mt, Data: c.Data}, nil
+	}
+	return tool.Image{}, fmt.Errorf("不是支持的格式（png / jpeg / gif / webp）")
 }
 
 func orUnknown(s string) string {

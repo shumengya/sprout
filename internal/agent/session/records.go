@@ -74,6 +74,8 @@ type toolRec struct {
 	Error      string `json:"error,omitempty"`
 	// Content 是回给模型的完整文本。恢复会话时原样还原，模型看到的就和当初一模一样。
 	Content string `json:"content,omitempty"`
+	// Images 是结果里附带的图片，和 user 记录一样落盘到 <会话名>.images/。
+	Images []imageRec `json:"images,omitempty"`
 }
 
 // compactRec 记录一次上下文压缩。恢复会话时按它重放：summary 丢弃前 dropped 条消息并换上摘要，
@@ -154,7 +156,7 @@ func toRecord(e event.Event, now time.Time) (any, bool) {
 			header: h("tool"), ToolCallID: e.ID, Name: e.Name, Command: e.Command,
 			Stdout: e.Stdout, Stderr: e.Stderr, ExitCode: e.ExitCode,
 			Truncated: e.Truncated, TimedOut: e.TimedOut, Cancelled: e.Cancelled,
-			DurationMS: e.Duration.Milliseconds(), Error: e.Err, Content: e.Content,
+			DurationMS: e.Duration.Milliseconds(), Error: e.Err, Content: e.Content, Images: imageRecs(e.Images),
 		}, true
 	case event.Compacted:
 		return compactRec{h("compact"), e.Mode, e.TokensBefore, e.TokensAfter, e.Dropped, e.Summary, e.Err, e.Manual}, true

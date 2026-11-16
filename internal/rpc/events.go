@@ -15,6 +15,15 @@ type wireImage struct {
 	Source    string `json:"source,omitempty"`
 }
 
+// wireImages 总是返回非 nil 切片：客户端拿到的是 []，不用区分 null。
+func wireImages(in []event.ImageInfo) []wireImage {
+	out := make([]wireImage, 0, len(in))
+	for _, im := range in {
+		out = append(out, wireImage{Name: im.Name, MediaType: im.MediaType, Bytes: im.Bytes, Path: im.Path, Source: im.Source})
+	}
+	return out
+}
+
 type wireToolCall struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
@@ -29,11 +38,7 @@ func wireEvent(turn int, e event.Event) map[string]any {
 	case event.TurnStarted:
 		m["prompt"] = e.Prompt
 		// 不带 base64：客户端自己有原图，事件里重复携带只会让单行变成几 MB。
-		imgs := make([]wireImage, 0, len(e.Images))
-		for _, im := range e.Images {
-			imgs = append(imgs, wireImage{Name: im.Name, MediaType: im.MediaType, Bytes: im.Bytes, Path: im.Path, Source: im.Source})
-		}
-		m["images"] = imgs
+		m["images"] = wireImages(e.Images)
 	case event.MessageDelta:
 		m["text"] = e.Text
 	case event.ReasoningDelta:
@@ -56,6 +61,8 @@ func wireEvent(turn int, e event.Event) map[string]any {
 		m["truncated"], m["timedOut"], m["cancelled"] = e.Truncated, e.TimedOut, e.Cancelled
 		m["durationMs"] = e.Duration.Milliseconds()
 		m["content"], m["error"] = e.Content, e.Err
+		// 工具结果里的图片同样只给元数据；要看原图从会话目录的 <会话名>.images/ 读。
+		m["images"] = wireImages(e.Images)
 	case event.Usage:
 		m["inputTokens"], m["outputTokens"], m["totalTokens"] = e.InputTokens, e.OutputTokens, e.TotalTokens
 		m["reasoningTokens"] = e.ReasoningTokens

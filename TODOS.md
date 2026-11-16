@@ -148,7 +148,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] `花费`：单价来自 models.dev（`sprout models update` 下载到 `<数据目录>/models.dev.json`，启动时只读缓存、不联网）。每次用量到达时按当时模型的单价累加，切换模型不重算历史；`/new` 与恢复会话清零，恢复时按当前模型的价格重算重放出来的用量。没有价格时显示 `—`，一部分用量没价格时显示 `≥` 加金额。**已知限制**：只用基础价，忽略 models.dev 的分档价（`tiers`、`context_over_200k`）；价格没有和真实账单核对过。
 - [ ] 状态栏里还是占位的：`插件`（没有插件机制）。
 - [ ] MCP 的其他能力（目前只做了工具，见 `docs/mcp.md`“已知限制”），按以下顺序逐项实现：
-  - [ ] 工具结果里的图片转成图片块发给模型（现在只写占位文本）；
+  - [x] 工具结果里的图片转成图片块发给模型；
   - [ ] Resources：`resources/list`、`resources/templates/list`、`resources/read`；
   - [ ] Prompts：`prompts/list`、`prompts/get`；
   - [ ] Elicitation：服务端发起的 `elicitation/create`，需要 TUI 与 JSON-RPC 客户端各自的交互；

@@ -9,7 +9,7 @@
   --<工作目录 slug>--/
     meta.json                         该目录分组下所有会话的索引
     <yyyymmdd-hhmmss>_<id>.jsonl      一个会话
-    <yyyymmdd-hhmmss>_<id>.images/    该会话的输入图片（有图片时才有）
+    <yyyymmdd-hhmmss>_<id>.images/    该会话的图片：用户输入和工具结果里的（有图片时才有）
 ```
 
 - **slug**（`session.Slug`）：去掉开头的 `/`、`\`，把 `/`、`\`、`:` 换成 `-`，前后加 `--`。例：`D:\SmyProjects\sprout` → `--D--SmyProjects-sprout--`，`/home/a/b` → `--home-a-b--`。
@@ -21,7 +21,7 @@
 - 文件懒创建：第一条需要落盘的记录到来时才创建，并先写 `session` 头记录、登记 `meta.json`。启动后什么都没做就退出不会留下空文件。
 - 每条记录一行 JSON，一次 `Write` 写完，进程崩溃时最多留下最后半行。
 - 写入失败只记日志、停止记录，不影响 agent 运行。`meta.json` 写失败只是警告，不影响会话记录。
-- 带图片的轮次：图片写盘失败时整条 `user` 记录不写，记录器转为失败状态，避免重放出的历史和运行时不一致。
+- 带图片的轮次或工具结果：图片写盘失败时整条 `user` / `tool` 记录不写，记录器转为失败状态，避免重放出的历史和运行时不一致。
 - `Attach(path)`：恢复会话时改为向原文件追加，并写一条 `resume` 记录。
 - `Reset(info)`：`/new` 时结束当前文件，下一条记录写进新会话；`info` 换成当前模型。
 - `NoteModelChange`：会话中途切换模型时写一条 `resume` 记录；还没有文件时不写。
@@ -35,7 +35,7 @@
 | `session` | 文件创建时 | `id`、`cwd`、`provider`、`model`、`tools`、`version`（省略） |
 | `user` | `turn.started` | `content`、`images`（省略） |
 | `assistant` | `message.completed` | `content`、`reasoning`（省略）、`tool_calls: [{id, name, arguments}]`（省略）、`stop_reason`（省略）、`native`（省略） |
-| `tool` | `tool.finished` | `tool_call_id`、`name`、`command`、`stdout`、`stderr`、`exit_code`、`truncated`、`timed_out`、`cancelled`、`duration_ms`、`error`、`content`；除 `tool_call_id`、`name`、`exit_code`、`duration_ms` 外都省略零值 |
+| `tool` | `tool.finished` | `tool_call_id`、`name`、`command`、`stdout`、`stderr`、`exit_code`、`truncated`、`timed_out`、`cancelled`、`duration_ms`、`error`、`content`、`images`；除 `tool_call_id`、`name`、`exit_code`、`duration_ms` 外都省略零值 |
 | `usage` | `usage` | `input_tokens`、`output_tokens`、`total_tokens`、`reasoning_tokens`（省略）、`cache_read_tokens`（省略）、`cache_write_tokens`（省略） |
 | `compact` | `compacted` | `mode`、`tokens_before`、`tokens_after`、`dropped`、`summary`（省略）、`error`（省略）、`manual`（省略） |
 | `interrupted` | `interrupted` | `reason`、`content`、`reasoning`（省略） |
@@ -45,7 +45,7 @@
 | `resume` | `Attach` / `NoteModelChange` | `provider`、`model`、`tools`；仅审计 |
 
 - `exit_code` 不省略，因为 0 是有意义的值。
-- `images` 每项为 `{file, media_type, bytes, name?, source?}`。`file` 是相对会话目录的路径（如 `20261116-101500_ab12cd34.images/0123456789abcdef.png`），文件名取内容 SHA-256 的前 8 字节加扩展名，同一张图重复发只存一份。JSONL 里不内联 base64。
+- `user` 和 `tool` 的 `images` 格式相同，每项为 `{file, media_type, bytes, name?, source?}`。`file` 是相对会话目录的路径（如 `20261116-101500_ab12cd34.images/0123456789abcdef.png`），文件名取内容 SHA-256 的前 8 字节加扩展名，同一张图重复发只存一份。JSONL 里不内联 base64。
 - `native` 是 `{protocol, model, data}`，`data` 是该协议的原始 JSON，内核不解析。
 - `message.delta`、`reasoning.delta`、`tool.requested` 不落盘。
 - 旧会话缺少的字段（`reasoning_tokens`、缓存两项、`manual`、`images` 的 `name` / `source` 等）读出来是零值，按旧语义处理。
@@ -79,6 +79,6 @@
 - 以 `内部错误` 开头的 `error`（panic）让历史还原到本轮开始前。
 - `compact` 按当初的方式重做：summary 丢弃前 `dropped` 条消息并换上摘要；prune 用纯函数 `agent.PruneToolOutputs` 从最旧的开始裁同样多条。
 - `interrupted` 还原成一条 assistant 消息，内容与当初写进历史的一致。
-- 图片按 `file` 读回；文件丢失或损坏时换成“（图片无法恢复：路径）”文本块，不让整轮无法恢复。
+- 图片按 `file` 读回，`tool` 记录的图片跟在结果文本后面（与运行时的 tool 消息顺序一致）；文件丢失或损坏时换成“（图片无法恢复：路径）”文本块，不让整轮无法恢复。
 - 无法解析的行跳过并计数；`retry`、`resume` 和未知类型只用于审计，重放时忽略。
 - 换了模型或服务商时，调用方用 `State.StripReasoning` 清掉旧思维链和 `native`。

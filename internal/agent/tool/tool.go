@@ -19,6 +19,15 @@ type Result struct {
 	Truncated bool
 	TimedOut  bool
 	Duration  time.Duration
+	// Images 是随结果一起交给模型的图片（如 MCP 工具返回的截图），接在 ForModel 的文本之后。
+	Images []Image
+}
+
+// Image 是工具结果里的一张图片。Data 是 base64，不含 data: 前缀。
+// 本包不能依赖 agent（agent 依赖本包），所以不复用 agent.Image。
+type Image struct {
+	MediaType string
+	Data      string
 }
 
 // 回给模型的命令回显上限：模型已经在 tool call 里见过完整命令，这里只做对账。
