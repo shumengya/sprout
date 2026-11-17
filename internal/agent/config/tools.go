@@ -16,10 +16,11 @@ const (
 	ToolWrite      = "write"
 	ToolEdit       = "edit"
 	ToolDelete     = "delete"
+	ToolAgent      = "agent"
 )
 
 // KnownTools 是全部内置工具，顺序即模板与校验提示里的顺序。
-var KnownTools = []string{ToolBash, ToolPowerShell, ToolRead, ToolWrite, ToolEdit, ToolDelete}
+var KnownTools = []string{ToolBash, ToolPowerShell, ToolRead, ToolWrite, ToolEdit, ToolDelete, ToolAgent}
 
 // 外部工具的 exec.shell 取值。
 const (

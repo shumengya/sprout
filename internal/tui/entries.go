@@ -65,6 +65,8 @@ type entry struct {
 	fin     event.ToolFinished
 	// skill 非空表示这次调用读的是某个技能的 SKILL.md 或其目录下的文件，值是技能名，卡片上会标出来。
 	skill string
+	// sub 是 agent 工具派出的子代理的进度；其他工具为 nil。
+	sub *subRun
 
 	// 思维链条目：live 表示还在流式输出，此时只预览最后几行。
 	live bool

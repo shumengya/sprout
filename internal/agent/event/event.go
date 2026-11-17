@@ -25,6 +25,7 @@ const (
 	KindTurnFinished     Kind = "turn.finished"
 	KindInterrupted      Kind = "interrupted"
 	KindError            Kind = "error"
+	KindSubagent         Kind = "subagent"
 )
 
 // 一轮（turn）结束的原因。
@@ -199,6 +200,20 @@ type Interrupted struct {
 }
 
 func (Interrupted) Kind() Kind { return KindInterrupted }
+
+// Subagent 包着 agent 工具启动的子代理发出的一个事件，在这次调用的 ToolRequested 与 ToolFinished 之间到达。
+//
+// 子代理有自己的一整轮（turn.started … turn.finished），这些事件原样放在 Event 里；
+// 流式增量（message.delta / reasoning.delta）不转发。surface 用 CallID 把它挂到对应的工具卡片上，
+// 内层的 Usage 要计入花费，但不是主对话的上下文占用。会话记录只保存内层的 Usage（subagent_usage），
+// 子代理的完整过程另存一个文件（见 docs/session-format.md）。
+type Subagent struct {
+	CallID string // 启动它的 agent 工具调用的 ID
+	Agent  string // 子代理类型名，如 explore
+	Event  Event
+}
+
+func (Subagent) Kind() Kind { return KindSubagent }
 
 // Error 描述一次失败。它之后一定跟着 TurnFinished，Reason 为 ReasonError 或 ReasonMaxSteps。
 type Error struct {

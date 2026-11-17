@@ -172,25 +172,33 @@ func (m *Model) onEvent(e event.Event) {
 		m.cur = nil
 	case event.Error:
 		m.add(&entry{kind: kindError, text: e.Message})
+	case event.Subagent:
+		m.onSubagent(e)
 	case event.TurnFinished:
 		m.finishTurn(e.Reason)
 	}
 }
 
 // addUsage 把一次模型调用的用量记进状态栏。
-// 服务端报告的输入 token 含缓存读写，“输入”一项只算没命中缓存的部分，和“缓存”加起来才是全部输入。
 // 上下文占用取最近一次请求的输入：它就是下一次请求大致要带的历史长度；服务端没报告时保持原值。
 func (m *Model) addUsage(e event.Usage) {
+	m.countUsage(e)
+	if e.InputTokens > 0 {
+		m.ctxTokens = e.InputTokens
+	}
+	m.updateSpeed(e.OutputTokens)
+}
+
+// countUsage 只累计用量与花费。子代理的用量走这里：它要算钱，但不是主对话的上下文占用，也不参与输出速度。
+// 服务端报告的输入 token 含缓存读写，“输入”一项只算没命中缓存的部分，和“缓存”加起来才是全部输入。
+// 子代理换了模型时仍按主模型的单价折算（界面只知道当前模型的价格）。
+func (m *Model) countUsage(e event.Usage) {
 	input := max(e.InputTokens-e.CacheReadTokens-e.CacheWriteTokens, 0)
 	m.cost.add(m.opts.Info.Price, input, e.OutputTokens, e.CacheReadTokens, e.CacheWriteTokens)
 	m.usage.Input += input
 	m.usage.Output += e.OutputTokens
 	m.usage.CacheRead += e.CacheReadTokens
 	m.usage.CacheWrite += e.CacheWriteTokens
-	if e.InputTokens > 0 {
-		m.ctxTokens = e.InputTokens
-	}
-	m.updateSpeed(e.OutputTokens)
 }
 
 // markGen 记下本次模型调用第一次收到输出的时刻，输出速度和首字延迟从这里起算。

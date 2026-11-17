@@ -103,6 +103,7 @@ sprout serve [--data-dir DIR] [-c | --resume ID] [--effort 档位]
 | `interrupted` | `reason`、`content`、`reasoning`、`partial` |
 | `error` | `message`、`retryable` |
 | `turn.finished` | `reason`：`stop` / `cancelled` / `error` / `max_steps` / `length` |
+| `subagent` | `id`（启动它的 `agent` 调用的 id）、`agent`（子代理类型）、`event`：子代理的一个事件，字段同本表，有 `kind` 但没有 `turn`。不推送增量；`session/resume` 重放出的只有内层为 `usage` 的这一种（见 `docs/subagents.md`） |
 
 **`notice`**：`{message}`，给用户看的提示，例如后台连接的 MCP 服务端失败。
 

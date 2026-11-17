@@ -78,6 +78,13 @@ func wireEvent(turn int, e event.Event) map[string]any {
 		m["message"], m["retryable"] = e.Message, e.Retryable
 	case event.TurnFinished:
 		m["reason"] = e.Reason
+	case event.Subagent:
+		inner := wireEvent(turn, e.Event)
+		if inner == nil {
+			return nil
+		}
+		delete(inner, "turn") // 内层是子代理自己的一轮，turn 只在外层有意义
+		m["id"], m["agent"], m["event"] = e.CallID, e.Agent, inner
 	default:
 		return nil
 	}

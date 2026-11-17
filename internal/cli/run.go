@@ -69,6 +69,8 @@ func (p *printer) Emit(e event.Event) {
 		default:
 			p.status("提示: 上下文接近上限，已把更早的 %d 条消息总结成摘要", e.Dropped)
 		}
+	case event.Subagent:
+		p.subagent(e)
 	case event.TurnFinished:
 		switch e.Reason {
 		case event.ReasonCancelled:
@@ -98,6 +100,19 @@ func (p *printer) endOutput() {
 func (p *printer) status(format string, args ...any) {
 	p.endOutput()
 	fmt.Fprintf(p.err, format+"\n", args...)
+}
+
+// subagent 把子代理的进度写到 stderr，缩进在 agent 工具那一行下面。
+// 多个子代理并行时各行交错出现，所以每行都带上类型名。只报工具调用和出错，正文由报告交回。
+func (p *printer) subagent(e event.Subagent) {
+	switch in := e.Event.(type) {
+	case event.ToolRequested:
+		p.status("  │ %s · [%s] %s", e.Agent, in.Call.Name, firstLine(clean(commandOf(in.Call.Arguments))))
+	case event.Error:
+		p.status("  │ %s · 错误: %s", e.Agent, firstLine(clean(in.Message)))
+	case event.Retrying:
+		p.status("  │ %s · 请求失败，重试（%d/%d）：%s", e.Agent, in.Attempt, in.Max, clean(in.Reason))
+	}
 }
 
 func toolSummary(e event.ToolFinished) string {

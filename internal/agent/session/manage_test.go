@@ -74,6 +74,9 @@ func TestDeleteRemovesFileImagesAndMeta(t *testing.T) {
 	imgs := strings.TrimSuffix(p, ".jsonl") + ".images"
 	os.MkdirAll(imgs, 0o755)
 	os.WriteFile(filepath.Join(imgs, "a.png"), []byte("x"), 0o600)
+	agents := strings.TrimSuffix(p, ".jsonl") + ".agents"
+	os.MkdirAll(agents, 0o755)
+	os.WriteFile(filepath.Join(agents, "call_1.jsonl"), []byte("{}\n"), 0o600)
 	Rename(root, p, "有名字")
 
 	if err := Delete(root, p, keep); err != nil {
@@ -84,6 +87,9 @@ func TestDeleteRemovesFileImagesAndMeta(t *testing.T) {
 	}
 	if _, err := os.Stat(imgs); !os.IsNotExist(err) {
 		t.Error("图片目录还在")
+	}
+	if _, err := os.Stat(agents); !os.IsNotExist(err) {
+		t.Error("子代理记录目录还在")
 	}
 	if _, ok := readMeta(filepath.Dir(p)).Sessions[filepath.Base(p)]; ok {
 		t.Error("meta.json 里的登记还在")

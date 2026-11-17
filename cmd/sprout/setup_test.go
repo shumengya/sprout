@@ -69,7 +69,7 @@ func TestFirstRunCreatesTemplateAndDisablesWithGuidance(t *testing.T) {
 	}
 	// 即使不能对话，工具检测结果仍要展示给用户。顺序由 tools.jsonc 的已知工具列表决定，
 	// 外部工具（模板里的 ls 示例）排在内置工具之后。
-	if toolNames(a) != "bash,powershell,read,write,edit,delete,ls" {
+	if toolNames(a) != "bash,powershell,read,write,edit,delete,agent,ls" {
 		t.Errorf("工具 = %q", toolNames(a))
 	}
 }
@@ -128,7 +128,7 @@ func TestEnvKeyEnablesAgentWithToolsAndPrompt(t *testing.T) {
 	if a.ag == nil || a.rec == nil || a.disabled != "" {
 		t.Fatalf("环境变量里有 Key 应可对话: disabled=%q", a.disabled)
 	}
-	if a.sel.Ref() != "deepseek/deepseek-flash" || toolNames(a) != "bash,powershell,read,write,edit,delete,ls" {
+	if a.sel.Ref() != "deepseek/deepseek-flash" || toolNames(a) != "bash,powershell,read,write,edit,delete,agent,ls" {
 		t.Errorf("sel=%s tools=%s", a.sel.Ref(), toolNames(a))
 	}
 	// 首次运行但 Key 已就绪：不禁用，只在启动提示里说明生成的配置文件位置（状态栏与模型）。
@@ -149,11 +149,11 @@ func TestOnlyAvailableToolsAreRegistered(t *testing.T) {
 		wantTools   string
 		wantUnavail string
 	}{
-		{"两者都有", true, true, "bash,powershell,read,write,edit,delete,ls", ""},
-		{"只有 powershell", false, true, "powershell,read,write,edit,delete",
+		{"两者都有", true, true, "bash,powershell,read,write,edit,delete,agent,ls", ""},
+		{"只有 powershell", false, true, "powershell,read,write,edit,delete,agent",
 			"bash 已在 tools.jsonc 启用，但本机不可用：未找到 Git Bash|ls 需要 bash，但本机不可用：未找到 Git Bash"},
-		{"只有 bash", true, false, "bash,read,write,edit,delete,ls", "powershell 已在 tools.jsonc 启用，但本机不可用：未找到 PowerShell"},
-		{"都没有", false, false, "read,write,edit,delete", "bash 已在 tools.jsonc 启用，但本机不可用：未找到 Git Bash|" +
+		{"只有 bash", true, false, "bash,read,write,edit,delete,agent,ls", "powershell 已在 tools.jsonc 启用，但本机不可用：未找到 PowerShell"},
+		{"都没有", false, false, "read,write,edit,delete,agent", "bash 已在 tools.jsonc 启用，但本机不可用：未找到 Git Bash|" +
 			"powershell 已在 tools.jsonc 启用，但本机不可用：未找到 PowerShell|ls 需要 bash，但本机不可用：未找到 Git Bash"},
 	}
 	for _, c := range cases {

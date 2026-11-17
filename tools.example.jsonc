@@ -53,6 +53,12 @@
     // 不确定影响范围时先 dry_run，只统计不删。盘符根、工作目录、用户主目录及其上级一律拒绝。
     "delete": { "enable": true },
 
+    // agent：把一块独立的工作交给子代理。子代理有自己的上下文，做完只交回一份报告，
+    // 同一次回复里的多个 agent 调用并行执行；子代理不能再派子代理。
+    // 内置 general（全部工具）与 explore（只读：read + shell）两种类型；
+    // 自定义类型写成 Markdown 放在 <数据目录>/agents/ 或 <工作目录>/.sprout/agents/，见 docs/subagents.md。
+    "agent": { "enable": true },
+
     // 外部工具示例：把 ls 包装成一个工具。
     // 非内置名字必须给出 description 与 exec，否则启动时报错。
     // {{path}} 会替换成模型传入的 path；bash 下自动加引号，所以路径带空格也安全。

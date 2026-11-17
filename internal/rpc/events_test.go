@@ -25,3 +25,21 @@ func TestToolFinishedWireCarriesImageMetaWithoutData(t *testing.T) {
 		t.Errorf("没有图片时应是空数组: %s", b)
 	}
 }
+
+func TestSubagentWireNestsInnerEvent(t *testing.T) {
+	m := wireEvent(3, event.Subagent{CallID: "call_1", Agent: "explore", Event: event.ToolRequested{
+		Call: event.ToolCall{ID: "x", Name: "read", Arguments: `{"path":"a"}`},
+	}})
+	b, _ := json.Marshal(m)
+	want := `{"agent":"explore","event":{"arguments":"{\"path\":\"a\"}","id":"x","kind":"tool.requested","name":"read"},"id":"call_1","kind":"subagent","turn":3}`
+	if string(b) != want {
+		t.Errorf("subagent 事件\n得到 %s\n期望 %s", b, want)
+	}
+	if wireEvent(1, event.Subagent{CallID: "c", Event: unknownEvent{}}) != nil {
+		t.Error("内层不认识的事件不推送")
+	}
+}
+
+type unknownEvent struct{}
+
+func (unknownEvent) Kind() event.Kind { return "test.unknown" }

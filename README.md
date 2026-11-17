@@ -119,7 +119,7 @@ TUI、WebUI、CLI、JSON-RPC 都只是这套协议的适配器。
 
 ## 当前状态
 
-**M1（最小可用闭环）、M2（识图）与 M5 中的 MCP、skills 已实现。** 终端界面、单次运行、OpenAI Chat / Responses、Anthropic Messages、Gemini 四种协议、`bash` / `powershell` / `read` / `write` / `edit` / `delete` 与外部命令工具、图片输入、JSONL 会话与恢复、自动重试、上下文压缩、MCP 工具接入（`docs/mcp.md`）、Agent Skills（`docs/skills.md`，含 `skills.jsonc` 注册表、`/skills` 面板与 `/技能名` 手动触发）、`/mcp` 面板、`sprout update` 自动更新（校验后替换程序，TUI 里是 `/update`）、可配置的底部状态栏（数据目录的 `statusline.jsonc`）均可用；M3 JSON-RPC 已实现：`sprout serve` 提供对话、取消、会话管理（新建、列出、恢复、重命名、删除、压缩）与模型、思考程度切换（`docs/rpc.md`）；WebUI、子代理等尚未开始。已实现与未实现的逐项清单见 `TODOS.md`；真实模型服务和真实终端的手工验证状态见 `docs/m1-implementation.md` §12、§15 与 `TODOS.md` 第二节。
+**M1（最小可用闭环）、M2（识图）与 M5 中的 MCP、skills、子代理已实现。** 终端界面、单次运行、OpenAI Chat / Responses、Anthropic Messages、Gemini 四种协议、`bash` / `powershell` / `read` / `write` / `edit` / `delete` 与外部命令工具、图片输入、JSONL 会话与恢复、自动重试、上下文压缩、MCP 工具接入（`docs/mcp.md`）、Agent Skills（`docs/skills.md`，含 `skills.jsonc` 注册表、`/skills` 面板与 `/技能名` 手动触发）、子代理（`agent` 工具，内置 general / explore，可用 `agents/*.md` 自定义，见 `docs/subagents.md`）、`/mcp` 面板、`sprout update` 自动更新（校验后替换程序，TUI 里是 `/update`）、可配置的底部状态栏（数据目录的 `statusline.jsonc`）均可用；M3 JSON-RPC 已实现：`sprout serve` 提供对话、取消、会话管理（新建、列出、恢复、重命名、删除、压缩）与模型、思考程度切换（`docs/rpc.md`）；WebUI 尚未开始。已实现与未实现的逐项清单见 `TODOS.md`；真实模型服务和真实终端的手工验证状态见 `docs/m1-implementation.md` §12、§15 与 `TODOS.md` 第二节。
 
 ## 路线图
 
@@ -128,7 +128,7 @@ TUI、WebUI、CLI、JSON-RPC 都只是这套协议的适配器。
 - **M2 识图**（已完成）：四种协议的图片输入、会话保存图片、不支持视觉的模型自动降级，见 `docs/m2-vision.md`。
 - **M3 JSON-RPC**：会话管理、流式事件、取消。
 - **M4 WebUI**：独立前端模块，复用 JSON-RPC 事件。
-- **M5 扩展**：MCP、skills（均已实现，见 `docs/mcp.md`、`docs/skills.md`）、子代理、搜索与 web 等更多工具。
+- **M5 扩展**：MCP、skills、子代理（均已实现，见 `docs/mcp.md`、`docs/skills.md`、`docs/subagents.md`）、搜索与 web 等更多工具。
 
 M1 与 M2 之间还陆续补入了 Anthropic Messages、Gemini、`read` / `write` / `edit` / `delete`、外部命令工具、会话恢复与上下文压缩，它们不单独占里程碑编号。
 

@@ -20,8 +20,9 @@
 
 - 工具名：字母开头，后接字母、数字、`_`、`-`，最长 64 字符。模型把它当函数名用。
 - 没写出的工具视为**未注册**；`enable: false` 或省略 `enable` 同样不启用。
-- 内置工具（`bash`、`powershell`、`read`、`write`、`edit`、`delete`）由程序实现，`description` / `parameters`
+- 内置工具（`bash`、`powershell`、`read`、`write`、`edit`、`delete`、`agent`）由程序实现，`description` / `parameters`
   只覆盖默认值，省略即用内置值。`parameters` 同样要满足 `type: "object"`，写错启动即报错。
+  `agent` 派出子代理，子代理的类型不在这里配置，见 `docs/subagents.md`；覆盖它的 `parameters` 时要保留 `prompt`、`description`、`agent` 三个字段名。
   `bash` / `powershell` 覆盖描述时，程序仍会在末尾追加
   当前环境的版本说明（如 PowerShell 5.1 不支持 `&&`），避免写死的描述误导模型。
 - 其他名字是外部工具：必须给 `description` 与 `exec`，否则启动报错。
@@ -39,7 +40,7 @@
 - 结束后才轮到排在它后面的调用。
 
 内置的 `write`、`edit`、`delete` 声明为不可并行，两个调用并发改同一个文件会互相覆盖。`bash`、`powershell`、
-`read`、外部工具和 MCP 工具默认可并行。`tools.jsonc` 里的 `parallel` 可以覆盖工具自己的声明，
+`read`、`agent`、外部工具和 MCP 工具默认可并行。`tools.jsonc` 里的 `parallel` 可以覆盖工具自己的声明，
 比如给会改共享状态的外部工具写 `"parallel": false`。无论怎样调度，历史里的工具结果始终按调用顺序排列。
 
 ## exec

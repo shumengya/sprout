@@ -21,6 +21,7 @@ type sessionRec struct {
 	Model    string   `json:"model"`
 	Tools    []string `json:"tools"`
 	Version  string   `json:"version,omitempty"`
+	Agent    string   `json:"agent,omitempty"` // 子代理的记录才有：子代理类型名
 }
 
 // branchRec 把会话的当前位置移到第 Turn 轮之后（0 是会话开头），之后的记录接在那里，形成新的分支。
@@ -100,12 +101,29 @@ type compactRec struct {
 
 type usageRec struct {
 	header
+	usageFields
+}
+
+type usageFields struct {
 	InputTokens      int `json:"input_tokens"`
 	OutputTokens     int `json:"output_tokens"`
 	TotalTokens      int `json:"total_tokens"`
 	ReasoningTokens  int `json:"reasoning_tokens,omitempty"`  // 服务端不报告时省略
 	CacheReadTokens  int `json:"cache_read_tokens,omitempty"` // 同上；旧会话没有这两个字段，读出来是 0
 	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
+}
+
+func usageOf(e event.Usage) usageFields {
+	return usageFields{e.InputTokens, e.OutputTokens, e.TotalTokens, e.ReasoningTokens, e.CacheReadTokens, e.CacheWriteTokens}
+}
+
+// subagentUsageRec 是子代理一次模型调用的用量，写在启动它的 agent 工具调用的 tool 记录之前。
+// 单独成一类而不是复用 usage：恢复时要计入花费，但不能当成主对话的上下文占用。
+type subagentUsageRec struct {
+	header
+	ToolCallID string `json:"tool_call_id"`
+	Agent      string `json:"agent"`
+	usageFields
 }
 
 // interruptedRec 记录一次被取消或中途失败、但保留了部分输出的轮次。
@@ -168,7 +186,13 @@ func toRecord(e event.Event, now time.Time) (any, bool) {
 	case event.Compacted:
 		return compactRec{h("compact"), e.Mode, e.TokensBefore, e.TokensAfter, e.Dropped, e.Summary, e.Err, e.Manual}, true
 	case event.Usage:
-		return usageRec{h("usage"), e.InputTokens, e.OutputTokens, e.TotalTokens, e.ReasoningTokens, e.CacheReadTokens, e.CacheWriteTokens}, true
+		return usageRec{h("usage"), usageOf(e)}, true
+	case event.Subagent:
+		// 子代理的过程在它自己的记录文件里，这里只留用量，恢复后花费才对得上。
+		if u, ok := e.Event.(event.Usage); ok {
+			return subagentUsageRec{h("subagent_usage"), e.CallID, e.Agent, usageOf(u)}, true
+		}
+		return nil, false
 	case event.Interrupted:
 		return interruptedRec{h("interrupted"), e.Reason, e.Content, e.Reasoning}, true
 	case event.TurnFinished:

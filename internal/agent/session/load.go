@@ -36,6 +36,7 @@ type rawRec struct {
 	Model    string   `json:"model"`
 	Tools    []string `json:"tools"`
 	Version  string   `json:"version"`
+	Agent    string   `json:"agent"` // session 头（子代理记录）与 subagent_usage
 
 	Content    string        `json:"content"`
 	Images     []imageRec    `json:"images"`

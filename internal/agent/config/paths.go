@@ -105,3 +105,9 @@ const AgentsFileName = "AGENTS.md"
 
 // AgentsPath 是数据目录里全局 AGENTS.md 的路径。
 func AgentsPath(dataDir string) string { return joinDataDir(dataDir, AgentsFileName) }
+
+// SubagentsDir 是数据目录里存放自定义子代理定义（*.md）的目录。
+func SubagentsDir(dataDir string) string { return joinDataDir(dataDir, "agents") }
+
+// ProjectSubagentsDir 是工作目录里存放项目级子代理定义的目录。
+func ProjectSubagentsDir(cwd string) string { return filepath.Join(cwd, ".sprout", "agents") }

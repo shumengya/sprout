@@ -16,12 +16,14 @@ import (
 const previewMax = 8
 
 // commandOf 从工具参数里取出用于展示的一行：
-// shell 工具取 command，文件工具取 path（read / write 没有 command 字段），都没有时退回原文。
+// shell 工具取 command，文件工具取 path（read / write 没有 command 字段），agent 工具取「类型: 标题」，都没有时退回原文。
 // TUI 不依赖具体工具的 schema，这里只是个展示用的启发式。
 func commandOf(args string) string {
 	var a struct {
-		Command string `json:"command"`
-		Path    string `json:"path"`
+		Command     string `json:"command"`
+		Path        string `json:"path"`
+		Description string `json:"description"`
+		Agent       string `json:"agent"`
 	}
 	if json.Unmarshal([]byte(args), &a) == nil {
 		if strings.TrimSpace(a.Command) != "" {
@@ -29,6 +31,12 @@ func commandOf(args string) string {
 		}
 		if strings.TrimSpace(a.Path) != "" {
 			return a.Path
+		}
+		if strings.TrimSpace(a.Description) != "" {
+			if strings.TrimSpace(a.Agent) != "" {
+				return a.Agent + ": " + a.Description
+			}
+			return a.Description
 		}
 	}
 	return args
@@ -40,6 +48,9 @@ func (e *entry) drawTool(w int) string {
 	var b strings.Builder
 	b.WriteString(e.callHead(w))
 	b.WriteString("\n  └ " + e.statusLine())
+	if e.sub != nil {
+		b.WriteString(e.drawSub(w))
+	}
 	if e.running {
 		return b.String()
 	}

@@ -29,6 +29,7 @@
 | `interrupted` | `Interrupted` | `Reason`、`Content`、`Reasoning`、`Partial` | `interrupted` |
 | `error` | `Error` | `Message`、`Retryable` | `error` |
 | `turn.finished` | `TurnFinished` | `Reason` | `turn` |
+| `subagent` | `Subagent` | `CallID`、`Agent`、`Event`（子代理的一个事件） | 内层是 `Usage` 时为 `subagent_usage`，其余不落盘 |
 
 `TurnFinished.Reason` 取值：`stop`（模型给出最终答案）、`cancelled`（用户取消）、`error`（出错）、`max_steps`（超过 `Config.MaxSteps`）、`length`（输出被长度上限截断）。
 
@@ -43,6 +44,7 @@ surface 可以依赖下面这些规则，内核和测试保证它们成立。
 - 同一批工具调用并行执行（上限 `Config.MaxParallelTools`，默认 4；声明不可并行的工具如 `write` / `edit` / `delete` 独占执行，见 `docs/tools.md`「并行」）：`tool.requested` 按调用顺序发出，`tool.finished` 按完成顺序发出，用 `ID` 配对。被取消而没来得及执行的调用只有 `tool.finished`（`Cancelled` 为 true），没有 `tool.requested`。
 - `retrying` 只在本次调用还没向界面输出任何内容时出现，所以重试不会让 surface 收到重复的增量。
 - `compacted` 可能出现在一轮中间（自动压缩，`Manual` 为 false），也可能由 `Agent.Compact` 在两轮之间发出（`Manual` 为 true）。手动压缩不是一轮，前后没有 `turn.started` / `turn.finished`。历史被改动就一定有这个事件，压缩从不静默发生。
+- `subagent` 只出现在启动它的 `agent` 工具调用的 `tool.requested` 与 `tool.finished` 之间，`CallID` 就是那次调用的 `ID`。内层是子代理自己完整的一轮（`turn.started` … `turn.finished`），同样遵守本节的顺序规则，但不含 `message.delta` / `reasoning.delta`。几个子代理并行时，各自的 `subagent` 事件交错到达，用 `CallID` 区分。
 
 ## 4. 字段语义
 
@@ -56,6 +58,7 @@ surface 可以依赖下面这些规则，内核和测试保证它们成立。
 - **`Compacted`**：`Mode` 为 `prune`（裁剪旧工具输出）或 `summary`（把更早的对话总结成摘要）。`TokensBefore` / `TokensAfter` 是估算值。`Dropped` 在 summary 模式下是被摘要替代的消息条数，在 prune 模式下是被裁剪的工具输出条数。`Summary` 是压缩后的完整摘要文本。`Err` 非空表示摘要失败，历史没动，本轮照常继续。
 - **`Interrupted`**：一轮被取消或中途失败、但已经收到部分输出时发出。这一轮不作废：`Content`（已收到的正文加一句中断说明）和 `Reasoning` 作为一条 assistant 消息留在历史里。`Partial` 为 true 表示正文已经流式显示过，界面只需补一行说明，不必把 `Content` 再显示一遍。半截的 tool call 参数可能不是合法 JSON，整个丢弃。
 - **`Error.Retryable`**：只是告诉界面这类错误理论上可重试。自动重试已经在内核里做过，到达 surface 的 `error` 是重试耗尽或不可重试的。
+- **`Subagent`**：`agent` 工具派出的子代理发出的事件（见 `docs/subagents.md`）。工具在执行中通过 `tool.Call.Emit`（内核放进 ctx 的调用信息）把它交给内核，由主 goroutine 转发，所以 Sink 仍然不要求线程安全。内层的 `Usage` 要计入花费，但它不是主对话的上下文占用；其余内层事件只用于展示进度，不进主代理的历史。
 
 ## 5. 给 surface 的约定
 

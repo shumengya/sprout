@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -21,7 +22,8 @@ const cancelledToolReply = "未执行：用户取消了本轮对话。"
 // 进程起不来、被取消、甚至 panic）都转成文本返回给模型，让它看到失败原因，不会终止 agent。
 //
 // 它不发事件、不碰历史，所以可以在多个 goroutine 里并发调用；事件和历史由 runTools 在主 goroutine 里统一处理。
-func (t *turn) execTool(call ToolCall) (fin event.ToolFinished, content string) {
+// ctx 是本轮的 ctx 加上这次调用的 tool.Call。
+func (t *turn) execTool(ctx context.Context, call ToolCall) (fin event.ToolFinished, content string) {
 	fin = event.ToolFinished{ID: call.ID, Name: call.Name}
 	defer func() {
 		if r := recover(); r != nil {
@@ -38,7 +40,7 @@ func (t *turn) execTool(call ToolCall) (fin event.ToolFinished, content string) 
 		content = "错误: " + fin.Err
 	} else {
 		start := time.Now()
-		res, err := tl.Run(t.ctx, json.RawMessage(call.Arguments))
+		res, err := tl.Run(ctx, json.RawMessage(call.Arguments))
 		fillFinished(&fin, res, time.Since(start))
 		switch {
 		case err != nil && t.ctx.Err() != nil:

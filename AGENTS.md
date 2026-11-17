@@ -6,7 +6,7 @@
 
 Sprout 是 Go 编写的跨平台通用型 agent runtime：内核是 ReAct 循环，TUI / WebUI / CLI / JSON-RPC 四种入口共用同一套会话与工具。模块路径 `github.com/shumengya/sprout`，Go 1.27+。
 
-M1（最小可用闭环）、M2（识图）已实现，M5 中的 MCP 与 Agent Skills 也已实现：ReAct 循环、OpenAI Chat Completions + Responses、Anthropic Messages、Gemini、`bash` + `powershell` + `read` + `write` + `edit` + `delete` 与外部命令工具、Bubble Tea v2 TUI（含 `/mcp`、`/skills` 面板）、`sprout run`、`sprout update`、JSONL 会话与恢复、自动重试与上下文压缩、MCP 客户端（`mcp.jsonc`；工具、资源、提示词、elicitation、sampling、MRTR 与 OAuth 登录 `sprout mcp login`）、技能注册表（`skills.jsonc`）与手动触发（`/技能名 任务`）；M3 JSON-RPC 也已实现：`sprout serve` 提供对话、取消、会话管理与模型、思考程度切换（`docs/rpc.md`）。M1 范围与实现差异见 `docs/m1-minimal.md`、`docs/m1-implementation.md`（§15 列出了与原计划的差异和尚未验证的部分），识图设计见 `docs/m2-vision.md`，MCP 与技能见 `docs/mcp.md`、`docs/skills.md`，逐项的完成与待办状态见 `TODOS.md`。未经用户确认，不要提前实现后续里程碑（WebUI、子代理）。
+M1（最小可用闭环）、M2（识图）已实现，M5 中的 MCP、Agent Skills 与子代理也已实现：ReAct 循环、OpenAI Chat Completions + Responses、Anthropic Messages、Gemini、`bash` + `powershell` + `read` + `write` + `edit` + `delete` 与外部命令工具、Bubble Tea v2 TUI（含 `/mcp`、`/skills` 面板）、`sprout run`、`sprout update`、JSONL 会话与恢复、自动重试与上下文压缩、MCP 客户端（`mcp.jsonc`；工具、资源、提示词、elicitation、sampling、MRTR 与 OAuth 登录 `sprout mcp login`）、技能注册表（`skills.jsonc`）与手动触发（`/技能名 任务`）、子代理（`agent` 工具，`agents/*.md` 自定义类型）；M3 JSON-RPC 也已实现：`sprout serve` 提供对话、取消、会话管理与模型、思考程度切换（`docs/rpc.md`）。M1 范围与实现差异见 `docs/m1-minimal.md`、`docs/m1-implementation.md`（§15 列出了与原计划的差异和尚未验证的部分），识图设计见 `docs/m2-vision.md`，MCP、技能与子代理见 `docs/mcp.md`、`docs/skills.md`、`docs/subagents.md`，逐项的完成与待办状态见 `TODOS.md`。未经用户确认，不要提前实现后续里程碑（WebUI）。
 
 ## 常用命令
 
@@ -45,6 +45,7 @@ go vet ./...
 | 工具 | 内置 `bash`、`powershell`、`read`、`write`、`edit`、`delete`，另可在 `tools.jsonc` 里用 `exec` 把外部命令包装成工具；条目必须 `"enable": true` 才注册给模型（见 `docs/tools.md`） |
 | MCP | 自带最小客户端（`internal/agent/mcp`，stdio + Streamable HTTP），配置在数据目录 `mcp.jsonc`；工具注册为 `mcp__<服务端>__<工具>`；启动时**后台**连接（界面不等服务端），连好后重建 agent 接入工具；协商版本缓存在 `<数据目录>/mcp-versions.json`；OAuth 令牌存在 `<数据目录>/mcp-auth.json`，只能由 `sprout mcp login` 在终端登录；elicitation / sampling 只在界面接了处理函数时才在握手里声明；当前自写客户端，是否引入外部库按「架构边界」里的依赖成本规则判断（见 `docs/mcp.md`） |
 | Skills | 注册表 `<数据目录>/skills.jsonc`：只有注册的技能才生效，每条含 `path` 与 `enable`；扫描 `<工作目录>/.sprout/skills`、`<工作目录>/.agents/skills`、`<数据目录>/skills`、`~/.agents/skills` 发现的技能自动登记，已有条目不覆盖；`scanAgents` 为 false 时不加载 `.agents` 下的技能。只把元数据追加进系统提示词，正文由模型用 `read` 按需读取；`/技能名 任务` 手动触发时由 TUI 读出正文交给模型（见 `docs/skills.md`） |
+| 子代理 | 内置工具 `agent`：同步、只有一层（子代理的工具表里永远没有 `agent`），同一批调用并行；类型 = 内置 general / explore + `<数据目录>/agents/*.md` + `<工作目录>/.sprout/agents/*.md`（后者优先）；子代理过程记在 `<会话名>.agents/<call id>.jsonl`，主会话只记 `subagent_usage`（见 `docs/subagents.md`） |
 | 权限 | 暂不实现权限模块，默认完全权限；不要提前加审批流或 allow/deny 配置 |
 | TUI | Bubble Tea v2 + lipgloss + bubbles；不用 tview |
 | 平台 | Windows 优先开发，目标 Linux / macOS / Android Termux |
@@ -71,6 +72,7 @@ go vet ./...
 - 状态栏的项目名、内置行号和内置颜色都在 `internal/tui/statusline.go` 的 `statusDefs` 里，`statusItemOrder` 必须与它一一对应（测试保证）。加一项时这三处一起改，另外 `config.StatuslineTemplate` 与仓库根的 `statusline.example.jsonc` 也要同步；`statusline.jsonc` 的项目名是用户可见接口，不要改名。
 - `mcp.jsonc` 与 `skills.jsonc` 的开关由面板写回，必须走 `config` 包的 `editJSONC`（按字节偏移拼接，保留注释、BOM、缩进，写完重新校验，失败回滚）；不要读出结构体再整份 `json.Marshal` 写回，会丢掉用户的注释。唯一的例外是旧版 `{"disabled": [...]}` 的一次性迁移（`WriteSkills`）。
 - 技能的注册表键名优先于 `SKILL.md` 里的 `name`；`/技能名` 触发时内置命令优先，名字不是技能（`ErrUnknownSkill`）就当普通提问，所以 `/etc/hosts` 这类输入仍能原样发送。
+- 子代理在主代理的工具 goroutine 里装配（`cmd/sprout/subagent.go` 的 `spawnSubagent`），此时 TUI / RPC 线程可能同时在改 app：`sel` / `key` 必须在 `a.mu` 下读，思考档位从 `a.ag.Thinking()` 取，不要读 `a.effort`（`/effort` 一轮中途也能改它）。子代理的进度只能经 `tool.Call.Emit` 交给内核转发，不能直接写主代理的 sink：Sink 约定只在 agent 主 goroutine 里调用。
 - `sprout update` 依赖 tag 与产物文件名同 `tools/release` 生成的一致（`sprout_<版本>_<平台>.<后缀>`）；改发布命名或平台名时要同步 `cmd/sprout/update.go` 的 `platformName`。它不需要数据目录。自动替换必须先通过 `SHA256SUMS.txt` 校验和新程序的 `--version` 试运行，任何一步失败都不能动原程序；Windows 正在运行的 exe 不能覆盖，只能先改名成 `.old`（下次启动时清理），所以别改成直接写文件。
 - 数据目录用 `os.Executable()` 定位，`go run` 时二进制在临时目录；开发时显式传 `--data-dir ./data/.sprout`，不要用 cwd 当默认。目录不可写时明确报错，不要静默回退到 `~/.sprout`。
 - 所有路径处理用 `filepath`，不要手拼 `/` 或 `\`。
@@ -85,7 +87,7 @@ go vet ./...
 
 ## 不要做
 
-- 不要越过里程碑提前实现权限模块、WebUI 或子代理。MCP 的工具结果图片、Resources、Prompts、Elicitation、MRTR、Sampling、OAuth 均已按用户要求实现（剩余限制见 `docs/mcp.md`「已知限制」），在此之外的 MCP 能力（如 `resources/subscribe`、url 模式 elicitation、CIMD）仍要先经用户确认。`sprout update` 只更新程序本身，不要顺带改数据目录里的配置。
+- 不要越过里程碑提前实现权限模块或 WebUI。子代理已按用户要求实现同步、一层的 `agent` 工具；后台子代理、给运行中的子代理追加消息等扩展要先经用户确认。MCP 的工具结果图片、Resources、Prompts、Elicitation、MRTR、Sampling、OAuth 均已按用户要求实现（剩余限制见 `docs/mcp.md`「已知限制」），在此之外的 MCP 能力（如 `resources/subscribe`、url 模式 elicitation、CIMD）仍要先经用户确认。`sprout update` 只更新程序本身，不要顺带改数据目录里的配置。
 - 不要为 TUI 或演示引入假模型、假工具、回显模式；测试替身只允许放在 `_test.go`。
 - 不要复制 Crush / Codex / Claude Code 的代码；参考设计可以，注意 Crush 是 FSL-1.1-MIT。
 - 不要提交 `.env`、API key、`auth.json`、构建产物。
@@ -101,6 +103,7 @@ go vet ./...
 - 工具注册与外部命令工具：`docs/tools.md`
 - MCP 客户端与 `/mcp` 面板：`docs/mcp.md`
 - 技能注册表、`/skills` 面板与手动触发：`docs/skills.md`
+- 子代理（`agent` 工具、自定义类型、记录与事件）：`docs/subagents.md`
 - 系统提示词与 `AGENTS.md` 读取：`docs/system-prompt.md`
 - 思考程度（effort）：`docs/effort.md`
 - 命令行、斜杠命令、快捷键参考：`docs/CLI命令.md`、`docs/斜杠命令.md`、`docs/快捷键.md`

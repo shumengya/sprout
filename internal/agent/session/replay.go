@@ -51,7 +51,7 @@ func (r *replayer) emit(e event.Event) { r.st.Events = append(r.st.Events, e) }
 func (r *replayer) handle(rec rawRec) {
 	switch rec.Type {
 	case "session":
-		r.st.ID, r.st.Info = rec.ID, Info{Provider: rec.Provider, Model: rec.Model, Cwd: rec.Cwd, Tools: rec.Tools, Version: rec.Version}
+		r.st.ID, r.st.Info = rec.ID, Info{Provider: rec.Provider, Model: rec.Model, Cwd: rec.Cwd, Tools: rec.Tools, Version: rec.Version, Agent: rec.Agent}
 	case "user":
 		r.flush()
 		r.base, r.inTurn, r.panicked = len(r.history), true, false
@@ -106,8 +106,10 @@ func (r *replayer) handle(rec rawRec) {
 		r.pending, r.results = nil, nil
 		r.emit(event.Interrupted{Reason: rec.Reason, Content: rec.Content, Reasoning: rec.Reasoning})
 	case "usage":
-		r.emit(event.Usage{InputTokens: rec.InputTokens, OutputTokens: rec.OutputTokens, TotalTokens: rec.TotalTokens,
-			ReasoningTokens: rec.ReasoningTokens, CacheReadTokens: rec.CacheReadTokens, CacheWriteTokens: rec.CacheWriteTokens})
+		r.emit(rec.usage())
+	case "subagent_usage":
+		// 不动历史、不 flush：它夹在 agent 工具调用的 assistant 与 tool 记录之间。
+		r.emit(event.Subagent{CallID: rec.ToolCallID, Agent: rec.Agent, Event: rec.usage()})
 	case "compact":
 		r.compact(rec)
 	case "error":
@@ -118,6 +120,11 @@ func (r *replayer) handle(rec rawRec) {
 		r.endTurn(rec.Reason)
 	}
 	// retry / resume 以及未知类型：只用于审计，恢复时忽略。
+}
+
+func (rec rawRec) usage() event.Usage {
+	return event.Usage{InputTokens: rec.InputTokens, OutputTokens: rec.OutputTokens, TotalTokens: rec.TotalTokens,
+		ReasoningTokens: rec.ReasoningTokens, CacheReadTokens: rec.CacheReadTokens, CacheWriteTokens: rec.CacheWriteTokens}
 }
 
 func (r *replayer) tool(rec rawRec) {

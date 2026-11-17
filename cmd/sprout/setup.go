@@ -5,15 +5,18 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/shumengya/sprout/internal/agent"
 	"github.com/shumengya/sprout/internal/agent/config"
+	"github.com/shumengya/sprout/internal/agent/event"
 	"github.com/shumengya/sprout/internal/agent/mcp"
 	"github.com/shumengya/sprout/internal/agent/platform"
 	"github.com/shumengya/sprout/internal/agent/session"
 	"github.com/shumengya/sprout/internal/agent/skills"
+	"github.com/shumengya/sprout/internal/agent/subagent"
 	"github.com/shumengya/sprout/internal/agent/tool"
 	"github.com/shumengya/sprout/internal/agent/tool/bash"
 	"github.com/shumengya/sprout/internal/agent/tool/external"
@@ -55,11 +58,13 @@ type app struct {
 	// skillCfg 是 skills.jsonc 的注册表；skillsDirty 表示改过、等待空闲时重建 agent。
 	skillCfg    *config.SkillsFile
 	skillsDirty bool
-	env         env
-	log         *slog.Logger
-	sel         config.Selection
-	reg         *tool.Registry
-	mcp         *mcpSet // 已连接的 MCP 服务端；没有启用任何服务端时为 nil
+	// subagents 是可派出的子代理类型（内置 + agents/*.md），启动时读一次。
+	subagents []subagent.Definition
+	env       env
+	log       *slog.Logger
+	sel       config.Selection
+	reg       *tool.Registry
+	mcp       *mcpSet // 已连接的 MCP 服务端；没有启用任何服务端时为 nil
 	// MCP 在后台连接：mcpReady 在连接流程结束时关闭，mcpCancel 在退出时中止它。
 	// mu 保护后台 goroutine 与界面线程共用的字段（mcp、info），避免数据竞争。
 	mu          sync.Mutex
@@ -225,6 +230,14 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 	a.notices = append(a.notices, stateProblems...)
 	a.notices = append(a.notices, instrProblems...)
 	a.notices = append(a.notices, skillProblems...)
+	subs, subagentProblems := loadSubagents(dataDir, e.cwd, cfg)
+	a.subagents = subs
+	a.notices = append(a.notices, subagentProblems...)
+	for _, d := range a.subagents {
+		if d.Source != subagent.SourceBuiltin {
+			log.Info("已加载子代理定义", "name", d.Name, "source", string(d.Source), "path", d.Path)
+		}
+	}
 	a.info = tui.Info{
 		Model: sel.ModelName, Provider: sel.ProviderName + "，" + sel.Provider.Protocol,
 		Cwd: e.cwd, DataDir: dataDir, Vision: sel.Model.SupportsVision(), Effort: effortLabel(sel, effort),
@@ -345,6 +358,12 @@ func (a *app) registerTools(cfg *config.File, e env) (*tool.Registry, error) {
 			if err := add(file.NewDelete(e.cwd), "内置  删除文件或目录（不进回收站）"); err != nil {
 				return nil, err
 			}
+		case config.ToolAgent:
+			// 子代理的工具表在每次调用时才从 reg 里筛：之后注册的外部工具和 MCP 工具同样能交给它。
+			t := subagent.New(reg, a.subagents, a.spawnSubagent)
+			if err := add(t, "内置  委派子代理："+strings.Join(t.Names(), "、")); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -391,29 +410,46 @@ func (a *app) registerTools(cfg *config.File, e env) (*tool.Registry, error) {
 
 // buildAgent 用选定的模型与工具构造 agent。渲染模型切换时也走这里，保证两条路径的装配完全一致。
 func (a *app) buildAgent(sel config.Selection, key string, reg *tool.Registry, rec *session.Recorder, e env, log *slog.Logger) (*agent.Agent, error) {
-	prov, err := newProvider(sel, key, e, log)
+	system, err := a.systemPrompt(sel, reg, e)
 	if err != nil {
 		return nil, err
 	}
+	return a.newAgent(sel, key, reg, system, thinkingFor(sel, a.effort), rec, e, log)
+}
+
+// systemPrompt 按 SYSTEMPROMPT.md、AGENTS.md 和技能目录拼出系统提示词。子代理也用它，只是工具表不同。
+func (a *app) systemPrompt(sel config.Selection, reg *tool.Registry, e env) (string, error) {
 	system, err := a.prompt.Render(agent.PromptInfo{
 		OS: platform.OSName(), Cwd: e.cwd, Now: e.now(), Tools: reg.Names(),
 		Vision: sel.Model.SupportsVision(),
 	})
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	system = agent.AppendInstructions(system, a.instr)
 	// 技能目录追加在最后：和 AGENTS.md 一样，做成模板变量会让旧模板静默失效。
 	// 只列启用的：/skills 里停用的技能不该再出现在提示词里。
 	_, hasRead := reg.Get(config.ToolRead)
-	system = skills.AppendCatalog(system, a.activeSkills(), hasRead)
+	return skills.AppendCatalog(system, a.activeSkills(), hasRead), nil
+}
+
+// newAgent 用拼好的系统提示词构造 agent。rec 为 nil 表示不落盘。
+func (a *app) newAgent(sel config.Selection, key string, reg *tool.Registry, system string, th agent.Thinking, rec *session.Recorder, e env, log *slog.Logger) (*agent.Agent, error) {
+	prov, err := newProvider(sel, key, e, log)
+	if err != nil {
+		return nil, err
+	}
+	var sink event.Sink
+	if rec != nil { // 不能直接传 nil 的 *Recorder：装进接口后不等于 nil，内核会去调用它
+		sink = rec
+	}
 	return agent.New(agent.Config{
 		Provider: prov, Model: sel.ModelName, Tools: reg, System: system,
 		MaxOutputTokens: sel.Model.MaxOutput, ContextWindow: sel.Model.ContextWindow,
 		MaxTokensParam: sel.Model.MaxTokensParam,
-		Thinking:       thinkingFor(sel, a.effort),
+		Thinking:       th,
 		Vision:         sel.Model.SupportsVision(),
-		Recorder:       rec, Retry: e.retry, Logger: log,
+		Recorder:       sink, Retry: e.retry, Logger: log,
 	})
 }
 

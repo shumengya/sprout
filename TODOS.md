@@ -136,7 +136,8 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
   - [x] skills 发现与加载（`internal/agent/skills`）：扫描四个位置、解析 frontmatter、元数据追加进系统提示词、正文按需 `read`，见 `docs/skills.md`；
   - [x] skills 注册表（`skills.jsonc`）：只有注册的技能才生效，每条含 `path` 与 `enable`，`path` 可指向任意位置；扫描到的技能自动登记，已有条目不被覆盖；`scanAgents` 控制是否加载 `.agents/skills`；旧版 `{"disabled": [...]}` 启动时自动迁移；
   - [x] 技能管理界面：`/skills` 面板开关技能、切换 `scanAgents`、重新扫描；`/技能名 任务` 手动触发；
-  - [ ] 子代理 / 多 agent 编排；
+  - [x] 子代理（`internal/agent/subagent`，见 `docs/subagents.md`）：内置工具 `agent`，同步、只有一层，同一批调用并行；内置 general / explore 两种类型，`<数据目录>/agents/*.md` 与 `<工作目录>/.sprout/agents/*.md` 自定义类型（`tools` 通配筛选、`model`、`effort`）；子代理进度以 `subagent` 事件转发给 TUI 卡片、`sprout run` 的 stderr 与 RPC；子代理过程记在 `<会话名>.agents/<call id>.jsonl`，主会话记 `subagent_usage`，恢复后花费不丢。**未验证**：没有用真实模型跑过子代理（只有 `httptest` 端到端测试），TUI 卡片没在真实终端里看过。
+  - [ ] 后台子代理（派出后先返回、之后再取结果或追加消息，类似 codex 的 spawn / send / wait）；子代理换了模型时花费按它自己的单价折算（目前按主模型单价）；
   - [ ] 搜索、web 等更多工具（现有 `bash`、`powershell`、`read`、`write`、`edit`、`delete`，外加 `tools.jsonc` 里定义的外部命令工具）；
   - [ ] 权限模块（审批流、allow/deny、沙箱）——目前默认完全权限，不要提前加。
 
@@ -172,6 +173,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 
 - **环境变量泄露给模型**：工具子进程继承 `sprout` 的环境变量，包括 `DEEPSEEK_API_KEY` 等；模型可以让命令读到它。没有权限模块前是已知取舍。
 - **项目级技能是提示注入面**：克隆来的陌生仓库可能带着 `.agents/skills/` 或 `.sprout/skills/`，其中的技能正文会进上下文。目前没有信任门槛，只建议在可信仓库里使用项目级技能。
+- **项目级子代理定义同样是提示注入面**：`.sprout/agents/*.md` 的正文会进子代理的系统提示词，和项目级技能一样没有信任门槛。`explore` 的只读也只是提示词约束，shell 仍能写文件。
 - **非终端启动 TUI 不退出**：stdin 重定向到 `/dev/null` 时 TUI 会一直挂到被外部终止。
 - **思维链回传**：DeepSeek 文档要求带 `tools` 的请求回传历史 `reasoning_content`，已实现；实测当前服务端尚未强制，之后可能变严。
 - **`max_tokens`**：直接取 `models.jsonc` 的 `maxOutput`；Chat 协议可用 `maxTokensParam` 换成 `max_completion_tokens`（o 系列等）。

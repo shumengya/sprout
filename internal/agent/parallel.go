@@ -10,13 +10,15 @@ import (
 // DefaultMaxParallelTools 是同一批 tool call 最多同时执行的个数。1 表示严格串行。
 const DefaultMaxParallelTools = 4
 
-// toolMsg 是 worker 发回主 goroutine 的消息。每个调用恰好发一条 started（被跳过的除外）和一条终态。
+// toolMsg 是 worker 发回主 goroutine 的消息。每个调用恰好发一条 started（被跳过的除外）和一条终态，
+// 中间可能夹着若干条 progress（工具通过 tool.Call.Emit 转发的事件，如子代理的进度）。
 type toolMsg struct {
-	idx     int
-	started bool // true：开始执行；false：终态（fin/content 有效）
-	fin     event.ToolFinished
-	content string
-	skipped bool // 终态里表示“根本没执行”（本轮在它开始前就被取消了）
+	idx      int
+	started  bool // true：开始执行；false：终态（fin/content 有效）
+	fin      event.ToolFinished
+	content  string
+	skipped  bool        // 终态里表示“根本没执行”（本轮在它开始前就被取消了）
+	progress event.Event // 非 nil：工具执行中转发的事件，原样发给 sink
 }
 
 // runTools 并发执行一批 tool call，把结果按调用顺序追加到历史。
@@ -32,7 +34,8 @@ func (t *turn) runTools(calls []ToolCall) error {
 	if limit <= 0 {
 		limit = DefaultMaxParallelTools
 	}
-	// 每个调用最多发 2 条消息，缓冲区装得下，worker 永远不会因为主 goroutine 暂时没读而阻塞。
+	// 每个调用最多发 2 条状态消息，缓冲区装得下；progress 可能更多，worker 发它时会等主 goroutine 取走，
+	// 主 goroutine 一直在读，所以只是短暂阻塞，不会死锁。
 	msgs := make(chan toolMsg, 2*len(calls))
 
 	go func() {
@@ -59,7 +62,10 @@ func (t *turn) runTools(calls []ToolCall) error {
 						<-sem
 					}
 				}()
-				fin, content := t.execTool(call)
+				fin, content := t.execTool(tool.WithCall(t.ctx, tool.Call{
+					ID:   call.ID,
+					Emit: func(e event.Event) { msgs <- toolMsg{idx: i, progress: e} },
+				}), call)
 				msgs <- toolMsg{idx: i, fin: fin, content: content}
 			}()
 		}
@@ -71,6 +77,8 @@ func (t *turn) runTools(calls []ToolCall) error {
 	for m := range msgs {
 		call := calls[m.idx]
 		switch {
+		case m.progress != nil:
+			t.out.Emit(m.progress)
 		case m.started:
 			t.out.Emit(event.ToolRequested{Call: event.ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments}})
 		case m.skipped:

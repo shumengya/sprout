@@ -30,6 +30,8 @@ type Info struct {
 	Cwd      string
 	Tools    []string
 	Version  string
+	// Agent 只在子代理的记录里有值：子代理类型名。
+	Agent string
 }
 
 // Slug 把工作目录转成目录名：去掉开头的分隔符，把 / \ : 替换成 -，前后加 --。
@@ -54,6 +56,8 @@ type Recorder struct {
 	failed bool // 已经失败过：不再重试，也不再重复刷日志
 	err    error
 	closed bool
+	// fixed 非空表示这是子代理的记录器：文件就建在这个路径，不进 meta.json 索引。
+	fixed string
 }
 
 // NewRecorder 创建记录器。sessionsDir 是 <dataDir>/sessions。
@@ -62,6 +66,30 @@ func NewRecorder(sessionsDir string, info Info, log *slog.Logger) *Recorder {
 		log = slog.New(slog.DiscardHandler)
 	}
 	return &Recorder{dir: sessionsDir, info: info, log: log, now: time.Now}
+}
+
+// NewChildRecorder 创建子代理的记录器，文件建在 path（通常是 ChildPath 的结果）。
+// 格式与普通会话相同，可以用 Load 读出来；它不登记进 meta.json，所以不会出现在会话列表里。
+func NewChildRecorder(path string, info Info, log *slog.Logger) *Recorder {
+	r := NewRecorder(filepath.Dir(path), info, log)
+	r.fixed = path
+	return r
+}
+
+// ChildPath 是会话 parent 里、由 tool call callID 派出的子代理的记录路径：
+// <会话名>.agents/<callID>.jsonl。和 .images 一样跟着会话文件走，删除会话时一起删。
+// call id 由服务端生成，文件名里只保留字母、数字、- 和 _，其余换成 _。
+func ChildPath(parent, callID string) string {
+	name := strings.Map(func(r rune) rune {
+		if r < 0x80 && (r == '-' || r == '_' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z') {
+			return r
+		}
+		return '_'
+	}, callID)
+	if name == "" {
+		name = newID()
+	}
+	return filepath.Join(strings.TrimSuffix(parent, ".jsonl")+".agents", name+".jsonl")
 }
 
 // Path 返回会话文件路径；尚未创建时为空。
@@ -237,6 +265,9 @@ func (r *Recorder) fail(err error) {
 
 // open 创建会话文件，写入 session 头记录并登记 meta.json。调用方持有 mu。
 func (r *Recorder) open() bool {
+	if r.fixed != "" {
+		return r.openFixed()
+	}
 	id := newID()
 	started := r.now()
 	file := fmt.Sprintf("%s_%s.jsonl", started.Format("20060102-150405"), id)
@@ -268,6 +299,26 @@ func (r *Recorder) open() bool {
 	if err != nil { // meta.json 只是索引，写不进去不影响会话记录
 		r.log.Warn("update meta.json failed", "error", err.Error())
 	}
+	return !r.failed
+}
+
+// openFixed 在 r.fixed 创建子代理的记录文件。已存在时不覆盖（O_EXCL），只停止记录。调用方持有 mu。
+func (r *Recorder) openFixed() bool {
+	if err := os.MkdirAll(filepath.Dir(r.fixed), 0o755); err != nil {
+		r.fail(fmt.Errorf("创建子代理记录目录失败: %w", err))
+		return false
+	}
+	f, err := os.OpenFile(r.fixed, os.O_WRONLY|os.O_CREATE|os.O_EXCL|os.O_APPEND, 0o600)
+	if err != nil {
+		r.fail(fmt.Errorf("创建子代理记录失败: %w", err))
+		return false
+	}
+	r.f, r.path = f, f.Name()
+	r.write(sessionRec{
+		header: header{Type: "session", Time: r.now()}, ID: newID(), Cwd: r.info.Cwd,
+		Provider: r.info.Provider, Model: r.info.Model, Tools: r.info.Tools, Version: r.info.Version,
+		Agent: r.info.Agent,
+	})
 	return !r.failed
 }
 

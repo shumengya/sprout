@@ -243,7 +243,7 @@ func Rename(sessionsDir, path, name string) error {
 	})
 }
 
-// Delete 删除一个会话：JSONL、同名的 .images 目录和 meta.json 里的登记。
+// Delete 删除一个会话：JSONL、同名的 .images 与 .agents（子代理记录）目录和 meta.json 里的登记。
 // active 是当前正在写的会话文件，删它会让之后的记录写进已删除的文件，所以拒绝。
 func Delete(sessionsDir, path, active string) error {
 	p, err := inSessions(sessionsDir, path)
@@ -258,9 +258,13 @@ func Delete(sessionsDir, path, active string) error {
 	if err := os.Remove(p); err != nil {
 		return fmt.Errorf("删除会话文件失败: %w", err)
 	}
-	// 图片目录是会话自己的附属品，路径由会话文件名唯一确定，不会碰到别的会话。
-	if err := os.RemoveAll(strings.TrimSuffix(p, ".jsonl") + ".images"); err != nil {
+	// 这两个目录是会话自己的附属品，路径由会话文件名唯一确定，不会碰到别的会话。
+	base := strings.TrimSuffix(p, ".jsonl")
+	if err := os.RemoveAll(base + ".images"); err != nil {
 		return fmt.Errorf("会话已删除，但图片目录没删掉: %w", err)
+	}
+	if err := os.RemoveAll(base + ".agents"); err != nil {
+		return fmt.Errorf("会话已删除，但子代理记录目录没删掉: %w", err)
 	}
 	return editMeta(filepath.Dir(p), func(gm *groupMeta) { delete(gm.Sessions, filepath.Base(p)) })
 }

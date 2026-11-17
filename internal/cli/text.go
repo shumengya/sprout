@@ -5,14 +5,24 @@ import (
 	"strings"
 )
 
-// commandOf 从工具参数里取 command 用于展示，取不到时退回原文。
+// commandOf 从工具参数里取 command 用于展示；agent 工具取「类型: 标题」；都取不到时退回原文。
 // CLI 不依赖具体工具的 schema，这只是个展示用的启发式。
 func commandOf(args string) string {
 	var a struct {
-		Command string `json:"command"`
+		Command     string `json:"command"`
+		Description string `json:"description"`
+		Agent       string `json:"agent"`
 	}
-	if json.Unmarshal([]byte(args), &a) == nil && strings.TrimSpace(a.Command) != "" {
+	if json.Unmarshal([]byte(args), &a) != nil {
+		return args
+	}
+	switch {
+	case strings.TrimSpace(a.Command) != "":
 		return a.Command
+	case strings.TrimSpace(a.Description) != "" && strings.TrimSpace(a.Agent) != "":
+		return a.Agent + ": " + a.Description
+	case strings.TrimSpace(a.Description) != "":
+		return a.Description
 	}
 	return args
 }
