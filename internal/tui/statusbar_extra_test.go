@@ -30,8 +30,8 @@ func TestProcessMemoryIsMergedIntoTheMemorySegment(t *testing.T) {
 
 func TestOutputSpeedUsesTheLastCall(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 200, 24)
-	if line := infoText(m, 2); strings.Contains(line, "速度") {
-		t.Errorf("没有数据时不显示速度: %q", line)
+	if line := infoText(m, 2); !strings.Contains(line, "速度 — token/s") {
+		t.Errorf("没有数据时速度写占位符: %q", line)
 	}
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	m.now = func() time.Time { return now }
@@ -58,16 +58,16 @@ func TestGitSegmentShowsBranchAndCounts(t *testing.T) {
 		t.Errorf("没读到时不显示 Git: %q", line)
 	}
 	m.git = GitInfo{Branch: "main", Added: 1, Modified: 2, Deleted: 3, OK: true}
-	if line := infoText(m, 2); !strings.Contains(line, "Git main +1 ~2 -3") {
+	if line := infoText(m, 2); !strings.Contains(line, "Git main +1~2-3") {
 		t.Errorf("应显示分支和新增/修改/删除数: %q", line)
 	}
 	// 有上游时在分支名后面带上领先 / 落后；为 0 的不写。
 	m.git.Ahead, m.git.Behind = 7, 0
-	if line := infoText(m, 2); !strings.Contains(line, "Git main ↑7 +1 ~2 -3") {
+	if line := infoText(m, 2); !strings.Contains(line, "Git main ↑7 +1~2-3") {
 		t.Errorf("应显示领先上游的提交数: %q", line)
 	}
 	m.git.Ahead, m.git.Behind = 0, 2
-	if line := infoText(m, 2); !strings.Contains(line, "Git main ↓2 +1 ~2 -3") {
+	if line := infoText(m, 2); !strings.Contains(line, "Git main ↓2 +1~2-3") {
 		t.Errorf("应显示落后上游的提交数: %q", line)
 	}
 }

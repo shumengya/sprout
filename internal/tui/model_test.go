@@ -42,7 +42,7 @@ func TestInfoLinesAreAtTheBottomInChinese(t *testing.T) {
 	lines := strings.Split(plain(m), "\n")
 	info := lines[len(lines)-infoRows:]
 	for i, wants := range [][]string{
-		{"路径 " + `D:\SmyProjects\sprout`, "对话轮次 0", "耗时 0s"},
+		{"路径 " + `D:\SmyProjects\sprout`, "对话轮次 0", "耗时 —"},
 		{"输入 0", "输出 0", "缓存 0/0", "花费 —", "上下文 —", "模型 deepseek-flash"},
 		{"状态 空闲", "MCP —", "插件 —", "技能 —", "工具 2"},
 	} {
@@ -191,7 +191,7 @@ func TestInfoPathTruncatesLongDirectoryFromTheLeft(t *testing.T) {
 		t.Errorf("开头部分应被截掉: %q", line)
 	}
 	// 轮次和耗时不能为了给路径让位而被截掉。
-	if !strings.Contains(line, "对话轮次 0") || !strings.Contains(line, "耗时 0s") {
+	if !strings.Contains(line, "对话轮次 0") || !strings.Contains(line, "耗时 —") {
 		t.Errorf("轮次和耗时应完整保留: %q", line)
 	}
 }

@@ -2,9 +2,11 @@ package platform
 
 import (
 	"bufio"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // SystemUsage 是整机的内存和 CPU 占用百分比（0-100）。读不到的项为负数：
@@ -14,7 +16,7 @@ type SystemUsage struct {
 	CPUPercent float64
 	// ProcMemMB 是本进程（sprout）占用的物理内存，单位 MB；读不到时为负数。
 	ProcMemMB float64
-	// LoadAvg 是系统 1 分钟平均负载；读不到时为负数（Windows 没有这个概念）。
+	// LoadAvg 是系统 1 分钟平均负载；读不到时为负数。Windows 没有原生负载，是按处理器队列长度模拟的（见 sysusage_windows.go）。
 	LoadAvg float64
 }
 
@@ -128,6 +130,16 @@ func parseVmRSSMB(text string) (float64, bool) {
 		return float64(v) / 1024, true
 	}
 	return 0, false
+}
+
+// decayLoad 按 Unix 计算 1 分钟负载的方式做指数平均：间隔 dt 后旧值衰减为 e^(-dt/60)，其余由本次采样补上。
+// 采样间隔不固定（界面忙时可能拖慢），所以按实际间隔算衰减，而不是假设每秒一次。
+func decayLoad(prev, sample float64, dt time.Duration) float64 {
+	if dt <= 0 {
+		return prev
+	}
+	k := math.Exp(-dt.Seconds() / 60)
+	return prev*k + sample*(1-k)
 }
 
 // parseLoadAvg 从 /proc/loadavg 的第一项取出 1 分钟平均负载；解析不了时返回 false。

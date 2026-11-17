@@ -162,4 +162,26 @@ func TestRealSystemSampler(t *testing.T) {
 		}
 		t.Errorf("CPU 占用 %v 不在 0-100 之内", second.CPUPercent)
 	}
+	// Windows 的负载是 PDH 处理器队列长度模拟的，应当读得到；Linux 读 /proc/loadavg。
+	if runtime.GOOS == "windows" && second.LoadAvg < 0 {
+		t.Errorf("Windows 应能读到模拟的负载: %v", second.LoadAvg)
+	}
+}
+
+func TestDecayLoadFollowsTheOneMinuteAverage(t *testing.T) {
+	// 持续一分钟的负载 1：从 0 升到 1-e^-1，与 Unix 的 1 分钟平均一致。
+	l := 0.0
+	for range 60 {
+		l = decayLoad(l, 1, time.Second)
+	}
+	if !near(l, 1-math.Exp(-1)) {
+		t.Errorf("一分钟后应约为 0.632，得到 %v", l)
+	}
+	// 一次 60 秒的间隔与 60 次 1 秒等价：衰减按实际间隔算。
+	if got := decayLoad(0, 1, time.Minute); !near(got, l) {
+		t.Errorf("间隔不同但总时长相同，结果应一致: %v vs %v", got, l)
+	}
+	if got := decayLoad(0.5, 3, 0); got != 0.5 {
+		t.Errorf("间隔为 0 时不应变化: %v", got)
+	}
 }

@@ -151,10 +151,8 @@ var statusDefs = map[string]statusDef{
 		return seg{label: statusEffort, value: e}, e != ""
 	}},
 
-	statusState: {3, "250", func(m *Model) (seg, bool) { return seg{label: statusState, value: m.statusName()}, true }},
-	statusSpeed: {3, "159", func(m *Model) (seg, bool) {
-		return seg{label: statusSpeed, value: fmt.Sprintf("%.1f token/s", m.speed)}, m.speed > 0
-	}},
+	statusState:   {3, "250", func(m *Model) (seg, bool) { return seg{label: statusState, value: m.statusName()}, true }},
+	statusSpeed:   {3, "159", func(m *Model) (seg, bool) { return seg{label: statusSpeed, value: m.speedValue()}, true }},
 	statusCompact: {3, "117", func(m *Model) (seg, bool) { return seg{label: statusCompact, value: fmt.Sprint(m.compactions)}, true }},
 	statusMCP:     {3, "37", func(m *Model) (seg, bool) { return seg{label: statusMCP, value: m.mcpSegValue()}, true }},
 	statusPlugins: {3, "168", func(m *Model) (seg, bool) { return seg{label: statusPlugins, value: placeholder}, true }},
@@ -178,26 +176,38 @@ func (m *Model) memSeg() (seg, bool) {
 	return seg{label: statusMem, value: v}, true
 }
 
-// cpuSeg 是“CPU”一项：整机占用，后面跟系统负载（只有能读到的平台才有，Windows 没有）。
+// cpuSeg 是“CPU”一项：整机占用，后面跟系统负载（macOS、Android 读不到，只写百分比）。
 func (m *Model) cpuSeg() (seg, bool) {
 	r := m.res
 	if r.CPU < 0 {
 		return seg{}, false
 	}
 	v := fmt.Sprintf("%.0f%%", r.CPU)
-	if r.Load > 0 {
+	if r.Load >= 0 {
 		v += fmt.Sprintf(" · 负载 %.2f", r.Load)
 	}
 	return seg{label: statusCPU, value: v}, true
 }
 
 // elapsedValue 是“耗时”一项：本会话累计的干活时间，后面跟上一次调用的首字延迟。
+// 还没干过活时写占位符，而不是 0s。
 func (m *Model) elapsedValue() string {
+	if m.busyTotal == 0 && m.busySince.IsZero() && m.ttft == 0 {
+		return placeholder
+	}
 	v := fmtElapsed(m.elapsed())
 	if m.ttft > 0 {
 		v += " · 首字 " + fmtSeconds(m.ttft)
 	}
 	return v
+}
+
+// speedValue 是“速度”一项：最近一次模型调用的输出速度；还没有可算的数据时写占位符，单位照写。
+func (m *Model) speedValue() string {
+	if m.speed <= 0 {
+		return placeholder + " token/s"
+	}
+	return fmt.Sprintf("%.1f token/s", m.speed)
 }
 
 // cacheValue 是“缓存”一项：读 / 写 token 数，后面跟缓存命中率。一次用量都没有时只写 0/0，

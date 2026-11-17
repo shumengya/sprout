@@ -225,8 +225,8 @@ func TestElapsedCountsOnlyBusyTime(t *testing.T) {
 	m.now = func() time.Time { return clock }
 	// 空闲时无论过多久都不涨。
 	clock = start.Add(10 * time.Minute)
-	if line := infoText(m, 0); !strings.Contains(line, "耗时 0s") {
-		t.Fatalf("没在干活时耗时不应增长: %q", line)
+	if line := infoText(m, 0); !strings.Contains(line, "耗时 —") {
+		t.Fatalf("没干过活时耗时是占位符，空闲多久都不涨: %q", line)
 	}
 	// 一轮回答期间按时钟累计，结束后定格。
 	begin(m, "第一问")
@@ -250,7 +250,7 @@ func TestElapsedCountsOnlyBusyTime(t *testing.T) {
 	// 生成中拒绝 /new，先结束本轮再新建。
 	apply(m, event.TurnFinished{Reason: event.ReasonStop})
 	submit(m, "/new")
-	if line := infoText(m, 0); !strings.Contains(line, "耗时 0s") {
+	if line := infoText(m, 0); !strings.Contains(line, "耗时 —") {
 		t.Errorf("/new 之后应重新计时: %q", line)
 	}
 }
@@ -262,8 +262,8 @@ func TestElapsedIsNeverNegative(t *testing.T) {
 		t.Errorf("耗时不能是负数: %q", line)
 	}
 	m.busySince = time.Time{}
-	if line := infoText(m, 0); !strings.Contains(line, "耗时 0s") {
-		t.Errorf("空闲时是 0s，而不是从公元 1 年算起: %q", line)
+	if line := infoText(m, 0); !strings.Contains(line, "耗时 —") {
+		t.Errorf("没干过活时是占位符，而不是从公元 1 年算起: %q", line)
 	}
 }
 

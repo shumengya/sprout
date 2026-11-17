@@ -147,13 +147,13 @@ func TestValidateStatuslineReportsProblems(t *testing.T) {
 	}
 }
 
-func TestEffortAndSpeedHideThemselvesWithoutData(t *testing.T) {
+func TestEffortHidesItselfWithoutDataButSpeedKeepsItsPlace(t *testing.T) {
 	m := layoutModel(t, []StatusItem{
 		{Name: "思考强度", Line: 1, Enabled: true},
 		{Name: "速度", Line: 1, Enabled: true},
 	})
-	if lines := m.infoLines(); len(lines) != 0 {
-		t.Fatalf("两项都没数据时应一行都不占: %q", lines)
+	if got := ansi.Strip(strings.Join(m.infoLines(), "\n")); got != "速度 — token/s" {
+		t.Fatalf("没有档位时不显示思考强度，速度没数据也要占位: %q", got)
 	}
 	info := testInfo
 	info.Effort = "high"
@@ -161,7 +161,7 @@ func TestEffortAndSpeedHideThemselvesWithoutData(t *testing.T) {
 		{Name: "思考强度", Line: 1, Enabled: true},
 		{Name: "速度", Line: 1, Enabled: true},
 	}}, 200, 24)
-	if got := ansi.Strip(strings.Join(m.infoLines(), "\n")); !strings.Contains(got, "思考强度 high") || strings.Contains(got, "速度") {
+	if got := ansi.Strip(strings.Join(m.infoLines(), "\n")); !strings.Contains(got, "思考强度 high") || !strings.Contains(got, "速度 — token/s") {
 		t.Errorf("有档位时才显示思考强度，速度仍无数据: %q", got)
 	}
 }

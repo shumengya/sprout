@@ -110,7 +110,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [ ] **思维链 token 数**：Chat 协议下真实 DeepSeek 已确认返回 `completion_tokens_details.reasoning_tokens`（本机 11 次调用，与分词器数出的一致）；Responses 协议的 `output_tokens_details.reasoning_tokens` 和 OpenAI 官方服务只有 `httptest` 测试。不返回时 TUI 显示内核估算的“约 N token”。
 - [ ] **Linux / macOS / Termux 实际运行**：CI 在 Linux / macOS 上跑单元测试（`bash` 探测、进程组终止等 Unix 路径仍以 fake probe 为主），但没有在这些系统上交互式地跑过 TUI 与真实模型；Termux 只验证过能用 `GOOS=android` 编译，CI 不覆盖。
 - [ ] **状态栏的缓存读写**：四个协议的缓存字段（OpenAI `prompt_tokens_details.cached_tokens`、DeepSeek `prompt_cache_hit_tokens`、Responses `input_tokens_details.cached_tokens`、Anthropic `cache_read_input_tokens` / `cache_creation_input_tokens`、Gemini `cachedContentTokenCount`）是按各家文档实现的，只有 `httptest` 验证，没有对真实服务确认过。Anthropic 的输入口径是适配器加回缓存得到的，也没有对真实响应核对。
-- [ ] **状态栏的内存与 CPU**：只在 Windows 上运行验证过；Linux / Termux 只有解析器的单元测试（Android 8+ 读不了 `/proc/stat`，预期没有 CPU 一项），macOS 不显示这两项。是整机占用，进程内存那一项才是 sprout 自己的。系统负载（`/proc/loadavg`）只有 Linux 读，Windows / macOS 不显示。
+- [ ] **状态栏的内存与 CPU**：只在 Windows 上运行验证过；Linux / Termux 只有解析器的单元测试（Android 8+ 读不了 `/proc/stat`，预期没有 CPU 一项），macOS 不显示这两项。是整机占用，进程内存那一项才是 sprout 自己的。系统负载 Linux 读 `/proc/loadavg`，Windows 用处理器队列长度模拟（只在 Windows 上验证过能读到），macOS 不显示。
 - [ ] **`statusline.jsonc` 的终端实测**：布局解析、颜色校验、隐藏与行号调整都有单元测试，但没有在真实终端里跑过自定义布局（尤其是颜色名写法在各终端配色下的观感）。
 - [ ] **识图（M2）的真实服务商往返**：四种协议的图片请求形状只有 `httptest` 验证，没有对真实服务商手工发过图；Gemini 协议整体也只用测试替身验证过。
 - [ ] **`/model` 切换与恢复后的历史重放**：换模型时丢弃旧思维链、保留正文的逻辑有单元测试，但没有在真实多模型服务上跑过。

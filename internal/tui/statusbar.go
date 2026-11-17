@@ -12,13 +12,14 @@ import (
 
 // 底部状态栏，默认三行：
 //
-//	路径 … | 对话轮次 N | 耗时 … | 内存 N% · MB | CPU N% · 负载 …
+//	路径 … | 对话轮次 N | 耗时 … | 内存 N% · MB | CPU N% · 负载 N.NN
 //	输入 … | 输出 … | 缓存 读/写 · 命中率 | 花费 — | 上下文 N%/窗口 | 模型 … | 思考强度 …
-//	状态 … | 速度 N token/s | 压缩 N | MCP … | 插件 — | 技能 … | 工具 N | Git 分支 ↑ahead +新增 ~修改 -删除
+//	状态 … | 速度 N token/s | 压缩 N | MCP … | 插件 — | 技能 … | 工具 N | Git 分支 ↑ahead +新增~修改-删除
 //
 // 显示哪些项、在第几行、什么颜色由 statusline.jsonc 决定（见 statusline.go）；
 // 一项在当前没有数据时整项不显示（还没采样、没回答过、不在 git 仓库里），
 // 而“有数据但值为零”照常显示——那两项在配置里看得见差别。
+// 耗时和速度是例外：还没有数据时照样占位、值写成 placeholder，免得状态栏随着第一次回答左右跳动。
 // 插件还没有实现，固定显示 placeholder。
 
 // infoRows 是默认布局下状态栏占的行数；自定义布局可能更少，实际行数以 infoLines 为准。
@@ -33,7 +34,7 @@ type Resources struct {
 	Mem, CPU float64
 	// ProcMB 是 sprout 进程自己占用的物理内存（MB）；不大于 0 表示读不到（运行中的进程不可能是 0）。
 	ProcMB float64
-	// Load 是系统负载（1 分钟平均）；不大于 0 表示读不到。Windows 没有这个概念，状态栏就只显示 CPU 百分比。
+	// Load 是系统负载（1 分钟平均）；负数表示读不到，状态栏就只显示 CPU 百分比。
 	Load float64
 }
 
@@ -93,7 +94,7 @@ func (m *Model) resourceCmd(delay time.Duration) tea.Cmd {
 	sample := m.opts.Resources
 	run := func() tea.Msg {
 		if sample == nil {
-			return resourceMsg{Resources{Mem: -1, CPU: -1, ProcMB: -1}}
+			return resourceMsg{Resources{Mem: -1, CPU: -1, ProcMB: -1, Load: -1}}
 		}
 		return resourceMsg{sample()}
 	}
@@ -264,7 +265,7 @@ func fmtGit(g GitInfo) string {
 	if g.Behind > 0 {
 		v += fmt.Sprintf(" ↓%d", g.Behind)
 	}
-	return fmt.Sprintf("%s +%d ~%d -%d", v, g.Added, g.Modified, g.Deleted)
+	return fmt.Sprintf("%s +%d~%d-%d", v, g.Added, g.Modified, g.Deleted)
 }
 
 func (m *Model) turns() int {
