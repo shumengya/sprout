@@ -27,7 +27,8 @@ sprout serve [--data-dir DIR] [-c | --resume ID] [--effort 档位]
 | `session/new` | 无 | `{}`：开始空白会话，旧会话文件保留 |
 | `session/list` | `{all?}` | `{sessions: [...]}`：当前工作目录的会话（`all` 为 true 时是全部目录），最近使用的在前 |
 | `session/resume` | `{selector}` | `{id, path, notice, turns, events}`：恢复会话，`events` 是重放出的历史事件 |
-| `session/branch` | `{turns?}` | `{id, path, notice, turns, events}`：把当前会话的前 `turns` 轮（省略或 0 为全部）复制成新会话并切过去，原会话不变 |
+| `session/tree` | 无 | `{current, nodes: [{turn, parent, prompt, reply, images, time}]}`：当前会话的轮次树，所有分支都在同一个会话文件里 |
+| `session/navigate` | `{turn}` | `{id, path, notice, turns, events}`：把当前会话的位置移到第 `turn` 轮之后（0 为会话开头），之后的提问从那里开出新分支 |
 | `session/rename` | `{path, name}` | `{}`：`name` 为空表示清除名字 |
 | `session/delete` | `{path}` | `{}`：不能删除当前会话 |
 | `session/compact` | `{focus?}` | `{tokensBefore, tokensAfter, dropped, summary}`：把全部历史总结成摘要 |
@@ -70,8 +71,9 @@ sprout serve [--data-dir DIR] [-c | --resume ID] [--effort 档位]
   `notice` 说明恢复情况（换了模型时丢弃了旧的思维链、会话属于别的目录等）。
 - `session/compact` 要调一次模型，**结束后**才写响应；期间算作忙碌（`turn/start`、`session/resume` 等返回 `-32001`），
   可用 `turn/cancel` 取消，取消后返回 `-32005`。压缩不是一轮对话，不推送 `event`。`focus` 是希望摘要侧重的内容。
-- `session/branch` 的结果格式与 `session/resume` 相同（`events` 是新会话重放出的历史）。当前会话还没有提问、`turns` 超过已有轮数时返回 `-32003`，`turns` 为负数时返回 `-32602`。
-- `session/resume`、`session/branch`、`session/compact` 在忙碌时返回 `-32001`，不可用时返回 `-32002`；`session/list`、`rename`、`delete` 随时可调。
+- `session/tree` 的 `nodes` 按 `turn` 升序；`parent` 为 0 表示接在会话开头，`current` 是下一次提问接在第几轮之后。`reply` 是该轮最后一段文字回复，压成一行并截断；`prompt` 是原文。当前会话还没有提问时返回 `-32003`。规则见 `docs/session-format.md`「分支与会话树」。
+- `session/navigate` 的 `turn` 必须显式给出（0 是合法值），缺少或为负数时返回 `-32602`；轮次不存在、当前会话还没有提问时返回 `-32003`。结果格式与 `session/resume` 相同，`events` 是新位置上重放出的历史。切换只在会话文件里追加一条 `branch` 记录，原来的分支仍可切回。要“改问”某一轮，切到它的 `parent` 再用新内容 `turn/start`。
+- `session/resume`、`session/navigate`、`session/compact` 在忙碌时返回 `-32001`，`session/tree` 随时可调；这几个方法在不可用时都返回 `-32002`；`session/list`、`rename`、`delete` 随时可调。
 
 模型与思考程度（与 TUI 的 `/model`、`/effort` 是同一套实现，切换结果会记住，下次启动沿用）：
 

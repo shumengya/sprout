@@ -89,8 +89,20 @@ func (b *rpcBackend) ResumeSession(selector string) (rpc.Restored, error) {
 	return rpc.Restored{ID: st.ID, Path: st.Path, Notice: notice, Turns: st.Turns, Events: st.Events}, nil
 }
 
-func (b *rpcBackend) BranchSession(turns int) (rpc.Restored, error) {
-	st, notice, err := b.a.branch(turns)
+func (b *rpcBackend) SessionTree() (rpc.Tree, error) {
+	t, err := b.a.sessionTree()
+	if err != nil {
+		return rpc.Tree{}, err
+	}
+	out := rpc.Tree{Current: t.Current, Nodes: make([]rpc.TreeNode, len(t.Nodes))}
+	for i, n := range t.Nodes {
+		out.Nodes[i] = rpc.TreeNode{Turn: n.Turn, Parent: n.Parent, Prompt: n.Prompt, Reply: n.Reply, Images: n.Images, Time: n.Time}
+	}
+	return out, nil
+}
+
+func (b *rpcBackend) NavigateSession(turn int) (rpc.Restored, error) {
+	st, notice, err := b.a.navigate(turn)
 	if err != nil {
 		return rpc.Restored{}, err
 	}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -17,19 +18,19 @@ import (
 
 // fakeBackend 是测试替身：Run 按 script 发事件；block 为 true 时一直等到被取消。
 type fakeBackend struct {
-	mu       sync.Mutex
-	disabled string
-	block    bool
-	inputs   []agent.Input
-	newCount int
-	prepared []string
-	sessions []SessionInfo
-	renamed  string
-	deleted  []string
-	branched []int
-	compact  string
-	model    string
-	effort   string
+	mu        sync.Mutex
+	disabled  string
+	block     bool
+	inputs    []agent.Input
+	newCount  int
+	prepared  []string
+	sessions  []SessionInfo
+	renamed   string
+	deleted   []string
+	navigated []int
+	compact   string
+	model     string
+	effort    string
 }
 
 func (f *fakeBackend) Info() Info {
@@ -89,13 +90,20 @@ func (f *fakeBackend) ResumeSession(selector string) (Restored, error) {
 	}}, nil
 }
 
-func (f *fakeBackend) BranchSession(turns int) (Restored, error) {
-	if turns > 1 {
-		return Restored{}, errors.New("会话只有 1 轮")
+func (f *fakeBackend) SessionTree() (Tree, error) {
+	return Tree{Current: 2, Nodes: []TreeNode{
+		{Turn: 1, Parent: 0, Prompt: "问1", Reply: "答1"},
+		{Turn: 2, Parent: 1, Prompt: "问2", Reply: "答2"},
+	}}, nil
+}
+
+func (f *fakeBackend) NavigateSession(turn int) (Restored, error) {
+	if turn > 2 {
+		return Restored{}, errors.New("会话里没有第 3 轮")
 	}
-	f.branched = append(f.branched, turns)
-	return Restored{ID: "new", Path: "/s/new.jsonl", Notice: "已分支", Turns: 1, Events: []event.Event{
-		event.TurnStarted{Prompt: "旧问题"},
+	f.navigated = append(f.navigated, turn)
+	return Restored{ID: "abc", Path: "/s/abc.jsonl", Notice: "已切换", Turns: turn, Events: []event.Event{
+		event.TurnStarted{Prompt: "问1"},
 		event.TurnFinished{Reason: event.ReasonStop},
 	}}, nil
 }
@@ -412,22 +420,41 @@ func TestSessionResumeReplaysEventsWithoutTurn(t *testing.T) {
 	}
 }
 
-func TestSessionBranch(t *testing.T) {
+func TestSessionTree(t *testing.T) {
+	h := start(t, &fakeBackend{})
+	h.send(`{"jsonrpc":"2.0","id":1,"method":"session/tree"}`)
+	r := h.next()["result"].(map[string]any)
+	nodes := r["nodes"].([]any)
+	n := nodes[1].(map[string]any)
+	if r["current"] != float64(2) || len(nodes) != 2 || n["turn"] != float64(2) || n["parent"] != float64(1) || n["prompt"] != "问2" {
+		t.Fatalf("会话树结果不对: %v", r)
+	}
+
+	h2 := start(t, &fakeBackend{disabled: "缺少 API Key"})
+	h2.send(`{"jsonrpc":"2.0","id":1,"method":"session/tree"}`)
+	if m := h2.next(); errCode(m) != CodeUnavailable {
+		t.Fatalf("不可用时 session/tree 应返回 -32002: %v", m)
+	}
+}
+
+func TestSessionNavigate(t *testing.T) {
 	b := &fakeBackend{}
 	h := start(t, b)
-	h.send(`{"jsonrpc":"2.0","id":1,"method":"session/branch","params":{"turns":-1}}`)
-	if m := h.next(); errCode(m) != CodeInvalidParams {
-		t.Fatalf("负数轮数应返回 -32602: %v", m)
+	for i, params := range []string{``, `,"params":{}`, `,"params":{"turn":-1}`} {
+		h.send(fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"session/navigate"%s}`, i+1, params))
+		if m := h.next(); errCode(m) != CodeInvalidParams {
+			t.Fatalf("缺少或负数的 turn 应返回 -32602（%s）: %v", params, m)
+		}
 	}
-	h.send(`{"jsonrpc":"2.0","id":2,"method":"session/branch","params":{"turns":5}}`)
+	h.send(`{"jsonrpc":"2.0","id":5,"method":"session/navigate","params":{"turn":3}}`)
 	if m := h.next(); errCode(m) != CodeSession {
-		t.Fatalf("轮数超出应返回 -32003: %v", m)
+		t.Fatalf("轮次不存在应返回 -32003: %v", m)
 	}
-	h.send(`{"jsonrpc":"2.0","id":3,"method":"session/branch"}`)
+	h.send(`{"jsonrpc":"2.0","id":6,"method":"session/navigate","params":{"turn":0}}`)
 	r := h.next()["result"].(map[string]any)
 	evs := r["events"].([]any)
-	if r["id"] != "new" || r["path"] != "/s/new.jsonl" || len(evs) != 2 || len(b.branched) != 1 || b.branched[0] != 0 {
-		t.Fatalf("分支结果不对: %v branched=%v", r, b.branched)
+	if r["path"] != "/s/abc.jsonl" || len(evs) != 2 || len(b.navigated) != 1 || b.navigated[0] != 0 {
+		t.Fatalf("切换结果不对: %v navigated=%v", r, b.navigated)
 	}
 	for _, e := range evs {
 		if _, ok := e.(map[string]any)["turn"]; ok {
@@ -436,20 +463,20 @@ func TestSessionBranch(t *testing.T) {
 	}
 }
 
-func TestSessionBranchBusyAndUnavailable(t *testing.T) {
+func TestSessionNavigateBusyAndUnavailable(t *testing.T) {
 	h := start(t, &fakeBackend{block: true})
 	h.send(`{"jsonrpc":"2.0","id":1,"method":"turn/start","params":{"text":"慢"}}`)
 	h.next()
 	h.next()
-	h.send(`{"jsonrpc":"2.0","id":2,"method":"session/branch"}`)
+	h.send(`{"jsonrpc":"2.0","id":2,"method":"session/navigate","params":{"turn":1}}`)
 	if m := h.next(); errCode(m) != CodeBusy {
-		t.Fatalf("进行中 session/branch 应返回 busy: %v", m)
+		t.Fatalf("进行中 session/navigate 应返回 busy: %v", m)
 	}
 
 	h2 := start(t, &fakeBackend{disabled: "缺少 API Key"})
-	h2.send(`{"jsonrpc":"2.0","id":1,"method":"session/branch"}`)
+	h2.send(`{"jsonrpc":"2.0","id":1,"method":"session/navigate","params":{"turn":1}}`)
 	if m := h2.next(); errCode(m) != CodeUnavailable {
-		t.Fatalf("不可用时 session/branch 应返回 -32002: %v", m)
+		t.Fatalf("不可用时 session/navigate 应返回 -32002: %v", m)
 	}
 }
 

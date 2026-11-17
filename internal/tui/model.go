@@ -173,6 +173,7 @@ type Model struct {
 	browser   *sessionBrowser // /resume 会话浏览器；同上
 	mcpPicker *mcpPicker      // /mcp 服务端面板；同上
 	skillPick *skillPicker    // /skills 技能面板；同上
+	treePick  *treePicker     // /tree 会话树面板；同上
 	ask       *askState       // MCP 服务端请求输入时的表单；同上，优先级最高
 	askQueue  []*Ask          // 已到达但还没轮到的请求，按先后顺序作答
 	sug       suggestState    // 输入 / 开头时输入框上方的命令候选
@@ -405,6 +406,8 @@ func (m *Model) overlay() (string, bool) {
 		return m.mcpView(max(m.w, 1)), true
 	case m.skillPick != nil:
 		return m.skillView(max(m.w, 1)), true
+	case m.treePick != nil:
+		return m.treeView(max(m.w, 1)), true
 	case m.ask != nil:
 		return m.askView(max(m.w, 1)), true
 	}

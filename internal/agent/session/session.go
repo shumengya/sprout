@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -106,6 +107,25 @@ func (r *Recorder) Reset(info Info) {
 		r.f.Close()
 	}
 	r.f, r.path, r.failed, r.err, r.closed, r.info = nil, "", false, nil, false, info
+}
+
+// Branch 写一条 branch 记录，把会话的当前位置移到第 turn 轮之后（0 是会话开头），之后的对话成为新的分支。
+// 写不进去时返回错误：此时调用方不能换掉 agent 的历史，否则文件和运行时会对不上。
+// turn 的取值由调用方先用 LoadAt 校验。调用方必须保证此时没有 Run 在进行。
+func (r *Recorder) Branch(turn int) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	switch {
+	case r.f == nil || r.closed:
+		return errors.New("当前会话还没有任何内容")
+	case r.failed:
+		return fmt.Errorf("会话记录已停止: %w", r.err)
+	}
+	r.write(branchRec{header{Type: "branch", Time: r.now()}, turn})
+	if r.failed {
+		return r.err
+	}
+	return nil
 }
 
 // NoteModelChange 在会话中途切换模型时写一条 resume 记录，标明切换后的模型；仅供审计，恢复重放时忽略。

@@ -34,26 +34,40 @@ func (a *app) resume(selector string) (*session.State, string, error) {
 	return st, notice + notes, nil
 }
 
-// branch 把当前会话的前 turns 轮（0 为全部）复制成新会话并切换过去，原会话文件不动。
-// 调用方必须保证此时没有 Run 在进行。
-func (a *app) branch(turns int) (*session.State, string, error) {
+// sessionTree 读出当前会话的轮次树。会话还没有落盘时报错。
+func (a *app) sessionTree() (*session.Tree, error) {
+	if a.rec == nil || a.rec.Path() == "" {
+		return nil, errors.New("当前会话还没有任何提问")
+	}
+	return session.ReadTree(a.rec.Path())
+}
+
+// navigate 把当前会话的位置移到第 turn 轮之后（0 为会话开头），之后的提问从那里分出新的分支。
+// 所有分支都留在同一个会话文件里，随时可以再切回来。调用方必须保证此时没有 Run 在进行。
+//
+// 先在不动文件的情况下重放目标位置，确认没问题再写 branch 记录，最后才换掉 agent 的历史：
+// 任何一步失败，文件和 agent 都保持原样。
+func (a *app) navigate(turn int) (*session.State, string, error) {
 	if a.ag == nil || a.rec == nil {
-		return nil, "", errors.New("当前没有可用的 agent，无法分支会话")
+		return nil, "", errors.New("当前没有可用的 agent，无法切换会话分支")
 	}
-	src := a.rec.Path()
-	if src == "" {
-		return nil, "", errors.New("当前会话还没有任何内容，不需要分支")
+	path := a.rec.Path()
+	if path == "" {
+		return nil, "", errors.New("当前会话还没有任何提问")
 	}
-	dst, err := session.Fork(config.SessionsDir(a.dataDir), src, turns)
+	st, err := session.LoadAt(path, turn)
 	if err != nil {
 		return nil, "", err
 	}
-	st, notes, err := a.attach(dst)
-	if err != nil {
-		// 分支文件已经写好，只是没切过去：告诉用户它在哪，可以之后 /resume。
-		return nil, "", fmt.Errorf("分支会话已创建（%s），但切换过去失败: %w", dst, err)
+	notes := a.adopt(st)
+	if err := a.rec.Branch(turn); err != nil {
+		return nil, "", fmt.Errorf("写入会话记录失败: %w", err)
 	}
-	return st, fmt.Sprintf("已分支出新会话 %s（保留 %d 轮），之后的对话写进新会话；原会话不变，可以 /resume 回去", st.ID, st.Turns) + notes, nil
+	a.ag.Restore(st.History, st.Summary)
+	if turn == 0 {
+		return st, "已回到会话开头，接下来的提问会开出新的分支；原来的对话仍在 /tree 里" + notes, nil
+	}
+	return st, fmt.Sprintf("已切换到第 %d 轮之后，接下来的提问会开出新的分支；原来的对话仍在 /tree 里", turn) + notes, nil
 }
 
 // attach 载入 path 指向的会话，让 agent 换成它的历史、记录器接着写这个文件。
@@ -63,6 +77,16 @@ func (a *app) attach(path string) (*session.State, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+	notice := a.adopt(st)
+	if err := a.rec.Attach(st.Path); err != nil {
+		return nil, "", err
+	}
+	a.ag.Restore(st.History, st.Summary)
+	return st, notice, nil
+}
+
+// adopt 把重放出的状态调整成能交给当前 agent 的样子（丢掉对不上的思维链），返回附加说明（以“；”开头，没有时为空）。
+func (a *app) adopt(st *session.State) string {
 	notice := ""
 	if st.Info.Cwd != "" && !platform.SamePath(st.Info.Cwd, a.cwd) {
 		// 工具仍在当前目录执行，不随会话切过去；提醒一下，免得模型按旧目录的上下文去找文件。
@@ -79,11 +103,7 @@ func (a *app) attach(path string) (*session.State, string, error) {
 	// 原始思考块绑定了当初的系统提示词（含日期），新进程里对不上，回传会被拒绝；
 	// 思维链文本保留（DeepSeek 等按文本回传，不受影响）。
 	agent.DropNative(st.History)
-	if err := a.rec.Attach(st.Path); err != nil {
-		return nil, "", err
-	}
-	a.ag.Restore(st.History, st.Summary)
-	return st, notice, nil
+	return notice
 }
 
 // newSession 开始一个空白会话：清空 agent 的历史和摘要，记录器改写新文件。旧会话文件原样保留，可以 /resume 回去。
@@ -163,8 +183,20 @@ func (s sessionStore) Resume(selector string) (*tui.Restored, error) {
 
 func (s sessionStore) New() error { return s.a.newSession() }
 
-func (s sessionStore) Branch(turns int) (*tui.Restored, error) {
-	st, notice, err := s.a.branch(turns)
+func (s sessionStore) Tree() (*tui.SessionTree, error) {
+	t, err := s.a.sessionTree()
+	if err != nil {
+		return nil, err
+	}
+	out := &tui.SessionTree{Current: t.Current, Nodes: make([]tui.TreeNode, len(t.Nodes))}
+	for i, n := range t.Nodes {
+		out.Nodes[i] = tui.TreeNode{Turn: n.Turn, Parent: n.Parent, Prompt: n.Prompt, Reply: n.Reply, Images: n.Images, Time: n.Time}
+	}
+	return out, nil
+}
+
+func (s sessionStore) Navigate(turn int) (*tui.Restored, error) {
+	st, notice, err := s.a.navigate(turn)
 	if err != nil {
 		return nil, err
 	}

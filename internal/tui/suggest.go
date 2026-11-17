@@ -23,7 +23,7 @@ var slashCommands = []slashCommand{
 	{"/effort", "[档位]", "调整思考程度"},
 	{"/think", "", "展开 / 折叠全部思考过程"},
 	{"/new", "", "开始新会话"},
-	{"/branch", "", "从当前会话（或前几轮）分支出新会话"},
+	{"/tree", "", "会话树：切换到任意一轮继续，或改问某一轮"},
 	{"/compact", "[说明]", "把前面的对话总结成摘要，腾出上下文"},
 	{"/resume", "", "浏览并恢复历史会话（可搜索、重命名、删除）"},
 	{"/image", "[路径|clear]", "附加图片到下一条消息"},
@@ -68,7 +68,7 @@ func (m *Model) syncSuggest() {
 		s.forValue, s.sel, s.moved = v, 0, false
 	}
 	s.items, s.token = nil, ""
-	if m.picker != nil || m.effort != nil || m.browser != nil || m.mcpPicker != nil || m.skillPick != nil || m.ask != nil || v == s.off {
+	if m.picker != nil || m.effort != nil || m.browser != nil || m.mcpPicker != nil || m.skillPick != nil || m.treePick != nil || m.ask != nil || v == s.off {
 		return
 	}
 	s.items, s.token = m.suggestionsFor(v)

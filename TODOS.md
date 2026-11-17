@@ -141,7 +141,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
   - [ ] 权限模块（审批流、allow/deny、沙箱）——目前默认完全权限，不要提前加。
 
 ### M1 范围内有意没做
-- [x] 会话分支：`/branch [轮数]` 与 RPC `session/branch` 把当前会话（或前几轮）复制成新会话并切过去，原会话不变；新会话头记录带 `parent` / `parent_turns`，图片复制一份（见 `docs/session-format.md`「分支」）。
+- [x] 会话树：所有分支存在同一个会话文件里（`branch` 记录），TUI `/tree` 树形面板切换或改问某一轮，RPC `session/tree` / `session/navigate`（见 `docs/session-format.md`「分支与会话树」）。
 - [x] 会话压缩的细化：按 token 精确裁剪、分层摘要、手动 `/compact` 均已完成。仍未做的细化：按工具类型区分裁剪策略（目前统一保留开头 200 字符）、手动压缩时保留最近一轮原文的选项。
 - [x] 按工具声明“是否可并行”：工具实现 `tool.Parallelizable` 声明，不可并行的调用独占执行（等前面的结束、执行时不启动别的）；`write`、`edit`、`delete` 声明为不可并行，其余默认可并行；`tools.jsonc` 的 `parallel` 可覆盖（见 `docs/tools.md`「并行」）。
 - [x] 模型选择器、运行中切换模型：`/model`。

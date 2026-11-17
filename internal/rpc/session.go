@@ -53,16 +53,31 @@ func (s *Server) resumeSession(params json.RawMessage) (any, func(), *Error) {
 	return restoredResult(r), nil, nil
 }
 
-// branchSession 把当前会话的前 turns 轮（省略或 0 为全部）复制成新会话并切过去，结果格式与 session/resume 相同。
-func (s *Server) branchSession(params json.RawMessage) (any, func(), *Error) {
+func (s *Server) sessionTree() (any, func(), *Error) {
+	if err := s.unavailable(); err != nil {
+		return nil, nil, err
+	}
+	t, err := s.b.SessionTree()
+	if err != nil {
+		return nil, nil, errorf(CodeSession, "%v", err)
+	}
+	if t.Nodes == nil {
+		t.Nodes = []TreeNode{}
+	}
+	return t, nil, nil
+}
+
+// navigateSession 把当前会话的位置移到第 turn 轮之后，结果格式与 session/resume 相同（events 是新位置上重放出的历史）。
+func (s *Server) navigateSession(params json.RawMessage) (any, func(), *Error) {
 	var p struct {
-		Turns int `json:"turns"`
+		Turn *int `json:"turn"`
 	}
 	if err := decodeParams(params, &p); err != nil {
 		return nil, nil, err
 	}
-	if p.Turns < 0 {
-		return nil, nil, errorf(CodeInvalidParams, "turns 不能为负数")
+	// turn 为 0 是合法的“回到会话开头”，所以必须显式给出，不能用零值当默认。
+	if p.Turn == nil || *p.Turn < 0 {
+		return nil, nil, errorf(CodeInvalidParams, "turn 必须是非负整数")
 	}
 	if s.busy() {
 		return nil, nil, errBusy()
@@ -70,7 +85,7 @@ func (s *Server) branchSession(params json.RawMessage) (any, func(), *Error) {
 	if err := s.unavailable(); err != nil {
 		return nil, nil, err
 	}
-	r, err := s.b.BranchSession(p.Turns)
+	r, err := s.b.NavigateSession(*p.Turn)
 	if err != nil {
 		return nil, nil, errorf(CodeSession, "%v", err)
 	}

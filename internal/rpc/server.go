@@ -21,7 +21,7 @@ const ProtocolVersion = 1
 
 // Backend 是服务端眼中的运行时：当前 agent、会话记录器和配置都在它背后。
 // 除 Run、Compact 外的方法都在读循环里串行调用，实现不需要自己加锁防并发；
-// 会替换 agent 或历史的方法（Prepare、NewSession、ResumeSession、BranchSession、SwitchModel）只在没有一轮进行时调用。
+// 会替换 agent 或历史的方法（Prepare、NewSession、ResumeSession、NavigateSession、SwitchModel）只在没有一轮进行时调用。
 type Backend interface {
 	Info() Info
 	// Prepare 在空闲时调用（开始一轮之前、initialize 时），把后台连好的 MCP 工具等接进 agent，
@@ -33,8 +33,10 @@ type Backend interface {
 	ListSessions(all bool) ([]SessionInfo, error)
 	// ResumeSession 按选择器恢复会话：latest、ListSessions(false) 里的序号、ID 前缀或会话文件路径。
 	ResumeSession(selector string) (Restored, error)
-	// BranchSession 把当前会话的前 turns 轮（0 为全部）复制成新会话并切过去，原会话不变。
-	BranchSession(turns int) (Restored, error)
+	// SessionTree 读出当前会话的轮次树（所有分支都在同一个会话文件里）。
+	SessionTree() (Tree, error)
+	// NavigateSession 把当前会话的位置移到第 turn 轮之后（0 为会话开头），之后的提问从那里开出新分支。
+	NavigateSession(turn int) (Restored, error)
 	RenameSession(path, name string) error
 	DeleteSession(path string) error
 	// Compact 把全部历史总结成摘要。和 Run 一样在后台调用，可被取消。
@@ -64,6 +66,22 @@ type SessionInfo struct {
 }
 
 // Restored 是恢复会话的结果。Events 是按会话记录重放出的事件，客户端用它画出历史对话。
+// Tree 是 session/tree 的结果。
+type Tree struct {
+	Current int        `json:"current"` // 下一次提问接在第几轮之后，0 是会话开头
+	Nodes   []TreeNode `json:"nodes"`   // 按轮号升序
+}
+
+// TreeNode 是树上的一轮。
+type TreeNode struct {
+	Turn   int       `json:"turn"`   // 从 1 起，即该轮 user 记录在文件里的序号
+	Parent int       `json:"parent"` // 接在第几轮之后；0 是会话开头
+	Prompt string    `json:"prompt"`
+	Reply  string    `json:"reply"` // 最后一段文字回复，压成一行并截断
+	Images int       `json:"images"`
+	Time   time.Time `json:"time"`
+}
+
 type Restored struct {
 	ID     string
 	Path   string
@@ -228,8 +246,10 @@ func (s *Server) call(id json.RawMessage, method string, params json.RawMessage)
 		return s.listSessions(params)
 	case "session/resume":
 		return s.resumeSession(params)
-	case "session/branch":
-		return s.branchSession(params)
+	case "session/tree":
+		return s.sessionTree()
+	case "session/navigate":
+		return s.navigateSession(params)
 	case "session/rename":
 		return s.renameSession(params)
 	case "session/delete":

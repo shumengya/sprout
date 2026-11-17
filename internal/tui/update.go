@@ -107,6 +107,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.onSessionsLoaded(msg)
 		return m, nil
 
+	case treeLoadedMsg:
+		m.onTreeLoaded(msg)
+		m.refresh()
+		return m, nil
+
 	case sessionOpDoneMsg:
 		return m, m.onSessionOp(msg)
 
@@ -203,6 +208,10 @@ func (m *Model) onKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	if handled, cmd := m.skillKey(k); handled { // 技能面板同上
+		m.refresh()
+		return m, cmd
+	}
+	if handled, cmd := m.treeKey(k); handled { // 会话树面板同上
 		m.refresh()
 		return m, cmd
 	}

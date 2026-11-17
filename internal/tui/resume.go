@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"strconv"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -50,16 +49,21 @@ type Sessions interface {
 	Delete(path string) error
 	// New 开始一个空白会话：清空 agent 历史，之后的对话写进新的会话文件。不涉及网络，可以同步调用。
 	New() error
-	// Branch 把当前会话的前 turns 轮（0 为全部）复制成新会话并切换过去，原会话不变。
-	Branch(turns int) (*Restored, error)
+	// Tree 读出当前会话的轮次树（所有分支都在同一个会话里）。
+	Tree() (*SessionTree, error)
+	// Navigate 把当前会话的位置移到第 turn 轮之后（0 为会话开头），之后的提问从那里开出新分支。
+	// 它会阻塞到 agent 空闲。
+	Navigate(turn int) (*Restored, error)
 }
 
 // resumeDoneMsg 是恢复完成后发回 Update 的消息。
 type resumeDoneMsg struct {
 	res *Restored
 	err error
-	// failText 是失败提示的前缀；空时用“恢复会话失败：”。/branch 也走这条路径。
+	// failText 是失败提示的前缀；空时用“恢复会话失败：”。/tree 切换分支也走这条路径。
 	failText string
+	// edit 非空时，成功后把它放进输入框：/tree 里按 e 改问某一轮时，原提问留给用户修改。
+	edit string
 }
 
 // resumeCmd 处理 /resume。无参数时打开会话浏览器；带参数时直接恢复。
@@ -87,36 +91,7 @@ func (m *Model) startResume(selector string) tea.Cmd {
 	s := m.opts.Sessions
 	return func() tea.Msg {
 		r, err := s.Resume(selector)
-		return resumeDoneMsg{r, err, ""}
-	}
-}
-
-// branchCmd 处理 /branch [轮数]：复制当前会话（或前 N 轮）成新会话并切过去。
-// 结果和恢复会话一样用 resumeDoneMsg 送回，对话区按新会话的事件流重建。
-func (m *Model) branchCmd(arg string) tea.Cmd {
-	s := m.opts.Sessions
-	switch {
-	case s == nil:
-		m.add(&entry{kind: kindNotice, text: "当前不能分支会话（没有可用的 agent）。"})
-		return nil
-	case m.running || m.resuming || m.switching || m.compacting:
-		m.status = "正在生成、恢复、切换模型或压缩，暂时不能分支会话"
-		return nil
-	}
-	turns := 0
-	if arg != "" {
-		n, err := strconv.Atoi(arg)
-		if err != nil || n < 1 {
-			m.add(&entry{kind: kindError, text: "用法：/branch 复制整个会话；/branch 轮数 只保留前几轮（从 1 起）"})
-			return nil
-		}
-		turns = n
-	}
-	m.resuming = true
-	m.status = "正在分支会话…"
-	return func() tea.Msg {
-		r, err := s.Branch(turns)
-		return resumeDoneMsg{r, err, "分支会话失败："}
+		return resumeDoneMsg{res: r, err: err}
 	}
 }
 
@@ -168,6 +143,9 @@ func (m *Model) onResumed(msg resumeDoneMsg) {
 	m.replay(msg.res.Events)
 	m.add(&entry{kind: kindNotice, text: msg.res.Notice})
 	m.unseen = false
+	if msg.edit != "" {
+		m.in.SetValue(msg.edit)
+	}
 }
 
 // replay 把保存的事件流喂进对话区，复用实时事件的同一套渲染逻辑。

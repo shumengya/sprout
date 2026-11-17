@@ -33,7 +33,7 @@
 
 | type | 来源 | 字段 |
 | --- | --- | --- |
-| `session` | 文件创建时 | `id`、`cwd`、`provider`、`model`、`tools`、`version`（省略）、`parent`（省略）、`parent_turns`（省略） |
+| `session` | 文件创建时 | `id`、`cwd`、`provider`、`model`、`tools`、`version`（省略） |
 | `user` | `turn.started` | `content`、`images`（省略） |
 | `assistant` | `message.completed` | `content`、`reasoning`（省略）、`tool_calls: [{id, name, arguments}]`（省略）、`stop_reason`（省略）、`native`（省略） |
 | `tool` | `tool.finished` | `tool_call_id`、`name`、`command`、`stdout`、`stderr`、`exit_code`、`truncated`、`timed_out`、`cancelled`、`duration_ms`、`error`、`content`、`images`；除 `tool_call_id`、`name`、`exit_code`、`duration_ms` 外都省略零值 |
@@ -43,6 +43,7 @@
 | `error` | `error` | `message`、`retryable`（省略） |
 | `turn` | `turn.finished` | `reason` |
 | `retry` | `retrying` | `attempt`、`max`、`delay_ms`、`reason`；仅审计 |
+| `branch` | `/tree` 切换位置 | `turn`：之后的记录接在第几轮之后，0 是会话开头（见第 6 节） |
 | `resume` | `Attach` / `NoteModelChange` | `provider`、`model`、`tools`；仅审计 |
 
 - `exit_code` 不省略，因为 0 是有意义的值。
@@ -72,7 +73,7 @@
 
 ## 5. 恢复（`session.Load`）
 
-`Load` 逐行重放，得到 agent 的 `History` 和 `Summary`、给 surface 渲染用的 `Events`、轮数 `Turns`，以及跳过的坏行数 `Skipped`。重放规则和运行时一致，由“黄金对照”测试（`golden_test.go`）保证：
+`Load` 重放文件末尾所在分支（从根到当前位置的路径，见第 6 节；没有 `branch` 记录的文件就是逐行重放），得到 agent 的 `History` 和 `Summary`、给 surface 渲染用的 `Events`、轮数 `Turns`，以及跳过的坏行数 `Skipped`。重放规则和运行时一致，由“黄金对照”测试（`golden_test.go`）保证：
 
 - 并行工具的结果按调用顺序排进历史，不按完成顺序。
 - 进程被杀留下的未完成 tool call，补一条“未执行”的结果。
@@ -81,15 +82,18 @@
 - `compact` 按当初的方式重做：summary 丢弃前 `dropped` 条消息并换上摘要；prune 用纯函数 `agent.PruneToolOutputs` 从最旧的开始裁同样多条。
 - `interrupted` 还原成一条 assistant 消息，内容与当初写进历史的一致。
 - 图片按 `file` 读回，`tool` 记录的图片跟在结果文本后面（与运行时的 tool 消息顺序一致）；文件丢失或损坏时换成“（图片无法恢复：路径）”文本块，不让整轮无法恢复。
-- 无法解析的行跳过并计数；`retry`、`resume` 和未知类型只用于审计，重放时忽略。
+- 无法解析的行跳过并计数；`retry`、`resume` 和未知类型只用于审计，重放时忽略；`branch` 只决定取哪条路径（第 6 节），本身不进历史。
 - 换了模型或服务商时，调用方用 `State.StripReasoning` 清掉旧思维链和 `native`。
 
-## 6. 分支（`session.Fork`）
+## 6. 分支与会话树（`session.ReadTree` / `session.LoadAt`）
 
-`/branch [轮数]` 与 RPC `session/branch` 把当前会话复制成一个新会话，之后的对话写进新会话，原会话不变。
+一个会话的所有分支都在同一个 JSONL 文件里，形成一棵以“轮”为节点的树。TUI 的 `/tree` 与 RPC 的 `session/tree`、`session/navigate` 用它在分支之间切换。
 
-- 重放 JSONL 的任意前缀得到的就是当时的状态，所以分支就是截取：保留第 `turns`+1 条 `user` 记录之前的全部记录（`turns` 为 0 时保留整个文件，`parent_turns` 记为总轮数），只把开头的 `session` 头换掉。被保留下来的 `compact` 记录照常生效，分支后的状态就是当时压缩后的状态。
-- 新头记录有新的 `id`，`parent` 是原会话的 `id`，`parent_turns` 是保留的轮数；这两个字段只用于追溯，重放时不使用。
-- 图片复制到新会话自己的 `.images/` 目录，只复制被保留的记录引用到的，`file` 的目录前缀改成新会话的；删除原会话不影响分支。原图片已经丢失时跳过，重放时按第 5 节的规则换成文本。
-- 新文件用独占创建写入，写失败时删掉已写的文件和图片目录；随后登记 `meta.json`（失败只是警告），再由调用方 `Attach` 到新文件。
-- 当前会话还没有提问、`turns` 超过已有轮数时报错，不创建文件。
+- **轮号**：`user` 记录在文件里按出现顺序从 1 起编号，跨分支统一编号。
+- **接续规则**：一条记录默认接在上一条记录所在的位置后面。`branch` 记录 `{"turn": N}` 把位置移到第 N 轮之后（0 是会话开头），之后的记录（下一条 `user`，以及切换后、提问前的 `compact`、`resume` 等）都接在那里。`branch` 记录指向尚未出现的轮次或负数时视为坏行，计入 `Skipped`，位置不动。
+- **重放某个位置**：只取从根到该位置路径上的记录，按文件顺序交给第 5 节的重放规则。JSONL 前缀重放出来就是当时的状态，路径上的记录正是“当时”的那个前缀，所以 `compact` 只影响它所在分支。
+- **当前位置**：文件末尾所在的位置。`Load`（`/resume`、启动恢复）重放的就是这里，所以切到某个分支后退出再恢复，回到的仍是那个分支。
+- **切换**：先用 `LoadAt` 在不改文件的情况下重放目标位置，成功后再追加 `branch` 记录，最后替换 agent 的历史；任何一步失败，文件和 agent 都保持原样。切换只追加记录，不复制、不删除任何内容，图片仍在原会话的 `.images/` 目录里。
+- **兼容性**：没有 `branch` 记录的旧文件就是一条链，重放结果与以前逐行重放完全相同。旧版本程序读到 `branch` 记录会当作未知类型忽略，按逐行重放处理（分支会被拼在一起）。
+- **轮次树**：`ReadTree` 给出每一轮的 `Turn`、`Parent`（接在第几轮之后，0 为开头）、提问原文、最后一段文字回复（压成一行并截断）、图片数和时间，以及 `Current`（下一次提问接在第几轮之后）。
+

@@ -21,9 +21,13 @@ type sessionRec struct {
 	Model    string   `json:"model"`
 	Tools    []string `json:"tools"`
 	Version  string   `json:"version,omitempty"`
-	// Parent 与 ParentTurns 只在分支出来的会话里有：来源会话的 id 和保留的轮数。仅供审计，重放时忽略。
-	Parent      string `json:"parent,omitempty"`
-	ParentTurns int    `json:"parent_turns,omitempty"`
+}
+
+// branchRec 把会话的当前位置移到第 Turn 轮之后（0 是会话开头），之后的记录接在那里，形成新的分支。
+// Turn 不能 omitempty：0 是有意义的值。规则见 tree.go。
+type branchRec struct {
+	header
+	Turn int `json:"turn"`
 }
 
 // imageRec 是用户输入里的一张图片。文件放在会话目录下的 <会话名>.images/ 里，

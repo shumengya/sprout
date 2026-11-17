@@ -1,12 +1,6 @@
 package session
 
 import (
-	"bufio"
-	"bytes"
-	"encoding/json"
-	"fmt"
-	"os"
-
 	"github.com/shumengya/sprout/internal/agent"
 	"github.com/shumengya/sprout/internal/agent/event"
 )
@@ -33,6 +27,8 @@ func (s *State) StripReasoning() {
 // rawRec 是各类记录字段的并集，按 type 取用。
 type rawRec struct {
 	Type string `json:"type"`
+	// Time 按字符串读：只有会话树显示提问时间时才用到，格式不对不该让整行被当作坏行跳过。
+	Time string `json:"time"`
 
 	ID       string   `json:"id"`
 	Cwd      string   `json:"cwd"`
@@ -78,37 +74,17 @@ type rawRec struct {
 
 	Message   string `json:"message"`
 	Retryable bool   `json:"retryable"`
+
+	Turn int `json:"turn"` // branch 记录：接在第几轮之后
 }
 
-// Load 读取会话文件并重放出状态。重放按 agent 运行时的同样规则还原历史：
+// Load 读取会话文件并重放出当前位置（文件末尾所在的分支）的状态。重放按 agent 运行时的同样规则还原历史：
 // 并行工具的结果按调用顺序排列，被取消/失败的首次调用撤销用户消息，压缩按当初的方式重做。
-// 损坏的行会被跳过并计数，而不是让整个会话无法恢复。
+// 损坏的行会被跳过并计数，而不是让整个会话无法恢复。分支规则见 tree.go。
 func Load(path string) (*State, error) {
-	f, err := os.Open(path)
+	p, err := parseFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("打开会话文件失败: %w", err)
+		return nil, err
 	}
-	defer f.Close()
-
-	r := &replayer{st: &State{Path: path}}
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 1<<20), 64<<20)
-	for sc.Scan() {
-		line := bytes.TrimSpace(sc.Bytes())
-		if len(line) == 0 {
-			continue
-		}
-		var rec rawRec
-		if json.Unmarshal(line, &rec) != nil {
-			r.st.Skipped++
-			continue
-		}
-		r.handle(rec)
-	}
-	if err := sc.Err(); err != nil {
-		return nil, fmt.Errorf("读取会话文件失败: %w", err)
-	}
-	r.finish()
-	r.st.History, r.st.Summary = r.history, r.summary
-	return r.st, nil
+	return p.replay(path, p.cur), nil
 }
