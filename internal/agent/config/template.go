@@ -10,7 +10,7 @@ import (
 // Template 是首次运行时生成的 models.jsonc。
 // 仓库根目录的 models.example.jsonc 必须与它逐字一致，由 template_test.go 保证。
 const Template = `// Sprout 模型配置（JSONC：支持 // 和 /* */ 注释，以及尾逗号）。
-// 修改后需要重启 sprout 才会生效。
+// 终端界面里修改后几秒内自动重新读取；sprout run、sprout serve 和缺 API Key 启动时要重启才生效。
 {
   // 默认使用的模型，格式为 "provider名/模型名"，两边都必须在下面定义过。
   "default": "deepseek/deepseek-flash",

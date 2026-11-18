@@ -76,8 +76,31 @@ func (s modelStore) Switch(ref string) (*tui.SwitchResult, error) {
 		return nil, err
 	}
 
+	oldRef := a.sel.Ref()
+	// 换了模型：别家的思维链不该回传给新模型，与恢复旧会话时的处理一致。对话内容保留。
+	oldEffort, kept, err := a.useModel(sel, key, true)
+	if err != nil {
+		return nil, err
+	}
+	a.remember()
+
+	notice := fmt.Sprintf("已切换模型：%s → %s（保留 %d 条历史消息）", oldRef, sel.Ref(), kept)
+	switch {
+	case a.info.Effort != "" && a.effort != oldEffort:
+		notice += fmt.Sprintf("；思考程度 %s → %s（新模型没有 %s 档位）", oldEffort, a.effort, oldEffort)
+	case a.info.Effort != "":
+		notice += "；思考程度 " + a.effort
+	}
+	return &tui.SwitchResult{Info: a.info, Notice: notice}, nil
+}
+
+// useModel 换成 sel 并重建 provider 与 agent，对话历史原样带过去；会话记录器不换，之后的对话仍写进同一个文件。
+// strip 为 true 时去掉历史里的思维链（换了模型或协议，旧的思维链不该回传）。
+// 返回原来的思考档位与带过去的历史条数。失败时 app 保持原样，可以继续用旧设置对话。
+func (a *app) useModel(sel config.Selection, key string, strip bool) (oldEffort string, kept int, err error) {
 	// 工具是全局能力，不随模型变；只有 tools=false 的模型不提供工具。
-	oldSel, oldReg, oldInfo, oldEffort := a.sel, a.reg, a.info, a.effort
+	oldSel, oldReg, oldInfo := a.sel, a.reg, a.info
+	oldEffort = a.effort
 	// sel 与 key 会被后台的 MCP 采样请求读取，所以写入时加锁。
 	restore := func() {
 		a.mu.Lock()
@@ -97,12 +120,11 @@ func (s modelStore) Switch(ref string) (*tui.SwitchResult, error) {
 	reg, err := a.registerTools(a.cfg, a.env)
 	if err != nil {
 		restore()
-		return nil, err
+		return oldEffort, 0, err
 	}
 
 	history, summary := a.ag.History(), a.ag.Summary()
-	if sel.Ref() != oldSel.Ref() {
-		// 换了模型：别家的思维链不该回传给新模型，与恢复旧会话时的处理一致。对话内容保留。
+	if strip {
 		for i := range history {
 			history[i] = history[i].StripReasoning()
 		}
@@ -110,7 +132,7 @@ func (s modelStore) Switch(ref string) (*tui.SwitchResult, error) {
 	ag, err := a.buildAgent(sel, key, reg, a.rec, a.env, a.log)
 	if err != nil {
 		restore()
-		return nil, err
+		return oldEffort, 0, err
 	}
 	ag.Restore(history, summary)
 	// key 要跟着换：后台 MCP 连好后 applyMCP 用它重建 agent，留着旧 Key 会打到新模型的服务端上失败。
@@ -119,16 +141,7 @@ func (s modelStore) Switch(ref string) (*tui.SwitchResult, error) {
 	a.mu.Unlock()
 	a.ag, a.reg = ag, reg
 	a.rec.NoteModelChange(sel.ProviderName, sel.ModelName, reg.Names())
-	a.remember()
-
-	notice := fmt.Sprintf("已切换模型：%s → %s（保留 %d 条历史消息）", oldSel.Ref(), sel.Ref(), len(history))
-	switch {
-	case a.info.Effort != "" && a.effort != oldEffort:
-		notice += fmt.Sprintf("；思考程度 %s → %s（新模型没有 %s 档位）", oldEffort, a.effort, oldEffort)
-	case a.info.Effort != "":
-		notice += "；思考程度 " + a.effort
-	}
-	return &tui.SwitchResult{Info: a.info, Notice: notice}, nil
+	return oldEffort, len(history), nil
 }
 
 var _ tui.Models = modelStore{}

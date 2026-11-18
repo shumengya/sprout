@@ -1,5 +1,5 @@
 // Sprout 模型配置（JSONC：支持 // 和 /* */ 注释，以及尾逗号）。
-// 修改后需要重启 sprout 才会生效。
+// 终端界面里修改后几秒内自动重新读取；sprout run、sprout serve 和缺 API Key 启动时要重启才生效。
 {
   // 默认使用的模型，格式为 "provider名/模型名"，两边都必须在下面定义过。
   "default": "deepseek/deepseek-flash",

@@ -86,6 +86,8 @@ type app struct {
 	statusline []tui.StatusItem
 	disabled   string
 	notices    []string
+	// modelsLoaded 是上次读取 models.jsonc 时的文件状态，modelsSeen 是热加载检查上一次看到的状态；都由 mu 保护。
+	modelsLoaded, modelsSeen fileStamp
 }
 
 func (a *app) close() {
@@ -130,6 +132,7 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 	if err != nil {
 		return nil, err
 	}
+	stamp, _ := stampOf(path) // 先取时间戳再读，读的过程中被改了，热加载还能发现
 	cfg, err := config.Load(path)
 	if err != nil {
 		return nil, err
@@ -221,7 +224,7 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 		mcpTools: mcp.LoadTools(config.MCPToolsPath(dataDir)), mcpChanged: make(chan struct{}, 1),
 		mcpAuth: mcp.NewAuthStore(config.MCPAuthPath(dataDir)),
 		prompt:  prompt, instr: instr, skills: skillList, skillCfg: skillCfg, env: e, log: log, sel: sel, effort: effort,
-		statusline: statusline,
+		statusline: statusline, modelsLoaded: stamp, modelsSeen: stamp,
 	}
 	if e.interactive {
 		a.input = newMCPInput(e.remote)

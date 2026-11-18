@@ -141,6 +141,12 @@ type Options struct {
 	// Asks 是 MCP 服务端向用户要输入时的通道（表单或采样确认）。
 	// 为 nil 表示当前界面不处理这类请求（如 sprout run）。TUI 答完后向 Ask.Reply 回一次。
 	Asks <-chan *Ask
+	// ModelsChanged 报告 models.jsonc 自上次读取后是否改过（并且已经写完）。TUI 每隔 modelsInterval
+	// 在 tea.Cmd 里调用一次；它或 ReloadModels 为 nil 时不做热加载。
+	ModelsChanged func() bool
+	// ReloadModels 重新读取 models.jsonc，当前模型的设置变了就重建 agent（保留对话历史），
+	// 返回刷新后的 Info 与要显示的提示。它会替换 agent，TUI 只在空闲时、在 tea.Cmd 里调用，期间按切换模型处理。
+	ReloadModels func() (Info, []string)
 }
 
 // 输入框按内容增高：空时一行，最多显示这么多行，再多就在输入框内部滚动。
@@ -183,6 +189,7 @@ type Model struct {
 	switching  bool      // 正在切换模型：同上，禁止发送
 	compacting bool      // 正在手动压缩上下文（/compact）：同上，且可用 Ctrl+C 取消
 	mcpDone    bool      // 等待重建 agent（MCP 连好、/mcp 或 /skills 改了开关）；忙时推迟到本轮结束
+	reloadDue  bool      // models.jsonc 改过、等待重新读取；忙时同样推迟
 	started    time.Time // 本轮开始时间，状态行显示已耗时
 	// busySince、busyTotal 是状态栏“耗时”的数据：只累计 agent 干活的时间（一轮回答或一次 /compact，
 	// 从开始到结束），空闲时不涨。busySince 为零表示当前空闲。
@@ -205,6 +212,8 @@ type Model struct {
 	// callStart 是这次模型调用的请求起点：一轮里有工具往返时会有多次调用，不能都从整轮的 started 起算。
 	ttft      time.Duration
 	callStart time.Time
+	// stats 是进行中这一轮的用量与计时，一轮结束时作为统计行显示在回答下方。
+	stats turnStats
 	// compactions 是本会话成功压缩上下文的次数。
 	compactions int
 	// statusline 是按当前布局排好序的、要显示的状态栏各项（含行号和颜色）。
@@ -212,8 +221,6 @@ type Model struct {
 	// pending 是下一条消息待发送的图片（/image 附加），发送或 /image clear 后清空。
 	pending []agent.Image
 	// queue 是生成中提交的输入，按先后顺序在本轮结束后依次发出。
-	// stats 是进行中这一轮的用量与计时，一轮结束时作为统计行显示在回答下方。
-	stats turnStats
 	queue []queued
 
 	// 对话区的拖选。选区用内容坐标记录；content 是当前送进 viewport 的完整文本，
@@ -298,7 +305,7 @@ func New(o Options) *Model {
 }
 
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(m.in.Focus(), m.resourceCmd(0), m.gitCmd(0), m.mcpReadyCmd(), m.mcpChangedCmd(), m.updateCheckCmd(), m.askCmd())
+	return tea.Batch(m.in.Focus(), m.resourceCmd(0), m.gitCmd(0), m.mcpReadyCmd(), m.mcpChangedCmd(), m.updateCheckCmd(), m.askCmd(), m.modelsWatchCmd())
 }
 
 // mcpChangedMsg 表示某个 MCP 服务端的工具列表变了。

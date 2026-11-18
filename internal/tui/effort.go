@@ -56,6 +56,10 @@ func (m *Model) effortCmd(arg string) {
 
 // setEffort 切换档位并刷新信息栏。
 func (m *Model) setEffort(name string) {
+	if m.switching { // 切换模型或重新读取 models.jsonc 时 agent 正在被替换，改到旧的上面会丢
+		m.status = "正在切换模型或重新读取 models.jsonc，请稍候再调整思考程度"
+		return
+	}
 	notice, err := m.opts.Efforts.Set(name)
 	if err != nil {
 		m.add(&entry{kind: kindError, text: "调整思考程度失败：" + err.Error()})

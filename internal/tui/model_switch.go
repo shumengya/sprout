@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -95,6 +96,9 @@ func (m *Model) modelCmd(arg string) tea.Cmd {
 		m.add(&entry{kind: kindNotice, text: "当前不能切换模型（没有可用的 agent）。"})
 	case m.running || m.resuming || m.compacting:
 		m.status = "正在生成、恢复或压缩中，暂时不能切换模型"
+	case m.switching:
+		// 同时跑两次切换会互相覆盖 agent；重新读取 models.jsonc 也算在内。
+		m.status = "正在切换模型或重新读取 models.jsonc，请稍候"
 	case arg == "":
 		m.picker = &picker{items: s.List()}
 		m.status = ""
@@ -122,14 +126,70 @@ func (m *Model) onSwitched(msg switchDoneMsg) {
 		m.add(&entry{kind: kindError, text: "切换模型失败：" + msg.err.Error()})
 		return
 	}
-	m.opts.Info.Model = msg.res.Info.Model
-	m.opts.Info.Provider = msg.res.Info.Provider
-	m.opts.Info.Tools = msg.res.Info.Tools
-	m.opts.Info.Vision = msg.res.Info.Vision
-	m.opts.Info.Effort = msg.res.Info.Effort
-	m.opts.Info.ContextWindow = msg.res.Info.ContextWindow
-	m.opts.Info.Price = msg.res.Info.Price // 只影响之后的用量；已累计的花费按当时的价格算过了
+	m.applyModelInfo(msg.res.Info)
 	m.add(&entry{kind: kindNotice, text: msg.res.Notice})
+}
+
+// applyModelInfo 换上切换模型或重新读取 models.jsonc 之后与模型有关的信息。
+// MCP、技能等其他部分由各自的流程维护，这里不动。
+func (m *Model) applyModelInfo(info Info) {
+	m.opts.Info.Model = info.Model
+	m.opts.Info.Provider = info.Provider
+	m.opts.Info.Tools = info.Tools
+	m.opts.Info.Unavailable = info.Unavailable
+	m.opts.Info.Vision = info.Vision
+	m.opts.Info.Effort = info.Effort
+	m.opts.Info.ContextWindow = info.ContextWindow
+	m.opts.Info.Price = info.Price // 只影响之后的用量；已累计的花费按当时的价格算过了
+}
+
+// modelsInterval 是检查 models.jsonc 有没有改过的间隔。每次只是一次 stat，开销可以忽略。
+const modelsInterval = 2 * time.Second
+
+// modelsTickMsg 是一次检查的结果。
+type modelsTickMsg struct{ changed bool }
+
+// modelsReloadedMsg 是重新读取 models.jsonc 的结果。
+type modelsReloadedMsg struct {
+	info    Info
+	notices []string
+}
+
+// modelsWatchCmd 约定下一次检查；检查本身（stat）在 Cmd 里做，不占 Update。
+func (m *Model) modelsWatchCmd() tea.Cmd {
+	check := m.opts.ModelsChanged
+	if check == nil || m.opts.ReloadModels == nil {
+		return nil
+	}
+	return tea.Tick(modelsInterval, func(time.Time) tea.Msg { return modelsTickMsg{check()} })
+}
+
+// startReload 在 Update 末尾调用：有待读取的改动且空闲时开始重新读取。
+// 读取会替换 agent，期间按切换模型处理（禁止发送、恢复、压缩、再切换），结束前排队的消息不会发出。
+func (m *Model) startReload() tea.Cmd {
+	if !m.reloadDue || m.busy() {
+		return nil
+	}
+	m.reloadDue = false
+	m.switching = true
+	reload := m.opts.ReloadModels
+	return func() tea.Msg {
+		info, notices := reload()
+		return modelsReloadedMsg{info, notices}
+	}
+}
+
+// onModelsReloaded 刷新信息栏并显示结果；模型选择器开着时换上新的列表。
+func (m *Model) onModelsReloaded(msg modelsReloadedMsg) {
+	m.switching = false
+	m.applyModelInfo(msg.info)
+	if m.picker != nil && m.opts.Models != nil {
+		m.picker.items = m.opts.Models.List()
+		m.picker.move(0) // 列表可能变短，把光标收回范围内
+	}
+	for _, n := range msg.notices {
+		m.add(&entry{kind: kindNotice, text: n})
+	}
 }
 
 // pickerKey 在选择器打开时处理按键，返回 true 表示已消费。
@@ -147,6 +207,10 @@ func (m *Model) pickerKey(k tea.KeyPressMsg) (handled bool, cmd tea.Cmd) {
 	case "down", "ctrl+n":
 		m.picker.move(1)
 	case "enter":
+		if m.switching { // 后台正在重新读取 models.jsonc：读完列表会刷新，再选
+			m.status = "正在重新读取 models.jsonc，请稍候"
+			return true, nil
+		}
 		idx, ok := m.picker.selected()
 		if !ok {
 			m.status = "没有匹配的模型"

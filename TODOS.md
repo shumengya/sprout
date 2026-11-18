@@ -118,6 +118,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [ ] **`sprout update` 的真实网络往返**：已对线上 `v2026.11.14` 发布实测过一次（`dev` 构建只报告最新版本）；旧版二进制没有 `update` 命令，“有新版本可用”这条分支和下载、校验、替换只有 `httptest` + 临时目录测试（试运行用替身），没有对真实发布完整替换过一次；Windows 的改名替换没在程序真正运行中验证过；Termux / macOS 产物的平台匹配没在真机上确认。
 - [ ] **`/mcp`、`/skills` 面板的真实终端操作**：只有模型级渲染与按键测试；`mcp.jsonc` / `skills.jsonc` 保留注释的写回用临时文件验证过，没有对用户手写的复杂配置做过大量实测。
 - [ ] **每轮统计行**：只有模型级测试，没在真实终端和真实模型上看过数字。
+- [ ] **`models.jsonc` 热加载**：只有临时目录里的单元测试（改文件后手动拨修改时间），没有在真实编辑器（VS Code、记事本、vim 的原子替换或先清空再写）下保存过。
 - [ ] **`/install-sprout` / `/uninstall-sprout` 的真实效果**：Windows 的流程用注册表替身和临时目录测试过，读取真实用户 / 系统 PATH 只做过只读演练，没有真正写过注册表、没有确认新开的终端能直接敲 `sprout`；Linux / macOS / Termux 的符号链接逻辑只用文件系统替身测试过，真实系统上没跑过。
 - [ ] `go test -race`：本机没有 gcc，未跑过。
 
@@ -160,7 +161,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] MCP 工具列表缓存：`<数据目录>/mcp-tools.json`，有效期取服务端的 `ttlMs`（缺省 10 分钟，`0` 表示不缓存），按连接目标指纹失效；`notifications/tools/list_changed` 收到后后台重新列工具，TUI 空闲时重建 agent。
 - [x] 技能正文的裁剪保护：`read` 读取 `SKILL.md` 的工具结果不参与旧输出裁剪（按历史里的调用参数判断，会话恢复重放结果一致）。
 - [x] 每轮回答结束后的统计行：回答下方一行淡色的 `耗时 · 首字 · token/s · 输入 · 输出 · 缓存 · 合计`，是这一轮主对话全部模型调用的合计（不含子代理）；恢复会话时只写 token（见 `docs/m1-implementation.md` §9）。
-- [ ] 配置热加载：改 `models.jsonc` 仍需重启才生效，`/model` 只列启动时读到的模型。
+- [x] 配置热加载（TUI）：`models.jsonc` 改完几秒内自动重新读取，`/model` 列表随之更新，当前模型的设置变了就在空闲时重建 agent、保留对话；写错时继续用旧配置并提示。`sprout run`、`sprout serve` 和缺 API Key 启动时仍要重启（见 `docs/m1-implementation.md` §5）。
 - [ ] 剪贴板取图（`Ctrl+V` 粘贴图片）、图片缩放与降采样：超过 3 MB 直接拒绝（见 `docs/m2-vision.md` §7）。
 - [ ] 交互式 CLI REPL；`sprout run` 不支持从 stdin 读提问。
 - [x] 思考程度调节：`/effort` 档位条与 `--effort`，档位由 `models.jsonc` 的 `effort` 按模型声明；四种协议按各自真实字段发送，Anthropic 思考块带签名原样回传（`docs/effort.md`）。

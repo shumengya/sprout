@@ -198,6 +198,8 @@ func runTUI(ap *app, resume string, stderr io.Writer) int {
 		}
 		// 面板改了开关后要重建注册表与 agent；没配置 MCP 服务端时 ApplyMCP 只刷展示，无害。
 		opts.ApplyMCP = ap.applyMCP
+		// models.jsonc 改了之后在空闲时重新读取；缺 API Key 启动的（没有 agent）仍要重启才生效。
+		opts.ModelsChanged, opts.ReloadModels = ap.modelsChanged, ap.reloadModels
 		if resume != "" {
 			if st, notice, err := ap.resume(resume); err != nil {
 				opts.Notices = append(opts.Notices, "恢复会话失败，已开启新会话："+err.Error())

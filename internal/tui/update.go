@@ -20,6 +20,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// MCP 连好时若正忙，推迟到任意一条消息处理完、状态回到空闲时再接入；
 	// 这样不必在每个“操作结束”的分支里各补一次。
 	m.applyMCP()
+	// models.jsonc 改过也一样：等空闲再重新读取，排队的消息会等它读完、用新配置发出。
+	if r := m.startReload(); r != nil {
+		cmd = tea.Batch(cmd, r)
+	}
 	// 队列同理：不管本轮是正常结束、出错还是被取消，回到空闲就在这里发出下一条。
 	if q := m.startQueued(); q != nil {
 		cmd = tea.Batch(cmd, q)
@@ -156,6 +160,17 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// 只置标记：真正的重建在 Update 末尾的空闲检查里做，生成中不会换掉工具。
 		m.mcpDone = m.opts.ApplyMCP != nil
 		return m, m.mcpChangedCmd()
+
+	case modelsTickMsg:
+		if msg.changed {
+			m.reloadDue = true // 同上，只置标记
+		}
+		return m, m.modelsWatchCmd()
+
+	case modelsReloadedMsg:
+		m.onModelsReloaded(msg)
+		m.refresh()
+		return m, nil
 
 	case askMsg:
 		m.onAsk(msg.a)
