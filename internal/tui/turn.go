@@ -40,7 +40,6 @@ func (m *Model) startTurn(in agent.Input) tea.Cmd {
 	m.turn++
 	turn := m.turn
 	m.started = m.now()
-	m.callStart = m.started
 	m.stats = turnStats{start: m.started}
 	m.busyStart()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -138,7 +137,6 @@ func (m *Model) onEvent(e event.Event) {
 			m.tools[e.ID] = t
 		}
 		t.running, t.fin = false, e
-		m.callStart = m.now() // 工具结束后模型才会发下一次请求，首字从这里重新计
 		if t.command == "" {
 			t.command = e.Command
 		}
@@ -203,14 +201,11 @@ func (m *Model) countUsage(e event.Usage) {
 	m.usage.CacheWrite += e.CacheWriteTokens
 }
 
-// markGen 记下本次模型调用第一次收到输出的时刻，输出速度和首字延迟从这里起算。
-// 一次调用只记一次：多个增量先后到达时，首字是第一个。
+// markGen 记下本次模型调用第一次收到输出的时刻，输出速度从这里起算；本轮的首字延迟也在这里记。
+// 一次调用只记一次：多个增量先后到达时，算第一个。
 func (m *Model) markGen() {
 	if m.genStart.IsZero() {
 		m.genStart = m.now()
-		if !m.callStart.IsZero() {
-			m.ttft = max(m.genStart.Sub(m.callStart), 0) // 时钟回拨时不写负数
-		}
 		m.stats.markFirst(m.genStart)
 	}
 }
@@ -232,7 +227,7 @@ func (m *Model) updateSpeed(output int) {
 
 // resetSpeed 在新会话、恢复会话时清掉输出速度；重放历史事件时时钟几乎不走，算出来的速度没有意义。
 func (m *Model) resetSpeed() {
-	m.speed, m.ttft, m.compactions = 0, 0, 0
+	m.speed, m.compactions = 0, 0
 	m.genStart, m.genEnd = time.Time{}, time.Time{}
 }
 

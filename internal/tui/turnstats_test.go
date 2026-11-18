@@ -23,7 +23,7 @@ func TestTurnStatsLineSumsAllCallsOfTheTurn(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 200, 40)
 	clock := m.now()
 	m.now = func() time.Time { return clock }
-	m.started, m.callStart, m.stats = clock, clock, turnStats{start: clock}
+	m.started, m.stats = clock, turnStats{start: clock}
 
 	// 第一次调用：1 秒后出首字，生成 2 秒。
 	clock = clock.Add(time.Second)

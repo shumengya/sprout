@@ -166,44 +166,23 @@ func TestEffortHidesItselfWithoutDataButSpeedKeepsItsPlace(t *testing.T) {
 	}
 }
 
-func TestFirstTokenLatencyIsShownNextToElapsed(t *testing.T) {
+// 首字延迟只在每轮的统计行里显示，状态栏的“耗时”不再重复。
+func TestElapsedDoesNotRepeatFirstTokenLatency(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 200, 24)
-	if line := infoText(m, 0); strings.Contains(line, "首字") {
-		t.Errorf("没回答过时不显示首字延迟: %q", line)
-	}
 	clock := m.now()
 	m.now = func() time.Time { return clock }
-	m.callStart = clock
+	m.started, m.stats = clock, turnStats{start: clock}
+	m.busyStart()
 	clock = clock.Add(1200 * time.Millisecond)
 	apply(m, event.MessageDelta{Text: "a"})
-	if line := infoText(m, 0); !strings.Contains(line, "首字 1.2s") {
-		t.Errorf("应显示从请求开始到首个增量的时间: %q", line)
+	apply(m, event.MessageCompleted{Content: "a"})
+	apply(m, event.Usage{InputTokens: 10, OutputTokens: 1})
+	apply(m, event.TurnFinished{Reason: event.ReasonStop})
+	if line := infoText(m, 0); strings.Contains(line, "首字") || !strings.Contains(line, "耗时 1s") {
+		t.Errorf("状态栏的耗时不应带首字: %q", line)
 	}
-	// 同一次调用的后续增量不能把首字改写。
-	clock = clock.Add(500 * time.Millisecond)
-	apply(m, event.MessageDelta{Text: "b"})
-	if line := infoText(m, 0); !strings.Contains(line, "首字 1.2s") || strings.Contains(line, "首字 1.7s") {
-		t.Errorf("首字延迟只记第一次: %q", line)
-	}
-}
-
-// 一轮里有工具往返时，后面几次调用的首字只算那次请求自己的等待，不含前面的调用和工具耗时。
-func TestFirstTokenLatencyRestartsAfterToolCall(t *testing.T) {
-	m := newSized(t, Options{Runner: scriptRunner()}, 200, 24)
-	clock := m.now()
-	m.now = func() time.Time { return clock }
-	m.started, m.callStart = clock, clock
-	clock = clock.Add(1 * time.Second)
-	apply(m, event.MessageDelta{Text: "a"})
-	apply(m, event.MessageCompleted{})
-	apply(m, event.Usage{})
-	apply(m, event.ToolRequested{Call: event.ToolCall{ID: "t1", Name: "bash"}})
-	clock = clock.Add(30 * time.Second) // 工具执行很久
-	apply(m, event.ToolFinished{ID: "t1", Name: "bash"})
-	clock = clock.Add(2 * time.Second)
-	apply(m, event.MessageDelta{Text: "b"})
-	if line := infoText(m, 0); !strings.Contains(line, "首字 2.0s") {
-		t.Errorf("第二次调用的首字应从工具结束起算: %q", line)
+	if lines := statsLines(m); len(lines) != 1 || !strings.Contains(lines[0], "首字 1.2s") {
+		t.Errorf("首字应在统计行里: %q", lines)
 	}
 }
 

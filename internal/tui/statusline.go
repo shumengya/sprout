@@ -189,17 +189,13 @@ func (m *Model) cpuSeg() (seg, bool) {
 	return seg{label: statusCPU, value: v}, true
 }
 
-// elapsedValue 是“耗时”一项：本会话累计的干活时间，后面跟上一次调用的首字延迟。
+// elapsedValue 是“耗时”一项：本会话累计的干活时间。首字延迟在每轮的统计行里，这里不重复。
 // 还没干过活时写占位符，而不是 0s。
 func (m *Model) elapsedValue() string {
-	if m.busyTotal == 0 && m.busySince.IsZero() && m.ttft == 0 {
+	if m.busyTotal == 0 && m.busySince.IsZero() {
 		return placeholder
 	}
-	v := fmtElapsed(m.elapsed())
-	if m.ttft > 0 {
-		v += " · 首字 " + fmtSeconds(m.ttft)
-	}
-	return v
+	return fmtElapsed(m.elapsed())
 }
 
 // speedValue 是“速度”一项：最近一次模型调用的输出速度；还没有可算的数据时写占位符，单位照写。
