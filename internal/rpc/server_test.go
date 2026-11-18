@@ -149,7 +149,8 @@ func (f *fakeBackend) SetEffort(name string) (string, error) {
 }
 
 // Compact 按 compact 决定行为：block 等到取消，empty 没有可压缩的，fail 摘要失败，其余成功。
-func (f *fakeBackend) Compact(ctx context.Context, focus string, sink event.Sink) error {
+// 成功时把收到的选项写进摘要，测试据此确认参数传到了后端。
+func (f *fakeBackend) Compact(ctx context.Context, opts agent.CompactOptions, sink event.Sink) error {
 	switch f.compact {
 	case "block":
 		<-ctx.Done()
@@ -160,7 +161,11 @@ func (f *fakeBackend) Compact(ctx context.Context, focus string, sink event.Sink
 		sink.Emit(event.Compacted{Mode: event.CompactSummary, Err: "模型超时", Manual: true})
 		return errors.New("模型超时")
 	}
-	sink.Emit(event.Compacted{Mode: event.CompactSummary, TokensBefore: 100, TokensAfter: 20, Dropped: 4, Summary: "摘要:" + focus, Manual: true})
+	summary := "摘要:" + opts.Focus
+	if opts.KeepLast {
+		summary += "（保留最近一轮）"
+	}
+	sink.Emit(event.Compacted{Mode: event.CompactSummary, TokensBefore: 100, TokensAfter: 20, Dropped: 4, Summary: summary, Manual: true})
 	return nil
 }
 
@@ -487,6 +492,10 @@ func TestCompactResults(t *testing.T) {
 	r := h.next()["result"].(map[string]any)
 	if r["tokensBefore"].(float64) != 100 || r["tokensAfter"].(float64) != 20 || r["dropped"].(float64) != 4 || r["summary"] != "摘要:接口" {
 		t.Fatalf("压缩结果不对: %v", r)
+	}
+	h.send(`{"jsonrpc":"2.0","id":3,"method":"session/compact","params":{"keepLast":true}}`)
+	if r := h.next()["result"].(map[string]any); r["summary"] != "摘要:（保留最近一轮）" {
+		t.Fatalf("keepLast 应传给后端: %v", r)
 	}
 	for _, c := range []struct {
 		mode string

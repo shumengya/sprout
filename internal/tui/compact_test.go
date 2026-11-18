@@ -22,11 +22,12 @@ type fakeCompactor struct {
 	boom   bool // 直接 panic
 	calls  int
 	focus  string
+	keep   bool
 }
 
-func (f *fakeCompactor) Compact(ctx context.Context, focus string, sink event.Sink) error {
+func (f *fakeCompactor) Compact(ctx context.Context, opts agent.CompactOptions, sink event.Sink) error {
 	f.calls++
-	f.focus = focus
+	f.focus, f.keep = opts.Focus, opts.KeepLast
 	if f.boom {
 		panic("压缩炸了")
 	}
@@ -135,9 +136,37 @@ func TestCompactPassesTheUserFocus(t *testing.T) {
 	m2 := compactModel(t, c2)
 	run, _ = startedCompact(t, m2, "/compact")
 	m2.Update(run())
-	if c2.calls != 1 || c2.focus != "" {
-		t.Errorf("不带说明时 focus 应为空: calls=%d focus=%q", c2.calls, c2.focus)
+	if c2.calls != 1 || c2.focus != "" || c2.keep {
+		t.Errorf("不带说明时 focus 应为空、不保留最近一轮: calls=%d focus=%q keep=%v", c2.calls, c2.focus, c2.keep)
 	}
+}
+
+func TestCompactKeepLastFlag(t *testing.T) {
+	for _, tc := range []struct {
+		in, focus string
+		keep      bool
+	}{
+		{"/compact -k", "", true},
+		{"/compact --keep-last  保留报错原文 ", "保留报错原文", true},
+		{"/compact 保留 -k 这个参数名", "保留 -k 这个参数名", false}, // 开关只认第一个词
+		{"/compact -kk", "-kk", false},
+	} {
+		c := &fakeCompactor{}
+		m := compactModel(t, c)
+		run, _ := startedCompact(t, m, tc.in)
+		m.Update(run())
+		if c.focus != tc.focus || c.keep != tc.keep {
+			t.Errorf("%q: focus=%q keep=%v，期望 %q %v", tc.in, c.focus, c.keep, tc.focus, tc.keep)
+		}
+	}
+}
+
+func TestCompactOnlyLastTurnExplainsWhy(t *testing.T) {
+	c := &fakeCompactor{err: agent.ErrOnlyLastTurn}
+	m := compactModel(t, c)
+	run, _ := startedCompact(t, m, "/compact -k")
+	m.Update(run())
+	mustContain(t, plain(m), "只有最近一轮对话", "去掉 -k")
 }
 
 func TestCompactBlocksOtherActionsWhileRunning(t *testing.T) {

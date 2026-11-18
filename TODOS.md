@@ -66,7 +66,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] `/mcp` 面板：替换输入框，列出全部 MCP 服务端与展开后的工具，空格开关、→ / ← 展开收起、`r` 重读配置并重连；开关直接写回 `mcp.jsonc`，保留注释与排版（`internal/tui/mcp.go`、`internal/agent/config/mcp_edit.go`）。
 - [x] `/skills` 面板：列出注册的技能与来源，空格 / Enter 开关单个技能，`a` 切换 `.agents` 自动加载，`r` 重新扫描并自动注册新技能；开关写回 `skills.jsonc`，保留注释（`internal/tui/skills.go`）。
 - [x] 技能手动触发：`/技能名 任务` 把技能正文直接交给模型；内置命令优先，名字不是技能时整段按普通提问发送；输入 `/` 的候选列表包含可触发的技能。设计见 `docs/skills.md`。
-- [x] `/compact [说明]` 手动压缩：把前面的全部对话总结成摘要（分层摘要，说明可以让摘要特别保留某些内容），压缩期间禁止发送与切换，Esc 取消；会话落盘后恢复得到同样的结果。设计见 `docs/m1-implementation.md` §15。
+- [x] `/compact [说明]` 手动压缩：把前面的全部对话总结成摘要（分层摘要，说明可以让摘要特别保留某些内容；`/compact -k` 保留最近一轮原文），压缩期间禁止发送与切换，Esc 取消；会话落盘后恢复得到同样的结果。设计见 `docs/m1-implementation.md` §15。
 - [x] 斜杠命令补全：输入 `/` 列出候选，Tab 填入、↑↓/Ctrl+P/N 选择、Esc 关闭；`/effort` 与 `/model` 的参数也参与补全。命令与快捷键说明见 `docs/斜杠命令.md`、`docs/快捷键.md`。
 - [x] `/model` 模型选择器：↑↓ 或直接输入过滤，Enter 切换；保留对话历史、清空旧模型思维链；生成中或恢复/切换中拒绝。
 - [x] 记住上次的模型与思考档位：`/model`、`/effort` 切换成功后写进数据目录的 `settings.jsonc`，下次启动沿用；优先级 `--effort` > 上次档位 > `models.jsonc` 默认值；记下的模型已不在配置里或记录损坏时退回默认并提示（`internal/agent/config/state.go`，见 `docs/effort.md`）。
@@ -143,7 +143,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 
 ### M1 范围内有意没做
 - [x] 会话树：所有分支存在同一个会话文件里（`branch` 记录），TUI `/tree` 树形面板切换或改问某一轮，RPC `session/tree` / `session/navigate`（见 `docs/session-format.md`「分支与会话树」）。
-- [x] 会话压缩的细化：按 token 精确裁剪、分层摘要、手动 `/compact` 均已完成。仍未做的细化：按工具类型区分裁剪策略（目前统一保留开头 200 字符）、手动压缩时保留最近一轮原文的选项。
+- [x] 会话压缩的细化：按 token 精确裁剪、分层摘要、手动 `/compact` 均已完成。按工具类型区分裁剪策略（策略版本 2：`read` 只留开头并提示可重读，`agent` 开头结尾多留，`mcp__*` 留开头，shell 与外部命令留开头和结尾；旧会话按版本 1 重放）与手动压缩保留最近一轮原文（`/compact -k`、RPC `keepLast`）也已完成，见 `docs/m1-implementation.md` §15。
 - [x] 按工具声明“是否可并行”：工具实现 `tool.Parallelizable` 声明，不可并行的调用独占执行（等前面的结束、执行时不启动别的）；`write`、`edit`、`delete` 声明为不可并行，其余默认可并行；`tools.jsonc` 的 `parallel` 可覆盖（见 `docs/tools.md`「并行」）。
 - [x] 模型选择器、运行中切换模型：`/model`。
 - [x] `花费`：单价来自 models.dev（`sprout models update` 下载到 `<数据目录>/models.dev.json`，启动时只读缓存、不联网）。每次用量到达时按当时模型的单价累加，切换模型不重算历史；`/new` 与恢复会话清零，恢复时按当前模型的价格重算重放出来的用量。没有价格时显示 `—`，一部分用量没价格时显示 `≥` 加金额。**已知限制**：只用基础价，忽略 models.dev 的分档价（`tiers`、`context_over_200k`）；价格没有和真实账单核对过。

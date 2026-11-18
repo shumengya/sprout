@@ -32,6 +32,7 @@ const helpText = `快捷键
   /new                开始新会话（清空对话区和上下文，旧会话可用 /resume 找回）
   /tree               打开会话树：所有分支都在同一个会话里，选中某一轮从那里继续（Enter）或改问那一轮（e）
   /compact            把前面的对话总结成摘要，腾出上下文；/compact 说明 可以告诉模型摘要要特别保留什么，压缩中 Esc 取消
+                      /compact -k [说明]（或 --keep-last）保留最近一轮原文，只压缩它之前的对话
   /image 路径          附加一张图片到下一条消息；/image 查看待发送的图片，/image clear 清空
                       消息里直接写现有图片文件的路径（png / jpeg / gif / webp）也会自动附上
   /resume             打开会话浏览器，可搜索、重命名、删除（按键提示在浏览器里）；/resume 选择器 直接恢复

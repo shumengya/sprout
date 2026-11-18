@@ -68,6 +68,7 @@ go vet ./...
 - OAuth 令牌只存 `mcp-auth.json`（0600、临时文件改名写入），不进日志、`mcp-versions.json` 或错误信息。登录的安全校验（S256、issuer / resource 一致、回调 state 与 Host、RFC 9207 `iss`、端点必须 https 或回环 http）都有测试，别为了兼容某家服务商放宽；回调里 state 不对的请求只回 400、不结束登录。
 - `mcp-versions.json` 只存目标指纹的 SHA-256，不存 URL 原文：URL / args 里可能有 `${VAR}` 展开出的令牌。缓存只能用来跳过 `server/discover` 试探，任何握手失败都必须能退回完整协商。
 - 技能的目录段是追加在系统提示词末尾的（`skills.AppendCatalog`），不要改成模板变量：用户的 `SYSTEMPROMPT.md` 可能是旧版本，没有那个变量的模板会让技能静默失效。
+- 改旧工具输出的裁剪规则（`internal/agent/context.go` 的 `policyFor`）必须把 `agent.PruneVersion` 加一，并让旧版本号仍走旧规则：`compact` 记录按自己的 `prune_version` 重放，版本不变就改规则，旧会话恢复出来的历史会和当初模型看到的不同。黄金对照测试（`session/golden_test.go`）的窗口大小是按当前策略调出来的，改策略后要重新确认前提断言。
 - `mcp.jsonc` 的模板（`config.MCPTemplate`）与仓库根的 `mcp.example.jsonc` 由测试保证一致，改一处要同步另一处。
 - 状态栏的项目名、内置行号和内置颜色都在 `internal/tui/statusline.go` 的 `statusDefs` 里，`statusItemOrder` 必须与它一一对应（测试保证）。加一项时这三处一起改，另外 `config.StatuslineTemplate` 与仓库根的 `statusline.example.jsonc` 也要同步；`statusline.jsonc` 的项目名是用户可见接口，不要改名。
 - `mcp.jsonc` 与 `skills.jsonc` 的开关由面板写回，必须走 `config` 包的 `editJSONC`（按字节偏移拼接，保留注释、BOM、缩进，写完重新校验，失败回滚）；不要读出结构体再整份 `json.Marshal` 写回，会丢掉用户的注释。唯一的例外是旧版 `{"disabled": [...]}` 的一次性迁移（`WriteSkills`）。

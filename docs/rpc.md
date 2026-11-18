@@ -31,7 +31,7 @@ sprout serve [--data-dir DIR] [-c | --resume ID] [--effort 档位]
 | `session/navigate` | `{turn}` | `{id, path, notice, turns, events}`：把当前会话的位置移到第 `turn` 轮之后（0 为会话开头），之后的提问从那里开出新分支 |
 | `session/rename` | `{path, name}` | `{}`：`name` 为空表示清除名字 |
 | `session/delete` | `{path}` | `{}`：不能删除当前会话 |
-| `session/compact` | `{focus?}` | `{tokensBefore, tokensAfter, dropped, summary}`：把全部历史总结成摘要 |
+| `session/compact` | `{focus?, keepLast?}` | `{tokensBefore, tokensAfter, dropped, summary}`：把历史总结成摘要；`keepLast` 为 true 时保留最近一轮原文 |
 | `model/list` | 无 | `{models: [{ref, provider, model, protocol, contextWindow, maxOutput, tools, vision, current}]}`，按 `ref` 排序 |
 | `model/switch` | `{ref}` | `{model, effort, notice}`：切换模型，对话历史带过去 |
 | `effort/list` | 无 | `{current, levels: [{name, detail}], unsupported?}` |
@@ -71,6 +71,7 @@ sprout serve [--data-dir DIR] [-c | --resume ID] [--effort 档位]
   `notice` 说明恢复情况（换了模型时丢弃了旧的思维链、会话属于别的目录等）。
 - `session/compact` 要调一次模型，**结束后**才写响应；期间算作忙碌（`turn/start`、`session/resume` 等返回 `-32001`），
   可用 `turn/cancel` 取消，取消后返回 `-32005`。压缩不是一轮对话，不推送 `event`。`focus` 是希望摘要侧重的内容。
+  `keepLast` 为 true 时只摘要最近一轮之前的对话，最近一轮（最后一条用户消息及之后）原样留在历史里，`dropped` 是被摘要替代的条数；只有一轮对话时返回 `-32006`。
 - `session/tree` 的 `nodes` 按 `turn` 升序；`parent` 为 0 表示接在会话开头，`current` 是下一次提问接在第几轮之后。`reply` 是该轮最后一段文字回复，压成一行并截断；`prompt` 是原文。当前会话还没有提问时返回 `-32003`。规则见 `docs/session-format.md`「分支与会话树」。
 - `session/navigate` 的 `turn` 必须显式给出（0 是合法值），缺少或为负数时返回 `-32602`；轮次不存在、当前会话还没有提问时返回 `-32003`。结果格式与 `session/resume` 相同，`events` 是新位置上重放出的历史。切换只在会话文件里追加一条 `branch` 记录，原来的分支仍可切回。要“改问”某一轮，切到它的 `parent` 再用新内容 `turn/start`。
 - `session/resume`、`session/navigate`、`session/compact` 在忙碌时返回 `-32001`，`session/tree` 随时可调；这几个方法在不可用时都返回 `-32002`；`session/list`、`rename`、`delete` 随时可调。
@@ -160,7 +161,7 @@ MCP 服务端可以在工具调用中途向用户要输入（elicitation）或�
 | `-32003` | 会话操作失败：找不到、选择器有歧义、不能删除当前会话、路径不在 `sessions/` 下等 |
 | `-32004` | 要切换的模型或思考档位不存在 |
 | `-32005` | 操作被 `turn/cancel` 取消（目前只有 `session/compact`） |
-| `-32006` | 压缩失败：没有可压缩的对话，或生成摘要失败；历史保持原样 |
+| `-32006` | 压缩失败：没有可压缩的对话（含 `keepLast` 时只有一轮），或生成摘要失败；历史保持原样 |
 
 ## 会话与 MCP
 

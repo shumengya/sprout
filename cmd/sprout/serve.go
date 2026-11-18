@@ -118,8 +118,8 @@ func (b *rpcBackend) DeleteSession(path string) error {
 }
 
 // Compact 同样每次取当前的 agent。
-func (b *rpcBackend) Compact(ctx context.Context, focus string, sink event.Sink) error {
-	return b.a.ag.Compact(ctx, focus, sink)
+func (b *rpcBackend) Compact(ctx context.Context, opts agent.CompactOptions, sink event.Sink) error {
+	return b.a.ag.Compact(ctx, opts, sink)
 }
 
 func (b *rpcBackend) ListModels() []rpc.ModelInfo {

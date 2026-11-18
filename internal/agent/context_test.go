@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -61,11 +60,11 @@ func TestPruneOnlyTouchesOldLargeToolOutputs(t *testing.T) {
 		{Role: RoleUser, Content: []Block{TextBlock("再来")}},
 		bigTool("c", 5000), // 在最近 keep 条里 → 不动
 	}
-	n := PruneToolOutputs(h, 2, 0)
+	n := PruneToolOutputs(h, 2, 0, PruneVersion)
 	if n != 1 {
 		t.Fatalf("应裁剪 1 条，实际 %d", n)
 	}
-	if len([]rune(h[2].Text())) >= 1000 || !strings.Contains(h[2].Text(), "旧输出已裁剪") || !strings.Contains(h[2].Text(), "5000") {
+	if len([]rune(h[2].Text())) >= 1000 || !isPruned(h[2].Text()) || !strings.Contains(h[2].Text(), "5000") {
 		t.Errorf("旧的大输出应被裁剪并注明原长度: %q", h[2].Text())
 	}
 	if h[3].Text() != strings.Repeat("x", 100) || len([]rune(h[6].Text())) != 5000 || len([]rune(h[0].Text())) != 2000 {
@@ -79,26 +78,26 @@ func TestPruneOnlyTouchesOldLargeToolOutputs(t *testing.T) {
 
 func TestPruneIsIdempotent(t *testing.T) {
 	h := []Message{bigTool("a", 5000), {Role: RoleUser, Content: []Block{TextBlock("q")}}, {Role: RoleUser, Content: []Block{TextBlock("q")}}}
-	if PruneToolOutputs(h, 2, 0) != 1 {
+	if PruneToolOutputs(h, 2, 0, PruneVersion) != 1 {
 		t.Fatal("第一次应裁剪")
 	}
 	once := h[0].Text()
-	if PruneToolOutputs(h, 2, 0) != 0 || h[0].Text() != once {
+	if PruneToolOutputs(h, 2, 0, PruneVersion) != 0 || h[0].Text() != once {
 		t.Fatal("重复裁剪不应再改动（也不能把标记当内容再裁一遍）")
 	}
 }
 
 func TestPruneKeepsChineseIntact(t *testing.T) {
 	h := []Message{{Role: RoleTool, Content: []Block{TextBlock(strings.Repeat("中", 3000))}}, {Role: RoleUser}, {Role: RoleUser}}
-	PruneToolOutputs(h, 2, 0)
-	if !strings.HasPrefix(h[0].Text(), strings.Repeat("中", pruneKeepChars)+"\n") {
+	PruneToolOutputs(h, 2, 0, PruneVersion)
+	if !strings.HasPrefix(h[0].Text(), strings.Repeat("中", policyFor(PruneVersion, "").head)+"\n") {
 		t.Error("应按字符而不是字节截断，不能切坏汉字")
 	}
 }
 
 func TestPruneWithShortHistoryIsNoop(t *testing.T) {
 	h := []Message{bigTool("a", 5000)}
-	if PruneToolOutputs(h, 6, 0) != 0 || len(h[0].Text()) != 5000 {
+	if PruneToolOutputs(h, 6, 0, PruneVersion) != 0 || len(h[0].Text()) != 5000 {
 		t.Error("历史比 keep 还短时不应裁剪")
 	}
 }
@@ -120,14 +119,14 @@ func threeBigTools() []Message {
 
 func TestPruneLimitCutsOnlyTheOldest(t *testing.T) {
 	h := threeBigTools()
-	if n := PruneToolOutputs(h, 2, 2); n != 2 {
+	if n := PruneToolOutputs(h, 2, 2, PruneVersion); n != 2 {
 		t.Fatalf("limit=2 应裁 2 条，实际 %d", n)
 	}
 	if got := prunedFlags(h); !got[0] || !got[1] || got[2] {
 		t.Fatalf("应只裁最旧的两条: %v", got)
 	}
 	// 再来一次不限条数：只剩没裁过的那一条。
-	if n := PruneToolOutputs(h, 2, 0); n != 1 || !prunedFlags(h)[2] {
+	if n := PruneToolOutputs(h, 2, 0, PruneVersion); n != 1 || !prunedFlags(h)[2] {
 		t.Fatalf("limit<=0 应裁掉剩下的全部: n=%d %v", n, prunedFlags(h))
 	}
 }
@@ -135,8 +134,8 @@ func TestPruneLimitCutsOnlyTheOldest(t *testing.T) {
 // 旧版本一次裁光所有候选，记录里的 Dropped 就是候选总数。重放时用它当 limit，结果必须与不限条数一致。
 func TestPruneLimitEqualToCandidatesMatchesUnlimited(t *testing.T) {
 	a, b := threeBigTools(), threeBigTools()
-	n := PruneToolOutputs(a, 2, 0)
-	PruneToolOutputs(b, 2, n)
+	n := PruneToolOutputs(a, 2, 0, PruneVersion)
+	PruneToolOutputs(b, 2, n, PruneVersion)
 	for i := range a {
 		if a[i].Text() != b[i].Text() {
 			t.Fatalf("第 %d 条不同:\n%q\n%q", i, a[i].Text(), b[i].Text())
@@ -144,10 +143,16 @@ func TestPruneLimitEqualToCandidatesMatchesUnlimited(t *testing.T) {
 	}
 }
 
+// prunedSaving 是按当前策略裁剪 m 一次估算省下的 token，不改动 m。
+func prunedSaving(m Message) int {
+	c := m
+	c.Content = append([]Block(nil), m.Content...)
+	return pruneOne(&c, policyFor(PruneVersion, ""))
+}
+
 func TestPruneTowardStopsOnceEnoughIsSaved(t *testing.T) {
 	h := threeBigTools()
-	perMsg := estimateMessage(h[0]) - estimateMessage(Message{Role: RoleTool,
-		Content: []Block{TextBlock(strings.Repeat("x", pruneKeepChars) + "\n" + fmt.Sprintf(pruneMarker, 3000))}})
+	perMsg := prunedSaving(h[0])
 	if perMsg <= 0 {
 		t.Fatalf("前提不成立：裁剪应省下 token，每条 %d", perMsg)
 	}
@@ -172,8 +177,7 @@ func TestPruneTowardStopsOnceEnoughIsSaved(t *testing.T) {
 func TestPruneTowardSplitsSavingsAtTheCalibrationPoint(t *testing.T) {
 	// 校准点之内的那部分省下的 token 要单独报告：服务端的真实用量只对应校准点之前的消息。
 	h := threeBigTools()
-	perMsg := estimateMessage(h[0]) - estimateMessage(Message{Role: RoleTool,
-		Content: []Block{TextBlock(strings.Repeat("x", pruneKeepChars) + "\n" + fmt.Sprintf(pruneMarker, 3000))}})
+	perMsg := prunedSaving(h[0])
 	n, saved, inCalib := pruneToward(h, 2, 1<<30, 2) // 校准点在第 2 条之后：a、b 在内，c 在外
 	if n != 3 || saved != 3*perMsg || inCalib != 2*perMsg {
 		t.Fatalf("n=%d saved=%d inCalib=%d，期望 3 / %d / %d", n, saved, inCalib, 3*perMsg, 2*perMsg)

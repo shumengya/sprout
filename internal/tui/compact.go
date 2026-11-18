@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -15,10 +16,25 @@ import (
 // Compactor 让 TUI 手动压缩上下文（/compact），由 main 提供实现。*agent.Agent 的 Compact 满足它的语义，
 // 但 main 要包一层：/model 切换会替换 agent，这里必须每次取当前的。
 type Compactor interface {
-	// Compact 把当前全部对话总结成摘要。focus 是用户对摘要的额外要求，可为空。
+	// Compact 把对话总结成摘要。opts.Focus 是用户对摘要的额外要求，可为空；opts.KeepLast 保留最近一轮原文。
 	// 它会阻塞到模型返回，所以 TUI 在 tea.Cmd 里调用，并用 ctx 支持 Ctrl+C 取消。
-	// 过程中的事件（压缩结果、重试提示）发给 sink；没有对话可压时返回 agent.ErrNothingToCompact。
-	Compact(ctx context.Context, focus string, sink event.Sink) error
+	// 过程中的事件（压缩结果、重试提示）发给 sink；没有对话可压时返回 agent.ErrNothingToCompact，
+	// 保留最近一轮而之前没有对话时返回 agent.ErrOnlyLastTurn。
+	Compact(ctx context.Context, opts agent.CompactOptions, sink event.Sink) error
+}
+
+// keepLastFlags 是 /compact 表示“保留最近一轮原文”的开关，写在说明前面：/compact -k 保留报错原文。
+var keepLastFlags = []string{"-k", "--keep-last"}
+
+// parseCompactArg 把 /compact 的参数拆成选项：开头是 keepLastFlags 之一时保留最近一轮，其余是对摘要的要求。
+// 开关只认第一个词，说明里出现的 -k 照原样交给模型。
+func parseCompactArg(arg string) agent.CompactOptions {
+	arg = strings.TrimSpace(arg)
+	first, rest, _ := strings.Cut(arg, " ")
+	if slices.Contains(keepLastFlags, first) {
+		return agent.CompactOptions{Focus: strings.TrimSpace(rest), KeepLast: true}
+	}
+	return agent.CompactOptions{Focus: arg}
 }
 
 // compactDoneMsg 是手动压缩结束后发回 Update 的消息。
@@ -32,7 +48,7 @@ type eventLog struct{ events []event.Event }
 
 func (l *eventLog) Emit(e event.Event) { l.events = append(l.events, e) }
 
-// compactCmd 处理 /compact。arg 是用户给的额外要求（可为空）。
+// compactCmd 处理 /compact。arg 是开关加用户给的额外要求（都可为空），见 parseCompactArg。
 func (m *Model) compactCmd(arg string) tea.Cmd {
 	switch {
 	case m.opts.Compactor == nil:
@@ -40,14 +56,14 @@ func (m *Model) compactCmd(arg string) tea.Cmd {
 	case m.running || m.resuming || m.switching || m.compacting:
 		m.status = "正在生成、恢复、切换模型或压缩中，暂时不能压缩上下文"
 	default:
-		return m.startCompact(arg)
+		return m.startCompact(parseCompactArg(arg))
 	}
 	return nil
 }
 
 // startCompact 在 Update 里调用：这里只准备状态，不做 IO，实际的模型调用放在返回的 Cmd 里。
 // 压缩期间禁止发送和切换，避免新提问落进一个正在被改写的历史；Ctrl+C 可以取消。
-func (m *Model) startCompact(focus string) tea.Cmd {
+func (m *Model) startCompact(opts agent.CompactOptions) tea.Cmd {
 	m.compacting = true
 	m.started = m.now()
 	m.busyStart()
@@ -66,7 +82,7 @@ func (m *Model) startCompact(focus string) tea.Cmd {
 				msg = compactDoneMsg{events: log.events, err: fmt.Errorf("内部错误: %v", r)}
 			}
 		}()
-		err := src.Compact(ctx, strings.TrimSpace(focus), log)
+		err := src.Compact(ctx, opts, log)
 		return compactDoneMsg{events: log.events, err: err}
 	}
 	return tea.Batch(run, m.sp.Tick)
@@ -92,6 +108,8 @@ func (m *Model) onCompactDone(msg compactDoneMsg) {
 	case msg.err == nil:
 	case errors.Is(msg.err, agent.ErrNothingToCompact):
 		m.add(&entry{kind: kindNotice, text: "还没有可压缩的对话。"})
+	case errors.Is(msg.err, agent.ErrOnlyLastTurn):
+		m.add(&entry{kind: kindNotice, text: "只有最近一轮对话，保留它就没有可压缩的内容了；去掉 -k 可以把它也压进摘要。"})
 	case errors.Is(msg.err, context.Canceled):
 		m.add(&entry{kind: kindNotice, text: "已取消压缩，对话保持原样。"})
 	case !shown: // 摘要失败时内核已经发了带 Err 的压缩事件，那条提示就够了，别再重复一遍

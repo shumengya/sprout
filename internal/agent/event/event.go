@@ -169,8 +169,10 @@ type Compacted struct {
 	Summary      string // summary：压缩后的完整摘要文本（会话记录保存它，恢复时用）
 	Err          string // 非空表示摘要失败，历史未改动，本轮照常继续
 	// Manual 为 true 表示由用户主动触发（/compact），而不是接近窗口时自动压缩。
-	// 手动压缩发生在两轮之间，把全部历史换成摘要；界面据此换一套措辞。
+	// 手动压缩发生在两轮之间，把全部历史（或最近一轮之前的部分）换成摘要；界面据此换一套措辞。
 	Manual bool
+	// PruneVersion 是 prune 用的裁剪策略版本（agent.PruneVersion），会话恢复时按它重放；0 表示旧会话的版本 1。
+	PruneVersion int
 }
 
 // 压缩的种类。

@@ -39,8 +39,8 @@ type Backend interface {
 	NavigateSession(turn int) (Restored, error)
 	RenameSession(path, name string) error
 	DeleteSession(path string) error
-	// Compact 把全部历史总结成摘要。和 Run 一样在后台调用，可被取消。
-	Compact(ctx context.Context, focus string, sink event.Sink) error
+	// Compact 把历史总结成摘要（opts.KeepLast 时保留最近一轮原文）。和 Run 一样在后台调用，可被取消。
+	Compact(ctx context.Context, opts agent.CompactOptions, sink event.Sink) error
 	ListModels() []ModelInfo
 	// SwitchModel 切换到 ref（provider/model），对话历史带过去，返回给用户看的说明。
 	// 模型不存在时返回 NotFoundError；失败时保持原模型。

@@ -91,7 +91,7 @@ func TestNativeKeptInHistoryAndEvent(t *testing.T) {
 // 裁剪工具输出改了历史中段：之后的思考块都对不上前缀，必须全部丢掉，否则服务端会拒绝。
 func TestPruneDropsNative(t *testing.T) {
 	native := &Native{Protocol: "anthropic-messages", Model: "m", Data: json.RawMessage(`[]`)}
-	long := make([]rune, pruneMinChars+10)
+	long := make([]rune, policyFor(PruneVersion, "").minChars()+10)
 	for i := range long {
 		long[i] = 'x'
 	}
@@ -99,11 +99,11 @@ func TestPruneDropsNative(t *testing.T) {
 		{Role: RoleTool, Content: []Block{TextBlock(string(long))}},
 		{Role: RoleAssistant, Content: []Block{TextBlock("a")}, Reasoning: "r", Native: native},
 	}
-	if PruneToolOutputs(h, 0, 0) != 1 || h[1].Native != nil || h[1].Reasoning != "r" {
+	if PruneToolOutputs(h, 0, 0, PruneVersion) != 1 || h[1].Native != nil || h[1].Reasoning != "r" {
 		t.Fatalf("裁剪后应清掉 Native、保留思维链文本: %+v", h[1])
 	}
 	h[1].Native = native
-	if PruneToolOutputs(h, 0, 0) != 0 || h[1].Native == nil {
+	if PruneToolOutputs(h, 0, 0, PruneVersion) != 0 || h[1].Native == nil {
 		t.Error("没有裁剪时不应动 Native")
 	}
 }

@@ -72,6 +72,7 @@ type rawRec struct {
 	Dropped      int    `json:"dropped"`
 	Summary      string `json:"summary"`
 	Manual       bool   `json:"manual"`
+	PruneVersion int    `json:"prune_version"`
 
 	Message   string `json:"message"`
 	Retryable bool   `json:"retryable"`

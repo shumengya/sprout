@@ -142,7 +142,8 @@ func (s *Server) deleteSession(params json.RawMessage) (any, func(), *Error) {
 // 压缩不是一轮对话，不推送 event；结果直接放在响应里。
 func (s *Server) compact(id json.RawMessage, params json.RawMessage) (any, func(), *Error) {
 	var p struct {
-		Focus string `json:"focus"`
+		Focus    string `json:"focus"`
+		KeepLast bool   `json:"keepLast"`
 	}
 	if err := decodeParams(params, &p); err != nil {
 		return nil, nil, err
@@ -162,7 +163,7 @@ func (s *Server) compact(id json.RawMessage, params json.RawMessage) (any, func(
 				got = &c
 			}
 		})
-		err := s.b.Compact(ctx, strings.TrimSpace(p.Focus), sink)
+		err := s.b.Compact(ctx, agent.CompactOptions{Focus: strings.TrimSpace(p.Focus), KeepLast: p.KeepLast}, sink)
 		var result any
 		var rerr *Error
 		switch {
@@ -173,7 +174,7 @@ func (s *Server) compact(id json.RawMessage, params json.RawMessage) (any, func(
 			}
 		case ctx.Err() != nil:
 			rerr = errorf(CodeCancelled, "压缩已取消，历史保持原样")
-		case errors.Is(err, agent.ErrNothingToCompact):
+		case errors.Is(err, agent.ErrNothingToCompact), errors.Is(err, agent.ErrOnlyLastTurn):
 			rerr = errorf(CodeCompactFailed, "%v", err)
 		case err != nil:
 			rerr = errorf(CodeCompactFailed, "生成摘要失败，历史保持原样: %v", err)

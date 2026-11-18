@@ -3,7 +3,10 @@ package session
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -61,7 +64,7 @@ func TestReplayReproducesLiveHistoryExactly(t *testing.T) {
 	}}
 	huge := funcTool{name: "huge", run: func(context.Context) (tool.Result, error) {
 		// 单独不超预算，但后面的短轮次会把它推到“最近 6 条”之外，那时它就成了裁剪的对象。
-		return tool.Result{Command: "huge", Stdout: strings.Repeat("大", 900)}, nil
+		return tool.Result{Command: "huge", Stdout: strings.Repeat("大", 2400)}, nil
 	}}
 
 	prov := funcProvider(func(req agent.Request) agent.Response {
@@ -83,9 +86,9 @@ func TestReplayReproducesLiveHistoryExactly(t *testing.T) {
 	dir := t.TempDir()
 	rec := NewRecorder(dir, Info{Provider: "p", Model: "m", Cwd: `D:\proj`, Tools: []string{"a", "b", "huge"}}, nil)
 	// 窗口要让这段对话先触发裁剪、再触发摘要。内容几乎全是汉字，窗口大小随汉字的估算系数变；
-	// 系数是 0.7 时 1500–2100 都成立，取中间值留余量。
+	// 系数是 0.7、裁剪策略版本 2 时 2800–4000 都成立，取中间值留余量。
 	ag, err := agent.New(agent.Config{
-		Provider: prov, Model: "m", System: "SYS", Recorder: &signalSink{rec: rec, id: "cb", done: bRecorded}, ContextWindow: 1800,
+		Provider: prov, Model: "m", System: "SYS", Recorder: &signalSink{rec: rec, id: "cb", done: bRecorded}, ContextWindow: 3400,
 		Tools: registryOf(t, slowA, fastB, huge), Retry: &agent.RetryPolicy{},
 	})
 	if err != nil {
@@ -94,7 +97,7 @@ func TestReplayReproducesLiveHistoryExactly(t *testing.T) {
 
 	var ev kinds
 	questions := []string{"你好", "并行", "大输出"}
-	for i := 1; i <= 24; i++ { // 先累积到越过预算触发裁剪，再继续累积触发摘要
+	for i := 1; i <= 40; i++ { // 先累积到越过预算触发裁剪，再继续累积触发摘要
 		questions = append(questions, fmt.Sprintf("继续聊 %d", i))
 	}
 	for _, q := range questions {
@@ -163,13 +166,13 @@ func TestReplayReappliesPartialPruneExactly(t *testing.T) {
 		return answer("好的：" + strings.Repeat("字", 30))
 	})
 	huge := funcTool{name: "huge", run: func(context.Context) (tool.Result, error) {
-		return tool.Result{Command: "huge", Stdout: strings.Repeat("大", 900)}, nil
+		return tool.Result{Command: "huge", Stdout: strings.Repeat("大", 2400)}, nil
 	}}
 	dir := t.TempDir()
 	rec := NewRecorder(dir, Info{Provider: "p", Model: "m", Cwd: `D:\proj3`}, nil)
-	// 窗口要让三个大输出都攒下来之后才越线，且越线时裁掉最旧的一两个就够。
+	// 窗口要让三个大输出都攒下来之后才越线，且越线时裁掉最旧的一两个就够（策略版本 2 时 5200–6900 都成立）。
 	ag, err := agent.New(agent.Config{
-		Provider: prov, Model: "m", Recorder: rec, ContextWindow: 2800,
+		Provider: prov, Model: "m", Recorder: rec, ContextWindow: 6000,
 		Tools: registryOf(t, huge), Retry: &agent.RetryPolicy{},
 	})
 	if err != nil {
@@ -200,7 +203,7 @@ func TestReplayReappliesPartialPruneExactly(t *testing.T) {
 	for _, m := range ag.History() {
 		switch {
 		case m.Role != agent.RoleTool:
-		case strings.Contains(m.Text(), "旧输出已裁剪"):
+		case strings.Contains(m.Text(), "已裁剪以节省上下文"):
 			pruned++
 		case len([]rune(m.Text())) > 600:
 			kept++
@@ -296,7 +299,7 @@ func TestReplayReproducesManualCompactExactly(t *testing.T) {
 	}
 	run("第一个问题")
 	run("第二个问题")
-	if err := ag.Compact(context.Background(), "", &ev); err != nil {
+	if err := ag.Compact(context.Background(), agent.CompactOptions{}, &ev); err != nil {
 		t.Fatal(err)
 	}
 	run("压缩之后的问题") // 压缩后接着聊，历史里只剩这一轮
@@ -339,6 +342,78 @@ func TestReplayReproducesManualCompactExactly(t *testing.T) {
 	}
 }
 
+// 保留最近一轮的手动压缩（/compact -k）：记录里的 dropped 是被摘要替代的条数，重放丢掉同样多条，
+// 留下的最近一轮原文与运行时一致。
+func TestReplayReproducesKeepLastManualCompactExactly(t *testing.T) {
+	prov := funcProvider(func(req agent.Request) agent.Response {
+		if isSummaryRequest(req) {
+			return answer("前面的摘要")
+		}
+		return answer("好的：" + strings.Repeat("字", 20))
+	})
+	dir := t.TempDir()
+	rec := NewRecorder(dir, Info{Provider: "p", Model: "m", Cwd: `D:\proj7`}, nil)
+	ag, err := agent.New(agent.Config{Provider: prov, Model: "m", Recorder: rec, Retry: &agent.RetryPolicy{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{"第一个问题", "第二个问题", "第三个问题"} {
+		if err := ag.Run(context.Background(), agent.Input{Text: q}, &kinds{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := ag.Compact(context.Background(), agent.CompactOptions{KeepLast: true}, &kinds{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ag.Run(context.Background(), agent.Input{Text: "压缩之后的问题"}, &kinds{}); err != nil {
+		t.Fatal(err)
+	}
+	rec.Close()
+
+	st, err := Load(rec.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(st.History, ag.History()) || st.Summary != ag.Summary() {
+		t.Fatalf("重放不一致：\n重放:   %+v %q\n运行时: %+v %q", st.History, st.Summary, ag.History(), ag.Summary())
+	}
+	if len(st.History) != 4 || st.History[0].Text() != "第三个问题" || st.History[2].Text() != "压缩之后的问题" {
+		t.Errorf("应保留压缩前的最后一轮和之后的新一轮: %+v", st.History)
+	}
+}
+
+// 旧版本写下的 prune 记录没有 prune_version：重放要按版本 1 的统一策略（只留开头 200 字符）裁，
+// 不能套用现在按工具区分的策略，否则恢复出来的历史和当初模型看到的不一样。
+func TestReplayLegacyPruneRecordUsesTheOldRule(t *testing.T) {
+	out := strings.Repeat("行\n", 500)
+	path := filepath.Join(t.TempDir(), "legacy.jsonl")
+	lines := []string{
+		`{"type":"session","id":"s1","provider":"p","model":"m","cwd":"D:\\old"}`,
+		`{"type":"user","content":"跑一下"}`,
+		`{"type":"assistant","tool_calls":[{"id":"c1","name":"bash","arguments":"{}"}]}`,
+		`{"type":"tool","tool_call_id":"c1","name":"bash","content":` + strconv.Quote(out) + `}`,
+		`{"type":"assistant","content":"跑完了"}`,
+		`{"type":"turn","reason":"stop"}`,
+	}
+	for i := 1; i <= 4; i++ { // 把工具输出挤出“最近 6 条”
+		lines = append(lines, fmt.Sprintf(`{"type":"user","content":"问 %d"}`, i),
+			fmt.Sprintf(`{"type":"assistant","content":"答 %d"}`, i), `{"type":"turn","reason":"stop"}`)
+	}
+	lines = append(lines, `{"type":"compact","mode":"prune","tokens_before":900,"tokens_after":300,"dropped":1}`)
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := string([]rune(out)[:200]) + "\n" + fmt.Sprintf("…[旧输出已裁剪以节省上下文，原文共 %d 字符]", len([]rune(out)))
+	if got := st.History[2].Text(); got != want {
+		t.Errorf("旧记录应按版本 1 重放:\n%q\n%q", got, want)
+	}
+}
+
 // 手动压缩失败（摘要请求出错）：历史不动，但失败要记下来，恢复会话时界面还能看到当时发生过什么。
 func TestReplayKeepsFailedManualCompactAsANoticeOnly(t *testing.T) {
 	failing := false
@@ -359,7 +434,7 @@ func TestReplayKeepsFailedManualCompactAsANoticeOnly(t *testing.T) {
 	if err := ag.Run(context.Background(), agent.Input{Text: "问题"}, &ev); err != nil {
 		t.Fatal(err)
 	}
-	if err := ag.Compact(context.Background(), "", &ev); err == nil {
+	if err := ag.Compact(context.Background(), agent.CompactOptions{}, &ev); err == nil {
 		t.Fatal("空摘要应当失败")
 	}
 	rec.Close()
@@ -396,13 +471,13 @@ func TestReplayReappliesPruneExactly(t *testing.T) {
 		return answer("好的：" + strings.Repeat("字", 30))
 	})
 	huge := funcTool{name: "huge", run: func(context.Context) (tool.Result, error) {
-		return tool.Result{Command: "huge", Stdout: strings.Repeat("大", 900)}, nil
+		return tool.Result{Command: "huge", Stdout: strings.Repeat("大", 2400)}, nil
 	}}
 	dir := t.TempDir()
 	rec := NewRecorder(dir, Info{Provider: "p", Model: "m", Cwd: `D:\proj2`}, nil)
-	// 窗口要让大输出被裁剪、但还不到要做摘要的程度。汉字估算系数是 0.7 时 1100–1600 都成立，取中间值。
+	// 窗口要让大输出被裁剪、但还不到要做摘要的程度。汉字估算系数是 0.7、裁剪策略版本 2 时 2300–2900 都成立，取中间值。
 	ag, err := agent.New(agent.Config{
-		Provider: prov, Model: "m", Recorder: rec, ContextWindow: 1400,
+		Provider: prov, Model: "m", Recorder: rec, ContextWindow: 2600,
 		Tools: registryOf(t, huge), Retry: &agent.RetryPolicy{},
 	})
 	if err != nil {
@@ -431,7 +506,7 @@ func TestReplayReappliesPruneExactly(t *testing.T) {
 	}
 	pruned := 0
 	for _, m := range ag.History() {
-		if m.Role == agent.RoleTool && strings.Contains(m.Text(), "旧输出已裁剪") {
+		if m.Role == agent.RoleTool && strings.Contains(m.Text(), "已裁剪以节省上下文") {
 			pruned++
 		}
 	}

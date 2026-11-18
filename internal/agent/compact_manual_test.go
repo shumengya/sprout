@@ -25,7 +25,7 @@ func TestManualCompactSummarizesTheWholeHistory(t *testing.T) {
 	a := compactAgent(t, p, 0, h) // 窗口未知：手动压缩不依赖窗口
 	var c collector
 
-	if err := a.Compact(context.Background(), "", &c); err != nil {
+	if err := a.Compact(context.Background(), CompactOptions{}, &c); err != nil {
 		t.Fatal(err)
 	}
 	if len(p.reqs) != 1 || !isSummaryReq(p.reqs[0]) || len(p.reqs[0].Tools) != 0 {
@@ -59,7 +59,7 @@ func TestManualCompactSummarizesTheWholeHistory(t *testing.T) {
 func TestManualCompactFocusSteersTheSummaryPrompt(t *testing.T) {
 	p := &scripted{steps: []scriptStep{say("摘要"), say("摘要2")}}
 	a := compactAgent(t, p, 0, textTurns(2, 20))
-	if err := a.Compact(context.Background(), "  保留所有文件路径  ", &collector{}); err != nil {
+	if err := a.Compact(context.Background(), CompactOptions{Focus: "  保留所有文件路径  "}, &collector{}); err != nil {
 		t.Fatal(err)
 	}
 	sys := p.reqs[0].System
@@ -69,7 +69,7 @@ func TestManualCompactFocusSteersTheSummaryPrompt(t *testing.T) {
 
 	// 说明过长要截断，免得把系统提示词撑大。
 	a.Restore(textTurns(2, 20), "")
-	if err := a.Compact(context.Background(), strings.Repeat("长", maxFocusRunes*3), &collector{}); err != nil {
+	if err := a.Compact(context.Background(), CompactOptions{Focus: strings.Repeat("长", maxFocusRunes*3)}, &collector{}); err != nil {
 		t.Fatal(err)
 	}
 	if n := len([]rune(p.reqs[1].System)); n > len([]rune(summarySystemPrompt))+maxFocusRunes+200 {
@@ -80,7 +80,7 @@ func TestManualCompactFocusSteersTheSummaryPrompt(t *testing.T) {
 func TestManualCompactWithoutFocusUsesTheDefaultPromptUnchanged(t *testing.T) {
 	p := &scripted{steps: []scriptStep{say("摘要")}}
 	a := compactAgent(t, p, 0, textTurns(2, 20))
-	if err := a.Compact(context.Background(), "   ", &collector{}); err != nil {
+	if err := a.Compact(context.Background(), CompactOptions{Focus: "   "}, &collector{}); err != nil {
 		t.Fatal(err)
 	}
 	if !isSummaryReq(p.reqs[0]) {
@@ -92,7 +92,7 @@ func TestManualCompactWithEmptyHistoryIsRejected(t *testing.T) {
 	p := &scripted{}
 	a := compactAgent(t, p, 0, nil)
 	var c collector
-	if err := a.Compact(context.Background(), "", &c); !errors.Is(err, ErrNothingToCompact) {
+	if err := a.Compact(context.Background(), CompactOptions{}, &c); !errors.Is(err, ErrNothingToCompact) {
 		t.Fatalf("err = %v，期望 ErrNothingToCompact", err)
 	}
 	if len(p.reqs) != 0 || len(c.events) != 0 {
@@ -101,7 +101,7 @@ func TestManualCompactWithEmptyHistoryIsRejected(t *testing.T) {
 
 	// 只有摘要、没有新对话：同样没东西可压，别把摘要再压一遍。
 	a.Restore(nil, "旧摘要")
-	if err := a.Compact(context.Background(), "", &c); !errors.Is(err, ErrNothingToCompact) || a.Summary() != "旧摘要" || len(p.reqs) != 0 {
+	if err := a.Compact(context.Background(), CompactOptions{}, &c); !errors.Is(err, ErrNothingToCompact) || a.Summary() != "旧摘要" || len(p.reqs) != 0 {
 		t.Errorf("只有摘要时应拒绝: err=%v summary=%q 请求 %d 次", err, a.Summary(), len(p.reqs))
 	}
 }
@@ -113,7 +113,7 @@ func TestManualCompactFailureKeepsEverythingAndReportsIt(t *testing.T) {
 	a.Restore(h, "已有摘要")
 	var c collector
 
-	err := a.Compact(context.Background(), "", &c)
+	err := a.Compact(context.Background(), CompactOptions{}, &c)
 	if err == nil || !strings.Contains(err.Error(), "摘要请求失败") {
 		t.Fatalf("应返回摘要失败的错误: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestManualCompactCancelledIsSilentAndChangesNothing(t *testing.T) {
 	a.Restore(h, "已有摘要")
 	var c collector
 
-	if err := a.Compact(ctx, "", &c); !errors.Is(err, context.Canceled) {
+	if err := a.Compact(ctx, CompactOptions{}, &c); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v，期望 context.Canceled", err)
 	}
 	if len(c.events) != 0 {
@@ -152,7 +152,7 @@ func TestManualCompactAppendsALayerToTheExistingSummary(t *testing.T) {
 	p := &scripted{steps: []scriptStep{say("新一层")}}
 	a := compactAgent(t, p, 0, textTurns(2, 30))
 	a.Restore(textTurns(2, 30), "旧摘要")
-	if err := a.Compact(context.Background(), "", &collector{}); err != nil {
+	if err := a.Compact(context.Background(), CompactOptions{}, &collector{}); err != nil {
 		t.Fatal(err)
 	}
 	if want := joinSummary([]string{"旧摘要", "新一层"}); a.Summary() != want {
@@ -168,7 +168,7 @@ func TestManualCompactResetsCalibration(t *testing.T) {
 	p := &scripted{steps: []scriptStep{say("摘要")}}
 	a := compactAgent(t, p, 0, textTurns(2, 30))
 	a.calibTokens, a.calibLen = 5000, 4
-	if err := a.Compact(context.Background(), "", &collector{}); err != nil {
+	if err := a.Compact(context.Background(), CompactOptions{}, &collector{}); err != nil {
 		t.Fatal(err)
 	}
 	if a.calibLen != 0 || a.calibTokens != 0 {
@@ -182,10 +182,67 @@ func TestManualCompactGoesToTheRecorderToo(t *testing.T) {
 	p := &scripted{steps: []scriptStep{say("摘要")}}
 	a := newAgentCfg(t, Config{Provider: p, Recorder: &rec, Retry: &RetryPolicy{}})
 	a.Restore(textTurns(2, 30), "")
-	if err := a.Compact(context.Background(), "", nil); err != nil { // sink 为 nil 也要能用
+	if err := a.Compact(context.Background(), CompactOptions{}, nil); err != nil { // sink 为 nil 也要能用
 		t.Fatal(err)
 	}
 	if evs := compactedEvents(&rec); len(evs) != 1 || !evs[0].Manual {
 		t.Errorf("Recorder 应收到手动压缩事件: %+v", evs)
+	}
+}
+
+func TestManualCompactKeepLastKeepsTheLatestTurnVerbatim(t *testing.T) {
+	p := &scripted{steps: []scriptStep{say("前几轮的摘要"), say("接着聊的回答")}}
+	h := textTurns(3, 50)
+	last := []Message{
+		{Role: RoleUser, Content: []Block{TextBlock("最近一轮的提问")}},
+		{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "c1", Name: "bash", Arguments: `{"command":"ls"}`}},
+			Native: &Native{Protocol: "anthropic-messages", Model: "m", Data: []byte(`[]`)}},
+		{Role: RoleTool, ToolID: "c1", Content: []Block{TextBlock("最近一轮的工具输出")}},
+		{Role: RoleAssistant, Content: []Block{TextBlock("最近一轮的回答")}},
+	}
+	a := compactAgent(t, p, 0, append(h, last...))
+	var c collector
+
+	if err := a.Compact(context.Background(), CompactOptions{KeepLast: true}, &c); err != nil {
+		t.Fatal(err)
+	}
+	req := p.reqs[0].Messages[0].Text()
+	if !strings.Contains(req, "问问问") || strings.Contains(req, "最近一轮") {
+		t.Errorf("摘要请求应只含最近一轮之前的对话: %.200q", req)
+	}
+	got := a.History()
+	if len(got) != len(last) || got[0].Text() != "最近一轮的提问" || got[2].Text() != "最近一轮的工具输出" || got[3].Text() != "最近一轮的回答" {
+		t.Fatalf("应原样保留最近一轮: %d 条 %+v", len(got), got)
+	}
+	if got[1].Native != nil {
+		t.Error("保留下来的消息前面换成了摘要，原始思考块对不上前缀，应丢掉")
+	}
+	if a.Summary() != "前几轮的摘要" {
+		t.Errorf("摘要 = %q", a.Summary())
+	}
+	evs := manualEvents(&c)
+	if len(evs) != 1 || evs[0].Dropped != len(h) || evs[0].Err != "" {
+		t.Fatalf("事件的 Dropped 应是被摘要替代的条数 %d: %+v", len(h), evs)
+	}
+
+	// 接着聊：请求带摘要、最近一轮原文和新消息。
+	if err := a.Run(context.Background(), Input{Text: "然后呢"}, &collector{}); err != nil {
+		t.Fatal(err)
+	}
+	next := p.reqs[1]
+	if len(next.Messages) != len(last)+1 || next.Messages[0].Text() != "最近一轮的提问" || !strings.Contains(next.System, "前几轮的摘要") {
+		t.Errorf("压缩后的请求应是摘要 + 最近一轮 + 新消息: %d 条", len(next.Messages))
+	}
+}
+
+func TestManualCompactKeepLastWithOnlyOneTurnIsRejected(t *testing.T) {
+	p := &scripted{}
+	a := compactAgent(t, p, 0, textTurns(1, 20))
+	var c collector
+	if err := a.Compact(context.Background(), CompactOptions{KeepLast: true}, &c); !errors.Is(err, ErrOnlyLastTurn) {
+		t.Fatalf("err = %v，期望 ErrOnlyLastTurn", err)
+	}
+	if len(p.reqs) != 0 || len(c.events) != 0 || len(a.History()) != 2 {
+		t.Errorf("不该调用模型、发事件或改历史: 请求 %d 次，事件 %v，历史 %d 条", len(p.reqs), c.kinds(), len(a.History()))
 	}
 }

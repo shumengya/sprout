@@ -25,7 +25,7 @@
 | `tool.finished` | `ToolFinished` | `ID`、`Name`、`Command`、`Stdout`、`Stderr`、`ExitCode`、`Truncated`、`TimedOut`、`Cancelled`、`Duration`、`Content`、`Err`、`Images` | `tool` |
 | `usage` | `Usage` | `InputTokens`、`OutputTokens`、`TotalTokens`、`ReasoningTokens`、`CacheReadTokens`、`CacheWriteTokens` | `usage` |
 | `retrying` | `Retrying` | `Attempt`、`Max`、`Delay`、`Reason` | `retry`（仅审计） |
-| `compacted` | `Compacted` | `Mode`、`TokensBefore`、`TokensAfter`、`Dropped`、`Summary`、`Err`、`Manual` | `compact` |
+| `compacted` | `Compacted` | `Mode`、`TokensBefore`、`TokensAfter`、`Dropped`、`Summary`、`Err`、`Manual`、`PruneVersion` | `compact` |
 | `interrupted` | `Interrupted` | `Reason`、`Content`、`Reasoning`、`Partial` | `interrupted` |
 | `error` | `Error` | `Message`、`Retryable` | `error` |
 | `turn.finished` | `TurnFinished` | `Reason` | `turn` |
@@ -55,7 +55,7 @@ surface 可以依赖下面这些规则，内核和测试保证它们成立。
 - **`ToolFinished`**：`Stdout` / `Stderr` 是未经预览截断的完整输出，但已受工具自身 50KB 上限约束。`Content` 是回给模型的完整文本，会话恢复时原样还原。`Err` 非空表示工具没能产出正常结果（参数无效、进程起不来等）。工具的任何失败都只转成 tool 消息回给模型，不终止这一轮。`Images` 是工具正常结束时结果里附带的图片（如 MCP 工具返回的截图），失败或取消时为空；运行时带 `Data`（base64），记录器落盘后回填 `Path`，重放出的事件没有 `Data`。
 - **`Usage`**：`InputTokens` 统一是“全部输入”的口径，包含命中缓存（`CacheReadTokens`）和写入缓存（`CacheWriteTokens`）的部分，各协议在适配器里归一。`ReasoningTokens` 是 `OutputTokens` 里用于思维链的部分。provider 不报告的字段为 0。
 - **`Retrying`**：`Attempt` 从 1 起。`Delay` 是这次重试前的等待时间；默认策略是 1s、2s、4s… 到 64s，共 7 次，服务端给了 `Retry-After` 时以它为准。
-- **`Compacted`**：`Mode` 为 `prune`（裁剪旧工具输出）或 `summary`（把更早的对话总结成摘要）。`TokensBefore` / `TokensAfter` 是估算值。`Dropped` 在 summary 模式下是被摘要替代的消息条数，在 prune 模式下是被裁剪的工具输出条数。`Summary` 是压缩后的完整摘要文本。`Err` 非空表示摘要失败，历史没动，本轮照常继续。
+- **`Compacted`**：`Mode` 为 `prune`（裁剪旧工具输出）或 `summary`（把更早的对话总结成摘要）。`TokensBefore` / `TokensAfter` 是估算值。`Dropped` 在 summary 模式下是被摘要替代的消息条数，在 prune 模式下是被裁剪的工具输出条数。`Summary` 是压缩后的完整摘要文本。`Err` 非空表示摘要失败，历史没动，本轮照常继续。`PruneVersion` 只在 prune 模式下有值，是这次裁剪用的策略版本（`agent.PruneVersion`，现在是 2：按工具类型决定保留多少），会话恢复时按它重放；0 表示旧会话，按版本 1（统一保留开头 200 字符）处理。手动压缩带 `KeepLast` 时 `Dropped` 小于历史总条数，最近一轮原文留在历史里。
 - **`Interrupted`**：一轮被取消或中途失败、但已经收到部分输出时发出。这一轮不作废：`Content`（已收到的正文加一句中断说明）和 `Reasoning` 作为一条 assistant 消息留在历史里。`Partial` 为 true 表示正文已经流式显示过，界面只需补一行说明，不必把 `Content` 再显示一遍。半截的 tool call 参数可能不是合法 JSON，整个丢弃。
 - **`Error.Retryable`**：只是告诉界面这类错误理论上可重试。自动重试已经在内核里做过，到达 surface 的 `error` 是重试耗尽或不可重试的。
 - **`Subagent`**：`agent` 工具派出的子代理发出的事件（见 `docs/subagents.md`）。工具在执行中通过 `tool.Call.Emit`（内核放进 ctx 的调用信息）把它交给内核，由主 goroutine 转发，所以 Sink 仍然不要求线程安全。内层的 `Usage` 要计入花费，但它不是主对话的上下文占用；其余内层事件只用于展示进度，不进主代理的历史。

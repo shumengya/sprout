@@ -97,6 +97,8 @@ type compactRec struct {
 	Summary      string `json:"summary,omitempty"`
 	Error        string `json:"error,omitempty"`
 	Manual       bool   `json:"manual,omitempty"` // 用户主动触发（/compact）；旧会话没有这个字段，读出来是 false
+	// PruneVersion 是 prune 的裁剪策略版本；旧会话没有这个字段，读出来是 0，按版本 1 重放。
+	PruneVersion int `json:"prune_version,omitempty"`
 }
 
 type usageRec struct {
@@ -184,7 +186,7 @@ func toRecord(e event.Event, now time.Time) (any, bool) {
 			DurationMS: e.Duration.Milliseconds(), Error: e.Err, Content: e.Content, Images: imageRecs(e.Images),
 		}, true
 	case event.Compacted:
-		return compactRec{h("compact"), e.Mode, e.TokensBefore, e.TokensAfter, e.Dropped, e.Summary, e.Err, e.Manual}, true
+		return compactRec{h("compact"), e.Mode, e.TokensBefore, e.TokensAfter, e.Dropped, e.Summary, e.Err, e.Manual, e.PruneVersion}, true
 	case event.Usage:
 		return usageRec{h("usage"), usageOf(e)}, true
 	case event.Subagent:

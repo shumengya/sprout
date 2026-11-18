@@ -15,7 +15,7 @@ func TestPruneKeepsSkillBodies(t *testing.T) {
 		{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "o1", Name: "read", Arguments: `{"path":"C:\\work\\big.log"}`}}},
 		{Role: RoleTool, ToolID: "o1", Content: []Block{TextBlock(body)}},
 	}
-	if n := PruneToolOutputs(h, 0, 0); n != 1 {
+	if n := PruneToolOutputs(h, 0, 0, PruneVersion); n != 1 {
 		t.Fatalf("只该裁剪普通文件读取，收到 %d 条", n)
 	}
 	if h[2].Text() != body {
@@ -27,12 +27,12 @@ func TestPruneKeepsSkillBodies(t *testing.T) {
 }
 
 func TestPruneWithoutSkillReadsWorksAsBefore(t *testing.T) {
-	body := strings.Repeat("x", 1000)
+	body := strings.Repeat("x", 3000)
 	h := []Message{
 		{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "o1", Name: "bash", Arguments: `{"command":"ls"}`}}},
 		{Role: RoleTool, ToolID: "o1", Content: []Block{TextBlock(body)}},
 	}
-	if n := PruneToolOutputs(h, 0, 0); n != 1 {
+	if n := PruneToolOutputs(h, 0, 0, PruneVersion); n != 1 {
 		t.Errorf("普通调用应照常裁剪，收到 %d", n)
 	}
 }

@@ -106,7 +106,7 @@ func TestNoCompactionWhenUnderBudget(t *testing.T) {
 func TestPruneAloneIsEnoughNoSummaryCall(t *testing.T) {
 	// 历史里是几个很大的旧工具输出：裁掉一部分就够了，不需要为此多调一次模型做摘要。
 	h := []Message{{Role: RoleUser, Content: []Block{TextBlock("旧问题")}}}
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 3; i++ {
 		h = append(h, Message{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "c", Name: "bash", Arguments: "{}"}}},
 			bigTool("c", 3000))
 	}
@@ -144,7 +144,7 @@ func TestPruneAloneIsEnoughNoSummaryCall(t *testing.T) {
 	if pruned != evs[0].Dropped {
 		t.Errorf("事件里的条数 %d 与实际裁剪条数 %d 不符", evs[0].Dropped, pruned)
 	}
-	// 够用就停：这个场景里不需要把全部四条都裁掉。
+	// 够用就停：这个场景里不需要把全部三条都裁掉。
 	if pruned == len(states) {
 		t.Errorf("估算已经降到目标以下，不该把旧输出全部裁光: %v", states)
 	}

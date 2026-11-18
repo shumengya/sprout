@@ -50,26 +50,43 @@ const maxFocusRunes = 500
 // ErrNothingToCompact 表示没有对话可压缩（历史是空的）。
 var ErrNothingToCompact = errors.New("还没有可压缩的对话")
 
-// Compact 由用户主动触发：把当前全部对话总结成摘要，历史清空，之后的请求只带摘要和新消息。
-// 与接近窗口时的自动压缩不同，这里不保留最近一轮原文——用户要的就是“把前面的都收起来”，
-// 摘要提示词本身会要求写明未完成的事项和下一步，接着聊不会断。
+// ErrOnlyLastTurn 表示要求保留最近一轮时，历史里只有这一轮，它之前没有可压缩的对话。
+var ErrOnlyLastTurn = errors.New("只有最近一轮对话，保留它之后没有可压缩的内容")
+
+// CompactOptions 是手动压缩的选项。
+type CompactOptions struct {
+	// Focus 非空时作为对摘要的额外要求（如“保留所有文件路径”）。
+	Focus string
+	// KeepLast 为 true 时保留最近一轮（最后一条用户消息及之后的全部消息）原文，只把它之前的对话换成摘要。
+	KeepLast bool
+}
+
+// Compact 由用户主动触发：把当前对话总结成摘要，之后的请求只带摘要和新消息。
+// 默认不保留最近一轮原文——用户要的就是“把前面的都收起来”，摘要提示词本身会要求写明未完成的事项和下一步，
+// 接着聊不会断；opts.KeepLast 为 true 时保留最近一轮，只摘要它之前的部分，适合最后一轮的细节还要接着用的时候。
 //
-// focus 非空时作为对摘要的额外要求（如“保留所有文件路径”）。事件（Compacted，Manual 为 true）
-// 发给 sink 和 Config.Recorder，会话落盘后恢复得到同样的结果。
+// 事件（Compacted，Manual 为 true，Dropped 是被摘要替代的消息条数）发给 sink 和 Config.Recorder，
+// 会话落盘后恢复得到同样的结果。
 //
-// 它会等当前的 Run 结束再执行（同一把锁），调用方应当在空闲时调用。历史为空返回 ErrNothingToCompact；
+// 它会等当前的 Run 结束再执行（同一把锁），调用方应当在空闲时调用。历史为空返回 ErrNothingToCompact，
+// 要保留最近一轮而之前没有对话时返回 ErrOnlyLastTurn，两者都不调用模型；
 // 被取消返回 ctx.Err()，历史和摘要保持原样且不发事件；摘要失败发一个带 Err 的事件并返回该错误，同样不动历史。
-func (a *Agent) Compact(ctx context.Context, focus string, sink event.Sink) error {
+func (a *Agent) Compact(ctx context.Context, opts CompactOptions, sink event.Sink) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if len(a.history) == 0 {
 		return ErrNothingToCompact
 	}
+	cut := len(a.history)
+	if opts.KeepLast {
+		if cut = lastUserIndex(a.history); cut <= 0 {
+			return ErrOnlyLastTurn
+		}
+	}
 	t := &turn{a: a, ctx: ctx, out: event.Multi(sink, a.cfg.Recorder)}
 	before := a.requestTokens()
-	cut := len(a.history)
 
-	text, err := t.foldSummary(a.history, focus)
+	text, err := t.foldSummary(a.history[:cut], opts.Focus)
 	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -79,12 +96,25 @@ func (a *Agent) Compact(ctx context.Context, focus string, sink event.Sink) erro
 		return err
 	}
 	a.summary = text
-	a.history = nil // 全部换成摘要；与会话重放得到的状态一致（重放里切掉全部同样得到 nil）
+	// 与会话重放的规则一致：丢掉前 cut 条，留下的消息前面换成了摘要，思考块对不上前缀了。
+	// 不保留时 cut 就是全部历史，结果为 nil（重放同样得到 nil）。
+	a.history = append([]Message(nil), a.history[cut:]...)
+	DropNative(a.history)
 	a.resetCalibration()
 	t.out.Emit(event.Compacted{
 		Mode: event.CompactSummary, TokensBefore: before, TokensAfter: a.requestTokens(), Dropped: cut, Summary: text, Manual: true,
 	})
 	return nil
+}
+
+// lastUserIndex 返回最后一条用户消息的下标，也就是最近一轮的起点；没有用户消息时返回 -1。
+func lastUserIndex(history []Message) int {
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == RoleUser {
+			return i
+		}
+	}
+	return -1
 }
 
 // minSummaryOutput 是摘要请求的输出上限下限。思考模式模型的推理 token 也计入输出上限，
@@ -144,7 +174,7 @@ func (t *turn) compact(force bool) bool {
 			}
 		}
 		after := a.requestTokens()
-		t.out.Emit(event.Compacted{Mode: event.CompactPrune, TokensBefore: est, TokensAfter: after, Dropped: n})
+		t.out.Emit(event.Compacted{Mode: event.CompactPrune, TokensBefore: est, TokensAfter: after, Dropped: n, PruneVersion: PruneVersion})
 		changed, est = true, after
 		if est <= target {
 			return true

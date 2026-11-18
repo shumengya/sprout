@@ -41,7 +41,7 @@
 | `tool` | `tool.finished` | `tool_call_id`、`name`、`command`、`stdout`、`stderr`、`exit_code`、`truncated`、`timed_out`、`cancelled`、`duration_ms`、`error`、`content`、`images`；除 `tool_call_id`、`name`、`exit_code`、`duration_ms` 外都省略零值 |
 | `usage` | `usage` | `input_tokens`、`output_tokens`、`total_tokens`、`reasoning_tokens`（省略）、`cache_read_tokens`（省略）、`cache_write_tokens`（省略） |
 | `subagent_usage` | 内层为 `usage` 的 `subagent` | `tool_call_id`、`agent`，其余字段同 `usage`；写在那次 `agent` 调用的 `tool` 记录之前 |
-| `compact` | `compacted` | `mode`、`tokens_before`、`tokens_after`、`dropped`、`summary`（省略）、`error`（省略）、`manual`（省略） |
+| `compact` | `compacted` | `mode`、`tokens_before`、`tokens_after`、`dropped`、`summary`（省略）、`error`（省略）、`manual`（省略）、`prune_version`（省略） |
 | `interrupted` | `interrupted` | `reason`、`content`、`reasoning`（省略） |
 | `error` | `error` | `message`、`retryable`（省略） |
 | `turn` | `turn.finished` | `reason` |
@@ -82,7 +82,7 @@
 - 进程被杀留下的未完成 tool call，补一条“未执行”的结果。
 - 首次模型调用就失败或被取消、只留下 `user` 的旧式轮次，撤销那条用户消息（当年运行时就是这么做的）。新记录有 `interrupted`，不触发这条规则。
 - 以 `内部错误` 开头的 `error`（panic）让历史还原到本轮开始前。
-- `compact` 按当初的方式重做：summary 丢弃前 `dropped` 条消息并换上摘要；prune 用纯函数 `agent.PruneToolOutputs` 从最旧的开始裁同样多条。
+- `compact` 按当初的方式重做：summary 丢弃前 `dropped` 条消息并换上摘要（手动压缩保留最近一轮时 `dropped` 小于历史条数，留下的就是那一轮）；prune 用纯函数 `agent.PruneToolOutputs` 按 `prune_version` 的策略从最旧的开始裁同样多条。没有 `prune_version` 的旧记录按版本 1（统一保留开头 200 字符）裁，与当年的结果一致。
 - `interrupted` 还原成一条 assistant 消息，内容与当初写进历史的一致。
 - `subagent_usage` 还原成内层为 `Usage` 的 `event.Subagent`，不动历史（它夹在 `agent` 调用的 `assistant` 与 `tool` 记录之间）。旧版本程序读到它会当作未知类型忽略，只是恢复后的花费少算子代理那部分。
 - 图片按 `file` 读回，`tool` 记录的图片跟在结果文本后面（与运行时的 tool 消息顺序一致）；文件丢失或损坏时换成“（图片无法恢复：路径）”文本块，不让整轮无法恢复。
