@@ -41,6 +41,7 @@ func (m *Model) startTurn(in agent.Input) tea.Cmd {
 	turn := m.turn
 	m.started = m.now()
 	m.callStart = m.started
+	m.stats = turnStats{start: m.started}
 	m.busyStart()
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
@@ -179,10 +180,11 @@ func (m *Model) onEvent(e event.Event) {
 	}
 }
 
-// addUsage 把一次模型调用的用量记进状态栏。
+// addUsage 把一次模型调用的用量记进状态栏和本轮的统计。
 // 上下文占用取最近一次请求的输入：它就是下一次请求大致要带的历史长度；服务端没报告时保持原值。
 func (m *Model) addUsage(e event.Usage) {
 	m.countUsage(e)
+	m.stats.add(e)
 	if e.InputTokens > 0 {
 		m.ctxTokens = e.InputTokens
 	}
@@ -209,6 +211,7 @@ func (m *Model) markGen() {
 		if !m.callStart.IsZero() {
 			m.ttft = max(m.genStart.Sub(m.callStart), 0) // 时钟回拨时不写负数
 		}
+		m.stats.markFirst(m.genStart)
 	}
 }
 
@@ -220,8 +223,10 @@ func (m *Model) updateSpeed(output int) {
 	if output <= 0 || start.IsZero() || end.IsZero() {
 		return
 	}
-	if d := end.Sub(start).Seconds(); d > 0 {
-		m.speed = float64(output) / d
+	if d := end.Sub(start); d > 0 {
+		m.speed = float64(output) / d.Seconds()
+		m.stats.genTokens += output
+		m.stats.genDur += d
 	}
 }
 
@@ -274,6 +279,10 @@ func (m *Model) finishTurn(reason string) {
 		m.add(&entry{kind: kindNotice, text: "模型输出被长度上限截断，回答可能不完整。"})
 	}
 	m.interrupted = false
+	if line := m.stats.line(m.now()); line != "" {
+		m.add(&entry{kind: kindStats, text: line})
+	}
+	m.stats = turnStats{} // 恢复会话重放时没有 startTurn，靠这里把各轮分开
 }
 
 // interruptNote 从写进历史的中断消息里取出方括号那句说明，用于单独显示。

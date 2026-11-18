@@ -212,6 +212,8 @@ type Model struct {
 	// pending 是下一条消息待发送的图片（/image 附加），发送或 /image clear 后清空。
 	pending []agent.Image
 	// queue 是生成中提交的输入，按先后顺序在本轮结束后依次发出。
+	// stats 是进行中这一轮的用量与计时，一轮结束时作为统计行显示在回答下方。
+	stats turnStats
 	queue []queued
 
 	// 对话区的拖选。选区用内容坐标记录；content 是当前送进 viewport 的完整文本，

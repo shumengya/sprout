@@ -23,6 +23,7 @@ const (
 	kindError
 	kindWarn  // 警告：如自动重试中的提示，黄色
 	kindThink // 模型的思维链（reasoning_content）
+	kindStats // 每轮回答下方的统计行：耗时、首字、速度、token
 )
 
 // 颜色用 ANSI 基础色，跟随终端主题，深浅色背景下都可读。
