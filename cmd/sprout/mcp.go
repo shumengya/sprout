@@ -81,7 +81,9 @@ func (s *mcpSet) find(name string) int {
 // 这期间没有 MCP 工具也只是少了几个工具，内置工具照常工作。
 func (a *app) startMCP(f *config.MCPFile) {
 	set := newMCPSet(f)
-	a.info.MCP = set.servers
+	// 复制一份给界面：后台连接时会改 set.servers 里的元素（连接中 → 已连接 / 失败），
+	// 共用底层数组时界面渲染读到的是另一个 goroutine 正在写的内存。连好后 applyMCP 再换成最新的副本。
+	a.info.MCP = append([]tui.MCPServerInfo(nil), set.servers...)
 
 	a.mcpVersions = mcp.LoadVersions(config.MCPVersionsPath(a.dataDir))
 	a.mcpReady = make(chan struct{})
