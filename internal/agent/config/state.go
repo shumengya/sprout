@@ -23,6 +23,8 @@ type Settings struct {
 	Model string `json:"model,omitempty"`
 	// Effort 是上次用的档位；空表示没记录过。
 	Effort string `json:"effort,omitempty"`
+	// CleanupPeriodDays > 0 时，启动时删除超过这么多天没用过的会话；0（默认）不自动删除。
+	CleanupPeriodDays int `json:"cleanupPeriodDays,omitempty"`
 }
 
 // SettingsPath 是设置文件的路径。
@@ -41,6 +43,9 @@ const SettingsTemplate = `// Sprout 设置（JSONC：支持 // 和 /* */ 注释�
   "model": "",
   // 上次使用的思考档位：off / low / medium / high / xhigh / max，或留空表示按模型默认。
   "effort": "",
+  // 启动时删除超过这么多天没用过的会话（连同它的图片和子代理记录）；0 表示不自动删除。
+  // 也可以手动清理：sprout sessions clean --older-than 30d（先加 --dry-run 看会删哪些）。
+  "cleanupPeriodDays": 0,
 }
 `
 

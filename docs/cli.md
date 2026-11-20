@@ -18,6 +18,7 @@
 | `sprout run` | 同上三个选项 | 单次运行并指定数据目录或恢复会话 | 恢复失败则退出，不新开会话 |
 | `sprout serve` | `[--data-dir DIR] [-c \| --resume ID] [--effort 档位]` | 在 stdin / stdout 上提供 JSON-RPC 2.0 服务，供其他程序驱动 | 协议见 `docs/rpc.md`。stdout 只走协议消息；恢复会话失败则退出（退出码 1）；stdin 结束或 `shutdown` 后退出 |
 | `sprout models update` | `[--data-dir DIR]` | 从 models.dev 下载模型目录，写入数据目录的 `models.dev.json` | 只在执行时联网；启动时不联网。报告本次配置里哪些模型对得上。重启后生效 |
+| `sprout sessions clean` | `--older-than 时长 [--dry-run] [--data-dir DIR]` | 删除超过这么久没用过的会话（JSONL 连同 `.images/`、`.agents/`），“没用过”按会话文件的修改时间算 | 时长写 `30d`（或 `30`）、`12h`、`90m`；必须写，没有默认值。`--dry-run` 只列出不删。列表和结果写 stdout。没有提问的空会话也会清掉。也可以在 `settings.jsonc` 里设 `cleanupPeriodDays`，启动时自动清理（默认 0，不自动删） |
 | `sprout mcp login` | `<服务端> [--data-dir DIR]` | 对 `mcp.jsonc` 里配了 `oauth` 的远程服务端做 OAuth 登录：打开浏览器授权，令牌存进数据目录的 `mcp-auth.json` | 浏览器打不开时打印地址让用户手动复制；等 5 分钟，Ctrl+C 取消。服务端名不存在、是 stdio 服务端或没配 `oauth` 时报错（退出码 1）。正在运行的 sprout 在 `/mcp` 面板按 `r` 重连生效。见 `docs/mcp.md`「OAuth」 |
 | `sprout mcp logout` | `<服务端> [--data-dir DIR]` | 删掉该服务端保存的令牌与客户端注册信息 | 没有登录过时只提示，退出码仍为 0 |
 | `sprout update` | `[--repo OWNER/NAME] [--check]` | 查询 GitHub Releases 的最新版本；有新版本时下载本平台产物，校验 `SHA256SUMS.txt`、试运行后替换当前程序，重启生效 | 默认源是 `github.com/shumengya/sprout`，`--repo` 可指向 fork。`--check` 只报告、不下载。程序目录不可写（如 Program Files）时报错，不动原程序。开发构建（`dev`）只报告最新发布，不判版本高低 |
@@ -30,5 +31,5 @@
 | --- | --- |
 | 0 | 成功（含 `--help`、`--version`、TUI 正常退出、`run` 完成） |
 | 1 | 启动失败、配置错误、`run` 失败、`run` 恢复会话失败、TUI 异常退出、`models update` 拉取失败或配置读不出来、`update` 查询失败（网络、限流、仓库没有发布）、`mcp login` 失败或服务端不适用、`mcp logout` 写令牌文件失败 |
-| 2 | 用法错误（未知子命令或选项、缺少参数、`run` 没有提问且 stdin 没有重定向或为空、写了 `-` 但 stdin 没有重定向、`run -i` 又写了 `-`、`mcp` 后不是 `login` / `logout` 加一个服务端名） |
+| 2 | 用法错误（未知子命令或选项、缺少参数、`sessions clean` 没写 `--older-than` 或时长无效、`run` 没有提问且 stdin 没有重定向或为空、写了 `-` 但 stdin 没有重定向、`run -i` 又写了 `-`、`mcp` 后不是 `login` / `logout` 加一个服务端名） |
 | 130 | `sprout run` / `sprout serve` 被 Ctrl+C 中断；`sprout run -i` 在提示符下按 Ctrl+C 退出 |

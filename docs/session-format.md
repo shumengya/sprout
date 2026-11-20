@@ -27,6 +27,8 @@
 - `Reset(info)`：`/new` 时结束当前文件，下一条记录写进新会话；`info` 换成当前模型。
 - `Fork(dir, src, turns)`：分支会话，见第 6 节。
 - `NoteModelChange`：会话中途切换模型时写一条 `resume` 记录；还没有文件时不写。
+- **清理**（`session.CleanOlder`）：删除修改时间早于给定时刻的会话文件和它的 `.images/`、`.agents/`，当前正在写的会话不删，删空的分组目录一并移除。
+  `sprout sessions clean --older-than 30d` 手动执行；`settings.jsonc` 的 `cleanupPeriodDays` 大于 0 时每次启动自动执行，默认 0 不自动删。
 
 ## 3. 记录类型
 

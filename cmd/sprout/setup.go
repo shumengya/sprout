@@ -219,6 +219,20 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 		return nil, err
 	}
 
+	// 自动清理旧会话：默认关闭，settings.jsonc 的 cleanupPeriodDays 打开。在启动时、还没有会话文件被打开时做；
+	// 随后 -c 找“最近的会话”时自然找不到已经删掉的。
+	var cleanNotices []string
+	if days := saved.CleanupPeriodDays; stateErr == nil && days > 0 {
+		removed, err := session.CleanOlder(config.SessionsDir(dataDir), e.now().AddDate(0, 0, -days), "", false)
+		if err != nil {
+			log.Warn("清理旧会话失败", "error", err.Error())
+		}
+		if len(removed) > 0 {
+			log.Info("清理旧会话", "removed", len(removed), "days", days)
+			cleanNotices = append(cleanNotices, fmt.Sprintf("已删除 %d 个超过 %d 天没用过的会话（settings.jsonc 的 cleanupPeriodDays）。", len(removed), days))
+		}
+	}
+
 	a := &app{
 		dataDir: dataDir, cwd: e.cwd, cfg: cfg, tools: toolsCfg, mcpCfg: mcpCfg,
 		mcpTools: mcp.LoadTools(config.MCPToolsPath(dataDir)), mcpChanged: make(chan struct{}, 1),
@@ -231,6 +245,7 @@ func buildApp(dataDir string, e env, log *slog.Logger) (*app, error) {
 	}
 	a.notices = append(a.notices, statusProblems...)
 	a.notices = append(a.notices, stateProblems...)
+	a.notices = append(a.notices, cleanNotices...)
 	a.notices = append(a.notices, instrProblems...)
 	a.notices = append(a.notices, skillProblems...)
 	subs, subagentProblems := loadSubagents(dataDir, e.cwd, cfg)

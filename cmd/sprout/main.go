@@ -101,6 +101,10 @@ func realMain(argv []string, stdin *os.File, stdout, stderr io.Writer) (code int
 	if a.modelsUpdate {
 		return updateModels(dataDir, stdout, stderr)
 	}
+	// sessions clean 只动会话目录，同样不需要 agent。
+	if a.sessionsClean {
+		return runSessionsClean(dataDir, a.cleanAge, a.cleanAgeText, a.cleanDry, time.Now(), stdout, stderr)
+	}
 	// mcp login / logout 只读 mcp.jsonc、写令牌文件，同样不需要装配 agent。
 	if a.mcpAuth != "" {
 		return runMCPAuth(dataDir, a.mcpAuth, a.mcpServer, os.Getenv, nil, defaultOpenURL, stdout, stderr)

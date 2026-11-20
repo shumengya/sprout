@@ -61,7 +61,7 @@
 - 单份超过 32 KB 的部分截掉并注明，避免误放的大文件每次请求都占满上下文。
 - 启动时读一次，修改后需要重启；`/model`、`/new`、`/resume` 沿用启动时读到的内容。
 - 追加位置固定在末尾，不是模板变量：这样自写或旧版的 `SYSTEMPROMPT.md` 也不会让 `AGENTS.md` 悄悄失效。
-- 已加载的文件记录在日志里（`logs/sprout-YYYYMMDD.log`，「已加载 AGENTS.md」）。
+- 已加载的文件记录在日志里（`logs/sprout-YYYYMMDD.log`，「已加载 AGENTS.md」；日志只保留 30 天）。
 
 ## 不在这个文件里的部分
 

@@ -5,7 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // args 是解析后的命令行。
@@ -27,6 +29,12 @@ type args struct {
 	effort string
 	// modelsUpdate 表示 `sprout models update`：拉取 models.dev 目录后退出。
 	modelsUpdate bool
+	// sessionsClean 表示 `sprout sessions clean`：删除超过 cleanAge 没用过的会话；cleanDry 时只列出。
+	// cleanAgeText 是用户写的原文，用于输出。
+	sessionsClean bool
+	cleanAge      time.Duration
+	cleanAgeText  string
+	cleanDry      bool
 	// selfUpdate 表示 `sprout update`：查询最新发布，默认下载并替换当前程序。
 	selfUpdate bool
 	// updateCheckOnly 表示 `sprout update --check`：只报告，不下载不替换。
@@ -62,6 +70,8 @@ const usage = `用法:
   sprout serve [--data-dir DIR] [-c | --resume ID] [--effort 档位]
                                                    在 stdin / stdout 上提供 JSON-RPC 2.0 服务（见 docs/rpc.md）
   sprout models update [--data-dir DIR]            从 models.dev 更新模型参数与价格的本地缓存
+  sprout sessions clean --older-than 30d [--dry-run] [--data-dir DIR]
+                                                   删除超过这么久没用过的会话（--dry-run 只列出不删）
   sprout mcp login [--data-dir DIR] 服务端名      在浏览器里完成 OAuth 授权，令牌存进数据目录的 mcp-auth.json
   sprout mcp logout [--data-dir DIR] 服务端名     删除保存的 OAuth 令牌
   sprout update [--repo OWNER/NAME] [--check]     更新到 GitHub Releases 上的最新版本（--check 只检查）
@@ -121,6 +131,9 @@ func parseArgs(argv []string) (args, error) {
 	}
 	if rest[0] == "models" {
 		return parseModelsArgs(&a, rest[1:])
+	}
+	if rest[0] == "sessions" {
+		return parseSessionsArgs(&a, rest[1:])
 	}
 	if rest[0] == "update" {
 		return parseUpdateArgs(&a, rest[1:])
@@ -192,6 +205,49 @@ func parseModelsArgs(a *args, argv []string) (args, error) {
 	}
 	a.modelsUpdate = true
 	return *a, nil
+}
+
+// parseSessionsArgs 解析 `sprout sessions clean --older-than 30d [--dry-run]`。
+// 删除是不可撤销的，所以 --older-than 必须写，不给默认值。
+func parseSessionsArgs(a *args, argv []string) (args, error) {
+	if len(argv) == 0 || argv[0] != "clean" {
+		return *a, fmt.Errorf("%w: sprout sessions 需要子命令，目前支持 clean", errUsage)
+	}
+	fs := flag.NewFlagSet("sprout sessions clean", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.StringVar(&a.dataDir, "data-dir", a.dataDir, "")
+	fs.StringVar(&a.cleanAgeText, "older-than", "", "")
+	fs.BoolVar(&a.cleanDry, "dry-run", false, "")
+	if err := fs.Parse(argv[1:]); err != nil {
+		return *a, fmt.Errorf("%w: %v", errUsage, err)
+	}
+	if len(fs.Args()) > 0 {
+		return *a, fmt.Errorf("%w: sprout sessions clean 不接受额外参数 %q", errUsage, fs.Args()[0])
+	}
+	if a.cleanAgeText == "" {
+		return *a, fmt.Errorf("%w: sprout sessions clean 需要 --older-than，例如 --older-than 30d", errUsage)
+	}
+	d, err := parseAge(a.cleanAgeText)
+	if err != nil {
+		return *a, fmt.Errorf("%w: --older-than %v", errUsage, err)
+	}
+	a.sessionsClean, a.cleanAge = true, d
+	return *a, nil
+}
+
+// parseAge 解析清理用的时长：30d 或 30 表示 30 天，其余按 Go 的时长写法（12h、90m）。
+func parseAge(s string) (time.Duration, error) {
+	if n, err := strconv.Atoi(strings.TrimSuffix(s, "d")); err == nil {
+		if n <= 0 {
+			return 0, fmt.Errorf("%q 必须大于 0", s)
+		}
+		return time.Duration(n) * 24 * time.Hour, nil
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("%q 不是有效的时长，写成 30d、12h 这样", s)
+	}
+	return d, nil
 }
 
 // parseMCPArgs 解析 `sprout mcp login|logout <服务端名>`。

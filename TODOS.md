@@ -171,7 +171,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] Responses 协议回传 reasoning 条目：开启思考时请求 `include: reasoning.encrypted_content`，把 reasoning 条目原文存进 `Message.Native`，下一轮放在同一条 assistant 的正文与 `function_call` 之前回传。
 - [x] Gemini 3 的 `thoughtSignature` 回传：带签名的 part 存进 `Message.Native` 原样回传；纯思考摘要不回传，相邻逐字文本合并成一个 part。
 - [x] 按模型切换 `max_tokens` / `max_completion_tokens`：`models.jsonc` 的 `maxTokensParam`，只对 Chat 协议生效。
-- [ ] 会话与日志的清理/轮转（`sessions/`、`logs/` 只增不减）。
+- [x] 会话与日志的清理：日志只留 30 天（启动时删掉更早的 `sprout-YYYYMMDD.log`）；会话默认不自动删，`sprout sessions clean --older-than 30d [--dry-run]` 手动清理，`settings.jsonc` 的 `cleanupPeriodDays` 打开启动时自动清理（见 `docs/cli.md`）。
 
 ## 四、已知限制与风险
 
