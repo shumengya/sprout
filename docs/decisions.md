@@ -5,7 +5,7 @@
 ## 运行形态
 
 - **单二进制、无 CGO**：目标包括 Android Termux，那里没有 CGO 工具链，也没有 systemd。所以不引入 SQLite 驱动、系统库绑定等依赖。这是硬约束。
-- **Termux 产物用 `GOOS=android`**：Android 的 seccomp 禁止 `faccessat2`，`linux_arm64` 的产物会在启动时因 SIGSYS 崩溃（见 `docs/发布.md`）。
+- **Termux 产物用 `GOOS=android`**：Android 的 seccomp 禁止 `faccessat2`，`linux_arm64` 的产物会在启动时因 SIGSYS 崩溃（见 `docs/release.md`）。
 - **数据目录默认跟随二进制**（`<exeDir>/data/.sprout`），不写 `~/.sprout`：安装级配置随程序走。目录不可写时明确报错，不静默回退，避免配置被悄悄写到别处。`go run` 的二进制在临时目录，所以开发时必须显式传 `--data-dir`。
 - **依赖按成本判断**：看“纯 Go 可交叉编译”和 `go.mod` 实际增加多少间接依赖，不看依赖数量本身。自写超过约两周、或涉及密码学细节的，优先引入成熟库。
 

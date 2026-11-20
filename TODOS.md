@@ -67,7 +67,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] `/skills` 面板：列出注册的技能与来源，空格 / Enter 开关单个技能，`a` 切换 `.agents` 自动加载，`r` 重新扫描并自动注册新技能；开关写回 `skills.jsonc`，保留注释（`internal/tui/skills.go`）。
 - [x] 技能手动触发：`/技能名 任务` 把技能正文直接交给模型；内置命令优先，名字不是技能时整段按普通提问发送；输入 `/` 的候选列表包含可触发的技能。设计见 `docs/skills.md`。
 - [x] `/compact [说明]` 手动压缩：把前面的全部对话总结成摘要（分层摘要，说明可以让摘要特别保留某些内容；`/compact -k` 保留最近一轮原文），压缩期间禁止发送与切换，Esc 取消；会话落盘后恢复得到同样的结果。设计见 `docs/m1-implementation.md` §15。
-- [x] 斜杠命令补全：输入 `/` 列出候选，Tab 填入、↑↓/Ctrl+P/N 选择、Esc 关闭；`/effort` 与 `/model` 的参数也参与补全。命令与快捷键说明见 `docs/斜杠命令.md`、`docs/快捷键.md`。
+- [x] 斜杠命令补全：输入 `/` 列出候选，Tab 填入、↑↓/Ctrl+P/N 选择、Esc 关闭；`/effort` 与 `/model` 的参数也参与补全。命令与快捷键说明见 `docs/slash-commands.md`、`docs/keybindings.md`。
 - [x] `/model` 模型选择器：↑↓ 或直接输入过滤，Enter 切换；保留对话历史、清空旧模型思维链；生成中或恢复/切换中拒绝。
 - [x] 记住上次的模型与思考档位：`/model`、`/effort` 切换成功后写进数据目录的 `settings.jsonc`，下次启动沿用；优先级 `--effort` > 上次档位 > `models.jsonc` 默认值；记下的模型已不在配置里或记录损坏时退回默认并提示（`internal/agent/config/state.go`，见 `docs/effort.md`）。
 - [x] 生成中排队发送：生成中按 Enter 把消息排进队列，本轮结束（正常、出错、取消）后按顺序自动发出；排队的消息在对话区标暗色，不计入对话轮次；`/new` 清空队列。报错为亮红 ✗，重试提示为黄色 ⟳。
@@ -86,7 +86,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 
 ### CLI 与入口（`internal/cli`、`cmd/sprout`）
 - [x] `sprout`（TUI）、`sprout run "..."`（答案写 stdout，进度/错误写 stderr；退出码 0 / 1 / 2 / 130）。
-- [x] `--effort`、`--image`（可重复）、`-c` / `--resume`；完整说明见 `docs/CLI命令.md`。
+- [x] `--effort`、`--image`（可重复）、`-c` / `--resume`；完整说明见 `docs/cli.md`。
 - [x] `sprout update [--repo OWNER/NAME]`：查询 GitHub Releases 最新发布并与当前版本比较，不一致时打印发布页与本平台压缩包下载地址；有新版本时默认下载本平台产物、校验 `SHA256SUMS.txt`、解压、用 `--version` 试运行后替换当前程序（Windows 先把旧程序改名为 `.old`，下次启动清理）；`--check` 只报告不下载。没有校验文件、校验不符、试运行失败、程序目录不可写时都不动原程序。开发构建（`dev`）只报告最新发布；本地比最新发布还新时不劝降级；网络失败、限流、仓库无发布以退出码 1 结束（`cmd/sprout/update.go`、`selfupdate.go`）。TUI 启动时后台查一次（仅发布构建，失败静默），有新版本在对话区提示；`/update` 在 TUI 里执行同样的更新（`cmd/sprout/updater.go`、`internal/tui/selfupdate.go`）。
 - [x] 模型输出与命令内容写终端前去除控制字符（含 ESC）。
 - [x] Windows：控制台 UTF-8 并在退出时恢复；双击启动出错时等待回车；日志写 `logs/sprout-YYYYMMDD.log`（不记录 Key、请求体、用户输入）。
@@ -200,8 +200,8 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] LICENSE：Apache-2.0，发布包一并附带。
 - [x] `README.md` 的“项目结构”已补上 `tool/shell`、`tool/file`、`tool/external`、`media`、`provider/google`、`provider/transport`，`skills`、`mcp`，并标出 `rpc` / `webui` 仍是占位。
 - [x] `README.md` 与 `AGENTS.md` 的“当前状态”已更新为 M1 + M2，协议表补上 Gemini，深入文档列表补全。
-- [x] `docs/斜杠命令.md` 已列出 `/new` 与 `/image`。
-- [x] `docs/CLI命令.md`、`docs/快捷键.md`、`docs/斜杠命令.md` 已提交到 git。
+- [x] `docs/slash-commands.md` 已列出 `/new` 与 `/image`。
+- [x] `docs/cli.md`、`docs/keybindings.md`、`docs/slash-commands.md` 已提交到 git。
 - [x] 事件协议、会话格式、决策记录已单独成文：`docs/events.md`、`docs/session-format.md`、`docs/decisions.md`；`m1-implementation.md` §10、§15 与 `m2-vision.md` §3 加了指向新文档的说明。
 - [x] 测试里的旧模型名 `deepseek-chat` 已统一为模板中的 `deepseek-flash`（`session_test.go`、`tui/helpers_test.go`、`tui/model_test.go`）。
 

@@ -176,7 +176,7 @@ TUI 选型依据：[Charm v2 公告](https://charm.land/blog/v2/)、[GitLab CLI 
 
 版本号用日期，如 `2026.11.12`。每个版本提供 Windows（x64 / ARM64）、Linux（x64 / ARM64 / ARMv7）、macOS（Intel / Apple 芯片）、Android Termux（ARM64）八个平台的压缩包，单二进制、无 CGO。Termux 包与 Linux ARM64 包内容相同，单独取名只是方便直接找到。
 
-发布说明见 `docs/releases/<版本号>.md`；打包流程、校验方法与发布前检查见 `docs/发布.md`。
+发布说明见 `docs/releases/<版本号>.md`；打包流程、校验方法与发布前检查见 `docs/release.md`。
 
 ## License
 
