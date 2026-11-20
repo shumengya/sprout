@@ -4,32 +4,69 @@ import (
 	"fmt"
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/shumengya/sprout/internal/agent"
 	"github.com/shumengya/sprout/internal/agent/event"
 	"github.com/shumengya/sprout/internal/media"
 )
 
-// imageCmd 处理 /image：无参数时列出待发送的图片，带路径时附加一张，clear 清空。
-// 读文件是本地 IO，但都是小文件，同步做不会明显卡住界面。
-func (m *Model) imageCmd(arg string) {
+// 读图片可能要把大照片缩放、重新编码（千万像素的照片约 1 秒），所以都放在 Cmd 里做，
+// 结果以 imageMsg 交回 Update；读的时候界面照常响应。
+type imageSource int
+
+const (
+	fromCommand imageSource = iota // /image 路径
+	fromPaste                      // 粘贴的内容里带图片路径
+)
+
+// imageMsg 是后台读图的结果。insert 非空时插进输入框（粘贴改写后的内容）。
+type imageMsg struct {
+	from   imageSource
+	insert string
+	imgs   []agent.Image
+	err    error
+}
+
+// imageCmd 处理 /image：无参数时列出待发送的图片，带路径时在后台读取并附加，clear 清空。
+func (m *Model) imageCmd(arg string) tea.Cmd {
 	switch {
 	case arg == "":
 		m.add(&entry{kind: kindNotice, text: m.pendingReport()})
-		return
+		return nil
 	case arg == "clear":
 		n := len(m.pending)
 		m.pending = nil
 		m.add(&entry{kind: kindNotice, text: fmt.Sprintf("已清空 %d 张待发送的图片。", n)})
-		return
+		return nil
 	}
 	path := strings.TrimSpace(strings.Trim(arg, `"'`))
-	img, name, err := media.LoadImage(path)
-	if err != nil {
-		m.add(&entry{kind: kindError, text: err.Error()})
+	m.status = "正在读取图片…"
+	return func() tea.Msg {
+		img, _, err := media.LoadImage(path)
+		if err != nil {
+			return imageMsg{from: fromCommand, err: err}
+		}
+		return imageMsg{from: fromCommand, imgs: []agent.Image{img}}
+	}
+}
+
+// onImages 把后台读到的图片接进待发送列表。
+func (m *Model) onImages(msg imageMsg) {
+	m.status = ""
+	if msg.err != nil {
+		m.add(&entry{kind: kindError, text: msg.err.Error()})
 		return
 	}
-	m.pending = append(m.pending, img)
-	note := fmt.Sprintf("已附加图片 %s（%s），共 %d 张。发送时会随消息一起提交。", name, media.Size(len(img.Data)*3/4), len(m.pending))
+	m.pending = append(m.pending, msg.imgs...)
+	if msg.insert != "" {
+		m.in.InsertString(msg.insert)
+	}
+	if msg.from != fromCommand {
+		return
+	}
+	img := msg.imgs[0]
+	note := fmt.Sprintf("已附加图片 %s（%s），共 %d 张。发送时会随消息一起提交。", img.Name, media.Size(len(img.Data)*3/4), len(m.pending))
 	if !m.opts.Info.Vision {
 		note += "\n当前模型没有标注 vision，发送时图片会被替换成占位文本（models.jsonc 里给该模型加 \"vision\": true）。"
 	}
@@ -50,12 +87,23 @@ func (m *Model) pendingReport() string {
 	return b.String()
 }
 
-// pasteImages 把粘贴内容里现有的图片路径换成 [文件名]，图片当场附加到 pending。
-// 返回改写后的粘贴内容；读不了的图片（超限、损坏）保留原路径，提交时 AutoAttach 会说明原因。
+// pasteCmd 在后台读出粘贴内容里的图片路径，改写成 [文件名] 后插进输入框。
 // 只拦截粘贴：逐键输入时路径还没打完，中途替换会打断用户。
-func (m *Model) pasteImages(content string) string {
+func (m *Model) pasteCmd(content string) tea.Cmd {
+	room := max(media.MaxAutoImages-len(m.pending), 0)
+	m.status = "正在读取图片…"
+	return func() tea.Msg {
+		text, imgs := pasteImages(content, room)
+		return imageMsg{from: fromPaste, insert: text, imgs: imgs}
+	}
+}
+
+// pasteImages 把粘贴内容里现有的图片路径换成 [文件名]，返回改写后的内容和读到的图片，最多 room 张。
+// 读不了的图片（损坏、太大）保留原路径，提交时 AutoAttach 会说明原因。
+func pasteImages(content string, room int) (string, []agent.Image) {
+	var imgs []agent.Image
 	for _, p := range media.FindImagePaths(content) {
-		if len(m.pending) >= media.MaxAutoImages {
+		if len(imgs) >= room {
 			break
 		}
 		img, _, err := media.LoadImage(p)
@@ -72,9 +120,9 @@ func (m *Model) pasteImages(content string) string {
 		}
 		img.Source = frag
 		content = strings.Replace(content, frag, pasteMark(img), 1)
-		m.pending = append(m.pending, img)
+		imgs = append(imgs, img)
 	}
-	return content
+	return content, imgs
 }
 
 // pasteMark 是粘贴图片在输入框里的显示形式。

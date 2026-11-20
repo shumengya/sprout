@@ -82,7 +82,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] 四种协议都能发图；协议不支持在工具结果里放图时，在其后补一条 user 消息。
 - [x] 会话把图片存成 `<会话名>.images/` 下按内容哈希命名的文件，JSONL 里只存相对路径；恢复时读回，文件丢失换成占位文本。
 - [x] `models.jsonc` 的 `vision` 标记；未标注的模型发送时图片换成占位文本，历史不改。
-- [x] 图片 token 估算（按尺寸折算，夹在 300–8000）；单张上限 3 MB，按内容嗅探类型。
+- [x] 图片 token 估算（按尺寸折算，夹在 300–8000）；按内容嗅探类型；超过 3 MB 或长边超过 2000 像素时自动缩放、重新编码（应用 jpeg 的 EXIF 方向），见 `docs/m2-vision.md` §6.1。
 
 ### CLI 与入口（`internal/cli`、`cmd/sprout`）
 - [x] `sprout`（TUI）、`sprout run "..."`（答案写 stdout，进度/错误写 stderr；退出码 0 / 1 / 2 / 130）。
@@ -163,7 +163,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] 技能正文的裁剪保护：`read` 读取 `SKILL.md` 的工具结果不参与旧输出裁剪（按历史里的调用参数判断，会话恢复重放结果一致）。
 - [x] 每轮回答结束后的统计行：回答下方一行淡色的 `耗时 · 首字 · token/s · 输入 · 输出 · 缓存 · 合计`，是这一轮主对话全部模型调用的合计（不含子代理）；恢复会话时只写 token（见 `docs/m1-implementation.md` §9）。
 - [x] 配置热加载（TUI）：`models.jsonc` 改完几秒内自动重新读取，`/model` 列表随之更新，当前模型的设置变了就在空闲时重建 agent、保留对话；写错时继续用旧配置并提示。`sprout run`、`sprout serve` 和缺 API Key 启动时仍要重启（见 `docs/m1-implementation.md` §5）。
-- [ ] 剪贴板取图（`Ctrl+V` 粘贴图片）、图片缩放与降采样：超过 3 MB 直接拒绝（见 `docs/m2-vision.md` §7）。
+- [ ] 剪贴板取图（`Ctrl+V` 粘贴图片）。
 - [ ] 交互式 CLI REPL；`sprout run` 不支持从 stdin 读提问。
 - [x] 思考程度调节：`/effort` 档位条与 `--effort`，档位由 `models.jsonc` 的 `effort` 按模型声明；四种协议按各自真实字段发送，Anthropic 思考块带签名原样回传（`docs/effort.md`）。
 - [x] Responses 协议下的思考摘要：`reasoning.summary=auto` 时接收 `reasoning_summary_text` 并显示。

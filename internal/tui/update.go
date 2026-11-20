@@ -72,10 +72,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.pasteIntoBrowser(msg.Content) {
 			return m, nil
 		}
-		// 粘贴的内容里带现有图片路径时，图片当场附加、输入框里只留 [文件名]，和对话区一致。
-		if text := m.pasteImages(msg.Content); text != msg.Content {
-			m.in.InsertString(text)
-			return m, nil
+		// 粘贴的内容里带现有图片路径时，图片在后台读好后附加、输入框里只留 [文件名]，和对话区一致。
+		if len(media.FindImagePaths(msg.Content)) > 0 {
+			return m, m.pasteCmd(msg.Content)
 		}
 
 	case tea.MouseMsg:
@@ -170,6 +169,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case modelsReloadedMsg:
 		m.onModelsReloaded(msg)
+		m.refresh()
+		return m, nil
+
+	case imageMsg:
+		m.onImages(msg)
 		m.refresh()
 		return m, nil
 

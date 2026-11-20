@@ -43,7 +43,7 @@ func TestImageCommandAttachesAndSends(t *testing.T) {
 	}}
 	m := newSized(t, Options{Runner: r, Info: Info{Model: "m", Vision: true}}, 120, 40)
 
-	submit(m, "/image "+tempPNG(t))
+	submitRun(m, "/image "+tempPNG(t))
 	mustContain(t, plain(m), "已附加图片", "截图.png")
 	if len(m.pending) != 1 {
 		t.Fatalf("待发送图片 = %d", len(m.pending))
@@ -77,7 +77,7 @@ func TestImageCommandListAndClear(t *testing.T) {
 	submit(m, "/image")
 	mustContain(t, plain(m), "没有待发送的图片")
 
-	submit(m, "/image "+tempPNG(t))
+	submitRun(m, "/image "+tempPNG(t))
 	submit(m, "/image")
 	mustContain(t, plain(m), "待发送的图片（1 张）")
 
@@ -94,7 +94,7 @@ func TestImageCommandRejectsBadFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := newSized(t, Options{Runner: scriptRunner()}, 120, 40)
-	submit(m, "/image "+p)
+	submitRun(m, "/image "+p)
 	mustContain(t, plain(m), "不是支持的图片格式")
 	if len(m.pending) != 0 {
 		t.Error("失败时不应附加")
@@ -103,7 +103,7 @@ func TestImageCommandRejectsBadFile(t *testing.T) {
 
 func TestImageWarnsWhenModelLacksVision(t *testing.T) {
 	m := newSized(t, Options{Runner: scriptRunner()}, 120, 40) // testInfo 没有 Vision
-	submit(m, "/image "+tempPNG(t))
+	submitRun(m, "/image "+tempPNG(t))
 	mustContain(t, plain(m), "没有标注 vision")
 }
 
@@ -169,7 +169,7 @@ func TestPasteImagePathShowsMarkInInput(t *testing.T) {
 	m := newSized(t, Options{Runner: r, Info: Info{Model: "m", Vision: true}}, 120, 40)
 
 	path := tempPNG(t)
-	m.Update(tea.PasteMsg{Content: path + " 这是什么"})
+	feed(m, update(m, tea.PasteMsg{Content: path + " 这是什么"}))
 	if v := m.in.Value(); v != "[截图.png] 这是什么" {
 		t.Fatalf("输入框显示 = %q，应把路径换成 [文件名]", v)
 	}
@@ -206,7 +206,7 @@ func TestDeletingPasteMarkDropsImage(t *testing.T) {
 	}}
 	m := newSized(t, Options{Runner: r, Info: Info{Model: "m", Vision: true}}, 120, 40)
 
-	m.Update(tea.PasteMsg{Content: tempPNG(t)})
+	feed(m, update(m, tea.PasteMsg{Content: tempPNG(t)}))
 	m.in.SetValue("只看文字")
 	runProgram(t, m, func(send func(tea.Msg)) { send(keyEnter) }, finishedOneTurn)
 
@@ -236,16 +236,43 @@ func TestPastePlainTextUnchanged(t *testing.T) {
 }
 
 func TestAutoAttachNoticeListsSkippedFiles(t *testing.T) {
-	big := tempPNG(t)
-	f, err := os.OpenFile(big, os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
+	// 文件头是 png、内容是坏的，又超过大小上限：没法原样发，也没法解码来压缩。
+	big := filepath.Join(t.TempDir(), "坏图.png")
+	sig := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
+	if err := os.WriteFile(big, append(sig, make([]byte, 4<<20)...), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	f.Write(make([]byte, 4<<20))
-	f.Close()
 
 	m := newSized(t, Options{Runner: scriptRunner(), Info: Info{Model: "m", Vision: true}}, 140, 40)
 	m.in.SetValue(big)
 	runProgram(t, m, func(send func(tea.Msg)) { send(keyEnter) }, finishedOneTurn)
 	mustContain(t, plain(m), "有图片没能附加", "超过上限")
+}
+
+// submitRun 提交一条输入，并把返回的 Cmd 执行完、结果交回 Update（/image 在后台读图）。
+func submitRun(m *Model, text string) {
+	m.in.SetValue(text)
+	feed(m, update(m, keyEnter))
+}
+
+func update(m *Model, msg tea.Msg) tea.Cmd {
+	_, cmd := m.Update(msg)
+	return cmd
+}
+
+// feed 同步执行 cmd，把产生的消息交回 Update；遇到 Batch 逐个展开。只用于不会阻塞的 Cmd。
+func feed(m *Model, cmd tea.Cmd) {
+	if cmd == nil {
+		return
+	}
+	msg := cmd()
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		for _, c := range batch {
+			feed(m, c)
+		}
+		return
+	}
+	if msg != nil {
+		feed(m, update(m, msg))
+	}
 }

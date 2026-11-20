@@ -70,7 +70,7 @@ func (m *Model) slash(text string) (handled bool, cmd tea.Cmd) {
 		m.follow = true
 		return true, m.compactCmd(strings.TrimSpace(arg))
 	case "/image":
-		m.imageCmd(strings.TrimSpace(arg))
+		return true, m.imageCmd(strings.TrimSpace(arg))
 	case "/install-sprout", "/uninstall-sprout":
 		m.follow = true
 		return true, m.installCmd(name == "/uninstall-sprout")
