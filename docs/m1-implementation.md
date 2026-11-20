@@ -395,7 +395,7 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
 - 会话记录器是 `event.Sink`，与 surface 订阅同一条事件流；`message.delta`、`reasoning.delta` 和 `tool.requested` 不落盘；`assistant` 记录带完整 `reasoning`（有思维链时），
   以及协议原始内容 `native`（目前只有开启思考的 Anthropic 消息会有，见 `docs/effort.md` §5）。
 - 文件在第一个可落盘事件到来时才创建；启动后什么都没做就退出不会留下空文件。权限 0600。
-- 同目录 `meta.json` 是该工作目录下所有会话的索引：`{cwd, sessions: {<文件名>: {id, provider, model, tools, startedAt, version, name?}}}`，原子替换写入，损坏时重建。`name` 是用户在会话浏览器里起的名字（只在当前目录的索引里读写；`/resume` 切到“全部目录”时按文件所在分组的 `meta.json` 逐条取，没有名字就显示第一条提问）。不加跨进程锁，两个实例同时在同一目录启动可能丢一条登记，JSONL 本身不受影响。
+- （已改，见 `docs/session-format.md` §4：现在不再写 `meta.json`，会话名是 JSONL 里的 `name` 记录。）当时同目录 `meta.json` 是该工作目录下所有会话的索引：`{cwd, sessions: {<文件名>: {id, provider, model, tools, startedAt, version, name?}}}`，原子替换写入，损坏时重建。`name` 是用户在会话浏览器里起的名字（只在当前目录的索引里读写；`/resume` 切到“全部目录”时按文件所在分组的 `meta.json` 逐条取，没有名字就显示第一条提问）。不加跨进程锁，两个实例同时在同一目录启动可能丢一条登记，JSONL 本身不受影响。
 - 写入失败只记日志，不影响 agent。
 - M1 不做恢复；启动新会话。
 
@@ -499,7 +499,7 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
 
 **会话**
 
-- `meta.json` 是工作目录分组下的会话索引（见 §10），而不是单个会话的元数据。
+- `meta.json` 当时是工作目录分组下的会话索引（见 §10）；后来改为不写索引，元数据都在会话文件里（见 `docs/session-format.md` §4）。
 
 **TUI**
 

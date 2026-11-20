@@ -148,8 +148,8 @@ func checkSessionFiles(t *testing.T, dir string) {
 	if got := strings.Join(types, ","); got != "session,user,assistant,tool,assistant,turn" {
 		t.Errorf("会话记录类型 = %s", got)
 	}
-	if _, err := os.Stat(filepath.Join(filepath.Dir(files[0]), "meta.json")); err != nil {
-		t.Errorf("同目录应有 meta.json: %v", err)
+	if _, err := os.Stat(filepath.Join(filepath.Dir(files[0]), "meta.json")); !os.IsNotExist(err) {
+		t.Errorf("元数据都在会话文件里，不应再写 meta.json: %v", err)
 	}
 	logs, _ := filepath.Glob(filepath.Join(dir, "logs", "sprout-*.log"))
 	if len(logs) != 1 {

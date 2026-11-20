@@ -36,10 +36,11 @@ func TestListAllAcrossGroups(t *testing.T) {
 	}
 }
 
-// 名字存在 meta.json 里：列表带出名字，按路径找得到，之后会话写入登记也不会把名字冲掉。
-func TestRenameKeepsNameAcrossMetaUpdates(t *testing.T) {
+// 名字作为 name 记录追加在会话文件里：以最后一条为准，空名字表示清除；起名不改变“最近使用”的时间。
+func TestRenameAppendsNameRecord(t *testing.T) {
 	root := t.TempDir()
-	p := mkSession(t, root, "name0001", time.Now(), "原始提问")
+	mod := time.Now().Add(-time.Hour).Truncate(time.Second)
+	p := mkSession(t, root, "name0001", mod, "原始提问")
 	if err := Rename(root, p, "  登录\n修复  "); err != nil {
 		t.Fatal(err)
 	}
@@ -47,12 +48,18 @@ func TestRenameKeepsNameAcrossMetaUpdates(t *testing.T) {
 	if list[0].Name != "登录 修复" || list[0].Title() != "登录 修复" {
 		t.Fatalf("名字 = %q", list[0].Name)
 	}
-	if _, err := updateMeta(filepath.Dir(p), filepath.Base(p), listCwd, sessionMeta{ID: "name0001"}); err != nil {
+	if st, _ := os.Stat(p); !st.ModTime().Equal(mod) {
+		t.Errorf("起名后修改时间变了：%v → %v", mod, st.ModTime())
+	}
+	// 重放时忽略 name 记录：历史和轮数都不受影响。
+	if st, err := Load(p); err != nil || st.Turns != 1 || len(st.History) != 2 {
+		t.Fatalf("Load = %+v, %v", st, err)
+	}
+	if err := Rename(root, p, "新名字"); err != nil {
 		t.Fatal(err)
 	}
-	list, _ = List(root, listCwd)
-	if list[0].Name != "登录 修复" {
-		t.Fatalf("会话登记后名字丢了: %q", list[0].Name)
+	if list, _ = List(root, listCwd); list[0].Name != "新名字" {
+		t.Fatalf("应以最后一条为准: %q", list[0].Name)
 	}
 	if err := Rename(root, p, ""); err != nil {
 		t.Fatal(err)
@@ -67,7 +74,26 @@ func TestRenameKeepsNameAcrossMetaUpdates(t *testing.T) {
 	}
 }
 
-func TestDeleteRemovesFileImagesAndMeta(t *testing.T) {
+// 旧版本把名字记在分组目录的 meta.json 里：会话文件没有 name 记录时仍然用它；重新起名或清除后以文件为准。
+func TestLegacyMetaNamesStillShow(t *testing.T) {
+	root := t.TempDir()
+	p := mkSession(t, root, "old00001", time.Now(), "原始提问")
+	legacy := `{"cwd":"x","sessions":{"` + filepath.Base(p) + `":{"id":"old00001","name":"旧名字"}}}`
+	if err := os.WriteFile(filepath.Join(filepath.Dir(p), "meta.json"), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ := List(root, listCwd); list[0].Name != "旧名字" {
+		t.Fatalf("应读出旧名字: %q", list[0].Name)
+	}
+	if err := Rename(root, p, ""); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ := List(root, listCwd); list[0].Name != "" {
+		t.Fatalf("清除后不应再用旧名字: %q", list[0].Name)
+	}
+}
+
+func TestDeleteRemovesFileAndAttachments(t *testing.T) {
 	root := t.TempDir()
 	p := mkSession(t, root, "del00001", time.Now(), "要删的")
 	keep := mkSession(t, root, "keep0002", time.Now(), "留着")
@@ -90,9 +116,6 @@ func TestDeleteRemovesFileImagesAndMeta(t *testing.T) {
 	}
 	if _, err := os.Stat(agents); !os.IsNotExist(err) {
 		t.Error("子代理记录目录还在")
-	}
-	if _, ok := readMeta(filepath.Dir(p)).Sessions[filepath.Base(p)]; ok {
-		t.Error("meta.json 里的登记还在")
 	}
 	list, _ := List(root, listCwd)
 	if len(list) != 1 || list[0].ID != "keep0002" {

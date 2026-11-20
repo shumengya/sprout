@@ -137,6 +137,13 @@ type interruptedRec struct {
 	Reasoning string `json:"reasoning,omitempty"`
 }
 
+// nameRec 是用户给会话起的名字（/resume 里重命名）。可以有多条，以最后一条为准；空名字表示清除。
+// name 不能 omitempty：空串就是“清除”。恢复重放时忽略，只有会话列表读它。
+type nameRec struct {
+	header
+	Name string `json:"name"`
+}
+
 type turnRec struct {
 	header
 	Reason string `json:"reason"`

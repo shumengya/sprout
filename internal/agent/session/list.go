@@ -21,12 +21,13 @@ type Brief struct {
 	ID       string
 	Path     string
 	Prompt   string // 第一条用户提问，压成一行
-	Name     string // 用户起的名字（meta.json 里），没起过为空
+	Name     string // 用户起的名字（会话文件里最后一条 name 记录），没起过为空
 	Cwd      string // 会话所属的工作目录
 	Provider string
 	Model    string
 	Updated  time.Time // 文件最后修改时间；恢复后继续追加，所以它就是“最近使用”
 	Turns    int
+	named    bool // 文件里有 name 记录（包括清除名字的空记录），这时不再看旧的 meta.json
 }
 
 // Title 是列表里显示的标题：起过名字用名字，否则用第一条提问。
@@ -43,6 +44,7 @@ const promptRunes = 200
 var (
 	userPrefix    = []byte(`{"type":"user"`)
 	sessionPrefix = []byte(`{"type":"session"`)
+	namePrefix    = []byte(`{"type":"name"`)
 )
 
 // List 列出 cwd 对应的会话目录里的全部会话，最近使用的在前。没有任何会话时返回空列表和 nil。
@@ -83,16 +85,13 @@ func sortRecent(bs []Brief) {
 	slices.SortStableFunc(bs, func(a, b Brief) int { return b.Updated.Compare(a.Updated) })
 }
 
-// listGroup 读一个分组目录。cwd 为空时从 meta.json 或会话头记录里取。
+// listGroup 读一个分组目录。会话头记录里没有 cwd 时用参数 cwd。
 func listGroup(dir, cwd string) ([]Brief, error) {
 	files, err := filepath.Glob(filepath.Join(dir, "*.jsonl"))
 	if err != nil {
 		return nil, err
 	}
-	gm := readMeta(dir)
-	if cwd == "" {
-		cwd = gm.Cwd
-	}
+	legacy := legacyNames(dir)
 	var out []Brief
 	for _, f := range files {
 		st, err := os.Stat(f)
@@ -104,7 +103,9 @@ func listGroup(dir, cwd string) ([]Brief, error) {
 			continue
 		}
 		b.Updated = st.ModTime()
-		b.Name = gm.Sessions[filepath.Base(f)].Name
+		if !b.named {
+			b.Name = legacy[filepath.Base(f)]
+		}
 		if b.Cwd == "" {
 			b.Cwd = cwd
 		}
@@ -130,6 +131,11 @@ func briefOf(path string) (Brief, bool) {
 			var r rawRec
 			if json.Unmarshal(line, &r) == nil {
 				b.ID, b.Provider, b.Model, b.Cwd = r.ID, r.Provider, r.Model, r.Cwd
+			}
+		case bytes.HasPrefix(line, namePrefix):
+			var r rawRec
+			if json.Unmarshal(line, &r) == nil {
+				b.Name, b.named = r.Name, true
 			}
 		case bytes.HasPrefix(line, userPrefix):
 			b.Turns++
@@ -228,22 +234,35 @@ func inSessions(sessionsDir, path string) (string, error) {
 	return p, nil
 }
 
-// Rename 给会话起名（写进同目录的 meta.json），空名字表示清除。名字压成一行。
+// Rename 给会话起名，空名字表示清除。名字压成一行，作为一条 name 记录追加在会话文件末尾，以最后一条为准。
+//
+// 追加会改动文件的修改时间，而列表按它排“最近使用”、清理按它算多久没用过，起个名字不该算“用过”，
+// 所以写完把修改时间改回去。会话正在被记录器写入时同样可以追加：两边都是 O_APPEND 的整行写入。
 func Rename(sessionsDir, path, name string) error {
 	p, err := inSessions(sessionsDir, path)
 	if err != nil {
 		return err
 	}
-	name = oneLine(name, 80)
-	return editMeta(filepath.Dir(p), func(gm *groupMeta) {
-		file := filepath.Base(p)
-		sm := gm.Sessions[file]
-		sm.Name = name
-		gm.Sessions[file] = sm
-	})
+	st, err := os.Stat(p)
+	if err != nil {
+		return fmt.Errorf("会话文件不存在: %w", err)
+	}
+	line, err := json.Marshal(nameRec{header{Type: "name", Time: time.Now()}, oneLine(name, 80)})
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(p, os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		return fmt.Errorf("写入会话名失败: %w", err)
+	}
+	_, werr := f.Write(append(line, '\n'))
+	if err := errors.Join(werr, f.Close()); err != nil {
+		return fmt.Errorf("写入会话名失败: %w", err)
+	}
+	return os.Chtimes(p, time.Time{}, st.ModTime()) // 零值的 atime 保持不变
 }
 
-// Delete 删除一个会话：JSONL、同名的 .images 与 .agents（子代理记录）目录和 meta.json 里的登记。
+// Delete 删除一个会话：JSONL 与同名的 .images、.agents（子代理记录）目录。
 // active 是当前正在写的会话文件，删它会让之后的记录写进已删除的文件，所以拒绝。
 func Delete(sessionsDir, path, active string) error {
 	p, err := inSessions(sessionsDir, path)
@@ -266,5 +285,5 @@ func Delete(sessionsDir, path, active string) error {
 	if err := os.RemoveAll(base + ".agents"); err != nil {
 		return fmt.Errorf("会话已删除，但子代理记录目录没删掉: %w", err)
 	}
-	return editMeta(filepath.Dir(p), func(gm *groupMeta) { delete(gm.Sessions, filepath.Base(p)) })
+	return nil
 }

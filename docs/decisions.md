@@ -23,7 +23,7 @@
 
 - **JSONL 追加写，按工作目录分组**（`docs/session-format.md`）：无 CGO、可恢复、可重放，崩溃时最多丢最后半行。
 - **路径 `sessions/--<slug>--/<时间戳>_<id>.jsonl`**：2026-11-16 定为以实际实现为准，`AGENTS.md` 与 `README.md` 已同步。
-- **`meta.json` 是分组索引，不是单个会话的元数据**：权威信息在各 JSONL 的 `session` 头记录里，`meta.json` 损坏可以重建。
+- **会话元数据跟着会话文件走，没有分组索引**（2026-11-20）：`session` 头记录加上可追加的 `name` 记录，参照 pi、Claude Code、opencode 的做法。早先的 `meta.json` 索引只多存了一个名字，却要处理并发写丢登记、损坏重建、删除时同步；旧文件只读，用来显示旧版本起的名字（见 `docs/session-format.md` §4）。
 - **恢复按运行时规则重放**，而不是存一份历史快照：同一套规则由黄金对照测试保证，旧会话按当年的规则重放。
 
 ## Provider

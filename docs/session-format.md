@@ -7,7 +7,6 @@
 ```
 <数据目录>/sessions/
   --<工作目录 slug>--/
-    meta.json                         该目录分组下所有会话的索引
     <yyyymmdd-hhmmss>_<id>.jsonl      一个会话
     <yyyymmdd-hhmmss>_<id>.images/    该会话的图片：用户输入和工具结果里的（有图片时才有）
     <yyyymmdd-hhmmss>_<id>.agents/    该会话派出的子代理的记录，每次 agent 调用一个 <call id>.jsonl（有子代理时才有）
@@ -16,13 +15,13 @@
 - **slug**（`session.Slug`）：去掉开头的 `/`、`\`，把 `/`、`\`、`:` 换成 `-`，前后加 `--`。例：`D:\SmyProjects\sprout` → `--D--SmyProjects-sprout--`，`/home/a/b` → `--home-a-b--`。
 - **文件名**：会话开始时刻（本地时间，`20060102-150405`）加 8 位十六进制随机 id。恢复后继续追加不改文件名，所以会话列表按文件修改时间排序。
 - **权限**：JSONL 和图片文件为 0600，目录为 0755。会话里有命令输出，可能含敏感内容。
-- **子代理记录**（`session.NewChildRecorder` / `session.ChildPath`）：与普通会话格式相同，`session` 头里多一个 `agent`（子代理类型名）。文件名是启动它的 tool call id，只保留字母、数字、`-`、`_`，其余换成 `_`；同名文件已存在时不覆盖，只停止记录。不登记进 `meta.json`，所以不出现在会话列表里；子代理的图片放在 `.agents/<call id>.images/`。删除会话时 `.images/` 与 `.agents/` 一起删除。
+- **子代理记录**（`session.NewChildRecorder` / `session.ChildPath`）：与普通会话格式相同，`session` 头里多一个 `agent`（子代理类型名）。文件名是启动它的 tool call id，只保留字母、数字、`-`、`_`，其余换成 `_`；同名文件已存在时不覆盖，只停止记录。放在会话的 `.agents/` 目录里，不在分组目录下，所以不出现在会话列表里；子代理的图片放在 `.agents/<call id>.images/`。删除会话时 `.images/` 与 `.agents/` 一起删除。
 
 ## 2. 写入规则
 
-- 文件懒创建：第一条需要落盘的记录到来时才创建，并先写 `session` 头记录、登记 `meta.json`。启动后什么都没做就退出不会留下空文件。
+- 文件懒创建：第一条需要落盘的记录到来时才创建，并先写 `session` 头记录。启动后什么都没做就退出不会留下空文件。
 - 每条记录一行 JSON，一次 `Write` 写完，进程崩溃时最多留下最后半行。
-- 写入失败只记日志、停止记录，不影响 agent 运行。`meta.json` 写失败只是警告，不影响会话记录。
+- 写入失败只记日志、停止记录，不影响 agent 运行。
 - 带图片的轮次或工具结果：图片写盘失败时整条 `user` / `user_queued` / `tool` 记录不写，记录器转为失败状态，避免重放出的历史和运行时不一致。
 - `Attach(path)`：恢复会话时改为向原文件追加，并写一条 `resume` 记录。
 - `Reset(info)`：`/new` 时结束当前文件，下一条记录写进新会话；`info` 换成当前模型。
@@ -47,6 +46,7 @@
 | `error` | `error` | `message`、`retryable`（省略） |
 | `turn` | `turn.finished` | `reason` |
 | `retry` | `retrying` | `attempt`、`max`、`delay_ms`、`reason`；仅审计 |
+| `name` | `session.Rename`（`/resume` 重命名、RPC `session/rename`） | `name`：会话名，空串表示清除；以最后一条为准，恢复重放时忽略 |
 | `branch` | `/tree` 切换位置 | `turn`：之后的记录接在第几轮之后，0 是会话开头（见第 6 节） |
 | `resume` | `Attach` / `NoteModelChange` | `provider`、`model`、`tools`；仅审计 |
 
@@ -56,24 +56,22 @@
 - `message.delta`、`reasoning.delta`、`tool.requested` 不落盘。内层不是 `usage` 的 `subagent` 也不落进主会话，子代理的完整过程在它自己的记录文件里。
 - 旧会话缺少的字段（`reasoning_tokens`、缓存两项、`manual`、`images` 的 `name` / `source` 等）读出来是零值，按旧语义处理。
 
-## 4. meta.json
+## 4. 会话元数据
 
-```json
-{
-  "cwd": "D:\\SmyProjects\\sprout",
-  "sessions": {
-    "20261116-101500_ab12cd34.jsonl": {
-      "id": "ab12cd34", "provider": "deepseek", "model": "deepseek-flash",
-      "tools": ["bash", "powershell"], "startedAt": "2026-11-16T10:15:00+08:00",
-      "version": "2026.11.14", "name": "用户起的名字"
-    }
-  }
-}
-```
+每个会话的元数据都在它自己的 JSONL 里，没有单独的索引文件：
 
-- 它是同一工作目录分组下所有会话的索引，键是 JSONL 文件名。各会话 JSONL 开头的 `session` 记录才是权威来源；唯一只存在这里的是 `/resume` 里起的 `name`。
-- 读-改-写后用临时文件加改名原子替换。损坏时重建，并记一条警告。
-- 不加跨进程锁：两个实例同时在同一分组下创建会话，可能丢一条登记，JSONL 本身不受影响。
+- 开头的 `session` 记录：id、工作目录、服务商、模型、工具、版本。
+- `name` 记录：`/resume` 里起的名字，追加在文件末尾，可以有多条，以最后一条为准，空串表示清除。
+  追加后把文件修改时间改回原值：列表按修改时间排“最近使用”、清理按它算多久没用过，起名不算“用过”。
+- 第一条提问、轮数由会话列表从文件里扫出来（只做前缀匹配，不完整解析每一行）。
+
+这和 pi（`--<cwd>--/<时间戳>_<uuid>.jsonl`，名字是会话里的 `session_info` 条目）、Claude Code（按项目目录分组的
+`<uuid>.jsonl`，标题是会话里追加的记录）、opencode（每个会话一份 JSON）的做法一致：元数据跟着会话文件走，
+复制、删除一个会话就是这一个文件（加同名的 `.images/`、`.agents/` 目录），不会和索引对不上，也没有多个实例
+同时改一份索引互相覆盖的问题。
+
+旧版本在分组目录写过 `meta.json`（`{cwd, sessions: {<文件名>: {id, …, name?}}}`）。现在不再写入、也不删除；
+会话文件里没有 `name` 记录时，列表仍从它取旧版本起的名字。
 
 ## 5. 恢复（`session.Load`）
 

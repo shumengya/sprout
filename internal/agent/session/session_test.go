@@ -161,48 +161,17 @@ func TestChineseAndNewlinesSurviveRoundTrip(t *testing.T) {
 	}
 }
 
-func TestMetaJSON(t *testing.T) {
+// 会话的元数据都在 JSONL 自己的 session 头记录里，不再写分组目录的 meta.json 索引。
+func TestRecorderWritesNoGroupIndex(t *testing.T) {
 	r, dir := newRec(t)
 	r.Emit(event.TurnStarted{Prompt: "q"})
-	r2 := NewRecorder(dir, testInfo, nil) // 同一个工作目录的第二个会话
-	r2.now = func() time.Time { return time.Now().Add(time.Second) }
-	r2.Emit(event.TurnStarted{Prompt: "q2"})
-	r2.Close()
-
-	raw, err := os.ReadFile(filepath.Join(dir, Slug(testInfo.Cwd), "meta.json"))
-	if err != nil {
-		t.Fatal(err)
+	r.Close()
+	if _, err := os.Stat(filepath.Join(dir, Slug(testInfo.Cwd), "meta.json")); !os.IsNotExist(err) {
+		t.Errorf("不应再写 meta.json: %v", err)
 	}
-	var gm groupMeta
-	if err := json.Unmarshal(raw, &gm); err != nil {
-		t.Fatalf("meta.json 不是合法 JSON: %v", err)
-	}
-	if gm.Cwd != testInfo.Cwd || len(gm.Sessions) != 2 {
-		t.Fatalf("meta = %+v，应同时登记两个会话", gm)
-	}
-	sm, ok := gm.Sessions[filepath.Base(r.Path())]
-	if !ok || sm.Provider != "deepseek" || sm.Model != "deepseek-flash" || len(sm.Tools) != 2 || sm.StartedAt.IsZero() {
-		t.Errorf("会话条目 = %+v (存在=%v)", sm, ok)
-	}
-}
-
-func TestCorruptMetaIsRebuilt(t *testing.T) {
-	r, dir := newRec(t)
-	group := filepath.Join(dir, Slug(testInfo.Cwd))
-	if err := os.MkdirAll(group, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(group, "meta.json"), []byte("{坏掉了"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	r.Emit(event.TurnStarted{Prompt: "q"})
-	raw, _ := os.ReadFile(filepath.Join(group, "meta.json"))
-	var gm groupMeta
-	if json.Unmarshal(raw, &gm) != nil || len(gm.Sessions) != 1 {
-		t.Fatalf("损坏的 meta.json 应被重建: %s", raw)
-	}
-	if len(readRecords(t, r.Path())) == 0 {
-		t.Error("meta.json 损坏不应影响会话记录")
+	head := readRecords(t, r.Path())[0]
+	if head["type"] != "session" || head["provider"] != "deepseek" || head["model"] != "deepseek-flash" || head["cwd"] != testInfo.Cwd {
+		t.Errorf("头记录 = %v", head)
 	}
 }
 

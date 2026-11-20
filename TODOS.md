@@ -20,7 +20,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] 自动重试：网络失败、408/409/425/429/5xx、流被截断按指数退避重试（默认 7 次，等待 1s、2s、4s…64s，不加抖动），听 `Retry-After`（超过 64 秒不等）；`insufficient_quota` 不重试；本次调用已向界面输出内容后不再重试，避免重复输出；退避期间可取消。
 - [x] 上下文管理：`contextWindow` 接近预算时先从最旧的开始裁剪旧工具输出（按 token 估算降到预算的 85% 以下就停，不一次裁光），不够再把更早的对话总结成分层摘要（每次只总结新切掉的一段并追加成新的一层，超过 3 层合并最旧两层；只在用户消息处切，不拆 tool call 与结果）；服务端报告超长时压缩一次再重试；摘要失败不丢历史；每次压缩都有事件和提示。真实 DeepSeek 验证过（调小窗口后连续压缩 4 次、暗号未丢；该验证早于“按需裁剪”和“分层摘要”两处改动，之后只有单元测试与黄金重放测试）。
 - [x] 会话恢复：`-c` / `--resume`（`run` 与 TUI 都支持）和 TUI 的 `/resume`；重放规则与运行时一致（并行工具结果按调用顺序、被杀留下的未完成调用补“未执行”、首次调用失败撤销用户消息、压缩按当初方式重做），换模型时丢弃旧思维链；恢复后接着写原会话文件。真实 DeepSeek 验证过 `run -c` 能记住上文。
-- [x] 会话浏览器：TUI 的 `/resume` 替换输入框列出会话，可切当前目录 / 全部、搜索（关键词 / `re:` 正则 / `"短语"`）、按最近 / 最早 / 轮数排序、只看已命名、重命名（存在 `meta.json` 的 `name`）、删除（连同图片，需确认，当前会话不能删）。
+- [x] 会话浏览器：TUI 的 `/resume` 替换输入框列出会话，可切当前目录 / 全部、搜索（关键词 / `re:` 正则 / `"短语"`）、按最近 / 最早 / 轮数排序、只看已命名、重命名（会话文件里追加 `name` 记录）、删除（连同图片，需确认，当前会话不能删）。
 
 ### Provider（`internal/provider/openai`）
 - [x] OpenAI Chat Completions 流式：按 index 拼 tool call（兼容同 index 不同 id 的服务）、`include_usage`、`finish_reason`。
@@ -54,7 +54,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 
 ### 会话（`internal/agent/session`）
 - [x] JSONL 记录器（`event.Sink`）：`session` / `user` / `assistant` / `tool` / `usage` / `turn` / `error`；文件懒创建，权限 0600。
-- [x] 路径 `sessions/--<cwd slug>--/<时间戳>_<id>.jsonl`；同目录 `meta.json` 为会话索引（原子替换，损坏重建）。
+- [x] 路径 `sessions/--<cwd slug>--/<时间戳>_<id>.jsonl`；元数据都在会话文件里（`session` 头、`name` 记录），不再写分组索引 `meta.json`，旧文件只读来显示旧版本起的名字。
 
 ### TUI（`internal/tui`）
 - [x] 全屏 Bubble Tea v2；`Update` 不做 IO，agent 在 `tea.Cmd` 的独立 goroutine 里运行。
@@ -185,16 +185,15 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - **token 估算是近似值**：按字符类别估算（英文单词每 5 个字母约 1 个、数字每 3 位 1 个、汉字 0.7、符号 1.5、emoji 2，见 `internal/agent/tokens.go`），用 DeepSeek V4 分词器在本机真实会话上校准，整体略微偏高（约 1.1 倍），并用服务端上次报告的用量校准。旧的 OpenAI cl100k 分词器（gpt-4、gpt-3.5）每个汉字约 1 个 token，中文多时会低估约三成。窗口配置错误（比实际大）时靠“服务端报超长后压缩重试”兜底。裁剪会改动历史前缀，使服务端的前缀缓存失效一次。
 - **恢复会话不回放增量**：TUI 恢复时对话区由落盘的完整消息重建，看不到当初的逐字流式过程；思维链在恢复后是折叠摘要。
 - **PowerShell 退出码**：`-Command` 模式下失败通常是 1，不一定等于原生程序自己的退出码（已写进工具描述）。
-- **`meta.json` 并发**：读-改-写不加跨进程锁，两个实例同时在同一目录启动可能丢一条索引登记；JSONL 本身不受影响。
 - **Windows 进程树终止**：用 `taskkill /T`，没有使用 Job Object。
 
 ## 五、待你决定
 
 - [x] **会话路径与 `AGENTS.md` 不一致**：已定以实际实现为准，`sessions/--<cwd slug>--/<时间戳>_<id>.jsonl`；`AGENTS.md` 决策表与 `README.md` 已同步。
-- [ ] **`meta.json` 语义**：现在是工作目录分组下所有会话的索引；如果你想要“每个会话一份元数据”，需要改格式。
+- [x] **`meta.json` 语义**：已改为参照 pi / Claude Code / opencode，元数据跟着会话文件走（`session` 头加 `name` 记录），不再写分组索引；见 `docs/session-format.md` §4。
 - [x] **是否提供关闭思考的开关**：已由 `/effort off` 实现，模板里 DeepSeek 的 off 档位发送 `thinking: {"type":"disabled"}`。
 - [x] **按模型切换 `max_tokens` / `max_completion_tokens`**：已由 `models.jsonc` 的 `maxTokensParam` 实现。
-- [ ] **输出上限的默认值**：`deepseek-flash` 的 `maxOutput` 现为官方上限 384000，是否过大；不填则不发该参数。
+- [x] **输出上限的默认值**：`deepseek-flash` 的 `maxOutput` 保持官方上限 384000，不改。
 
 ## 六、工程与文档
 

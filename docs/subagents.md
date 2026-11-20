@@ -76,7 +76,7 @@ effort: high                                 # 可省略，该模型声明过的
 
 ## 5. 记录
 
-- 子代理的完整过程记在 `<会话名>.agents/<call id>.jsonl`，格式与普通会话相同（`session` 头里多一个 `agent` 字段），可以用 `session.Load` 读出来。它不登记进 `meta.json`，不出现在 `/resume` 列表里，删除会话时一起删除。
+- 子代理的完整过程记在 `<会话名>.agents/<call id>.jsonl`，格式与普通会话相同（`session` 头里多一个 `agent` 字段），可以用 `session.Load` 读出来。它在会话的 `.agents/` 目录里，不出现在 `/resume` 列表里，删除会话时一起删除。
 - 主会话里只多一类 `subagent_usage` 记录，恢复会话后花费仍然对得上。恢复时卡片只显示报告，不重放子代理的过程。
 - 细节见 `docs/session-format.md`。
 

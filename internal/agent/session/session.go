@@ -275,7 +275,7 @@ func (r *Recorder) fail(err error) {
 	r.log.Error("session recording disabled", "error", err.Error())
 }
 
-// open 创建会话文件，写入 session 头记录并登记 meta.json。调用方持有 mu。
+// open 创建会话文件并写入 session 头记录。调用方持有 mu。
 func (r *Recorder) open() bool {
 	if r.fixed != "" {
 		return r.openFixed()
@@ -301,16 +301,6 @@ func (r *Recorder) open() bool {
 		header: header{Type: "session", Time: started}, ID: id, Cwd: r.info.Cwd,
 		Provider: r.info.Provider, Model: r.info.Model, Tools: r.info.Tools, Version: r.info.Version,
 	})
-	warn, err := updateMeta(groupDir, file, r.info.Cwd, sessionMeta{
-		ID: id, Provider: r.info.Provider, Model: r.info.Model, Tools: r.info.Tools,
-		StartedAt: started, Version: r.info.Version,
-	})
-	if warn != "" {
-		r.log.Warn(warn, "dir", groupDir)
-	}
-	if err != nil { // meta.json 只是索引，写不进去不影响会话记录
-		r.log.Warn("update meta.json failed", "error", err.Error())
-	}
 	return !r.failed
 }
 
