@@ -29,7 +29,7 @@ var version = "dev"
 func main() {
 	owns := platform.OwnsConsole() // 双击 exe 启动时为 true：窗口会随进程退出而消失
 	restore := platform.InitConsole()
-	code := realMain(os.Args[1:], os.Stdout, os.Stderr)
+	code := realMain(os.Args[1:], os.Stdin, os.Stdout, os.Stderr)
 	if code != 0 && owns {
 		// 出错时先停住让用户看清错误，否则双击启动的窗口一闪而过。
 		fmt.Fprint(os.Stderr, "\n按回车键退出…")
@@ -40,7 +40,8 @@ func main() {
 }
 
 // realMain 是不带控制台副作用的主流程，返回进程退出码，便于测试。
-func realMain(argv []string, stdout, stderr io.Writer) (code int) {
+// stdin 只给 sprout run 用（读提问、交互模式逐行读），测试里传 nil 表示没有重定向。
+func realMain(argv []string, stdin *os.File, stdout, stderr io.Writer) (code int) {
 	log := slog.New(slog.DiscardHandler)
 	defer func() {
 		if r := recover(); r != nil {
@@ -61,6 +62,19 @@ func realMain(argv []string, stdout, stderr io.Writer) (code int) {
 	case a.version:
 		fmt.Fprintln(stdout, "sprout", version)
 		return 0
+	}
+	// 提问可能来自 stdin：在装配 agent 之前读完，缺提问是用法错误，不必先连 MCP、建会话。
+	if a.runPrompt != nil && !a.interactive {
+		p, err := runPromptText(*a.runPrompt, a.runStdin, len(a.images) > 0, pipedStdin(stdin))
+		switch {
+		case errors.Is(err, errUsage):
+			fmt.Fprintf(stderr, "%v\n\n%s", err, usage)
+			return 2
+		case err != nil:
+			fmt.Fprintln(stderr, "错误:", err)
+			return cli.ExitError
+		}
+		a.runPrompt = &p
 	}
 
 	// update 只读写程序本身和网络上的发布信息，不需要数据目录，也不写日志。
@@ -110,6 +124,12 @@ func realMain(argv []string, stdout, stderr io.Writer) (code int) {
 	log.Info("start", "version", version, "data_dir", dataDir, "model", ap.sel.Ref(),
 		"protocol", ap.sel.Provider.Protocol, "enabled", ap.ag != nil, "tools", len(ap.info.Tools), "effort", ap.effort)
 
+	if a.runPrompt != nil && a.interactive {
+		if stdin == nil {
+			stdin = os.Stdin
+		}
+		return runREPL(ap, *a.runPrompt, a.images, a.resume, stdin, stdout, stderr)
+	}
 	if a.runPrompt != nil {
 		return runOnce(ap, *a.runPrompt, a.images, a.resume, stdout, stderr)
 	}
@@ -132,7 +152,19 @@ func homeDir() string {
 // 带 -c / --resume 时先恢复会话；找不到可恢复的会话是错误而不是悄悄开新会话——
 // 在脚本里，用户期望的是“接着上次的上下文”，静默开新会话会得到完全不同的答案。
 func runOnce(ap *app, prompt string, images []string, resume string, stdout, stderr io.Writer) int {
-	// MCP 在后台连接：run 模式是单次提问，等到连好再问，才能用上那些工具。
+	in, ok := prepareRun(ap, prompt, images, resume, stderr)
+	if !ok {
+		return cli.ExitError
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	return cli.Run(ctx, ap.ag, in, stdout, stderr)
+}
+
+// prepareRun 做 run 与 run -i 共同的准备：等 MCP 连好、打印提示、读图片、恢复会话。
+// 失败时已经把原因写到 stderr，返回 ok=false。
+func prepareRun(ap *app, prompt string, images []string, resume string, stderr io.Writer) (in agent.Input, ok bool) {
+	// MCP 在后台连接：要等到连好再问，才能用上那些工具；接入工具会重建 agent，必须在第一次提问之前做。
 	ap.waitMCP()
 	_, notices := ap.applyMCP()
 	ap.notices = append(ap.notices, notices...)
@@ -141,19 +173,31 @@ func runOnce(ap *app, prompt string, images []string, resume string, stdout, std
 	}
 	if ap.ag == nil {
 		fmt.Fprintln(stderr, "错误:", ap.disabled)
-		return cli.ExitError
+		return agent.Input{}, false
 	}
-	in := agent.Input{Text: prompt}
+	in = agent.Input{Text: prompt}
 	for _, p := range images {
 		img, _, err := media.LoadImage(p)
 		if err != nil {
 			fmt.Fprintln(stderr, "错误:", err)
-			return cli.ExitError
+			return agent.Input{}, false
 		}
 		in.Images = append(in.Images, img)
 	}
-	// 提问里直接写的图片路径同样当作图片输入。
-	var attached []media.Attached
+	in = attachImages(ap, in, stderr)
+	if resume != "" {
+		_, notice, err := ap.resume(resume)
+		if err != nil {
+			fmt.Fprintln(stderr, "错误: 恢复会话失败:", err)
+			return agent.Input{}, false
+		}
+		fmt.Fprintln(stderr, "提示:", notice)
+	}
+	return in, true
+}
+
+// attachImages 把提问里直接写的图片路径当作图片输入，并在 stderr 说明附了哪些。
+func attachImages(ap *app, in agent.Input, stderr io.Writer) agent.Input {
 	in, attached, skipped := media.AutoAttach(in)
 	for _, a := range attached {
 		fmt.Fprintf(stderr, "提示: 已附加图片 %s（%s）\n", a.Name, media.Size(a.Bytes))
@@ -164,17 +208,21 @@ func runOnce(ap *app, prompt string, images []string, resume string, stdout, std
 	if len(in.Images) > 0 && !ap.sel.Model.SupportsVision() {
 		fmt.Fprintln(stderr, "提示: 当前模型没有标注 vision，图片会被替换成占位文本。")
 	}
-	if resume != "" {
-		_, notice, err := ap.resume(resume)
-		if err != nil {
-			fmt.Fprintln(stderr, "错误: 恢复会话失败:", err)
-			return cli.ExitError
-		}
-		fmt.Fprintln(stderr, "提示:", notice)
+	return in
+}
+
+// runREPL 实现 sprout run -i。选项与 run 相同；给了提问就先问它，之后一行一问。
+func runREPL(ap *app, prompt string, images []string, resume string, stdin io.Reader, stdout, stderr io.Writer) int {
+	first, ok := prepareRun(ap, prompt, images, resume, stderr)
+	if !ok {
+		return cli.ExitError
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-	return cli.Run(ctx, ap.ag, in, stdout, stderr)
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt)
+	defer signal.Stop(sig)
+	return cli.REPL(ap.ag, first, stdin, stdout, stderr, sig, func(text string) agent.Input {
+		return attachImages(ap, agent.Input{Text: text}, stderr)
+	})
 }
 
 // runTUI 启动终端界面。resume 非空时先恢复会话；失败不致命，只提示并开新会话。

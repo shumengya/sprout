@@ -19,6 +19,10 @@ type args struct {
 	runPrompt *string
 	// images 是 run 模式随提问一起发送的图片路径，可重复指定。
 	images []string
+	// interactive 表示 `sprout run -i`：交互模式，一行一问。
+	interactive bool
+	// runStdin 表示 run 的参数里写了单独的 "-"：从 stdin 读入内容，接在提问后面。
+	runStdin bool
 	// effort 是启动时的思考档位，覆盖 models.jsonc 里的 default。
 	effort string
 	// modelsUpdate 表示 `sprout models update`：拉取 models.dev 目录后退出。
@@ -51,8 +55,10 @@ func (l *stringList) Set(v string) error {
 const usage = `用法:
   sprout [--data-dir DIR] [-c | --resume ID] [--effort 档位]
                                                    启动终端界面
-  sprout run [--data-dir DIR] [-c | --resume ID] [--effort 档位] [--image 文件]... "提问"
-                                                   单次运行，答案写 stdout，进度写 stderr
+  sprout run [--data-dir DIR] [-c | --resume ID] [--effort 档位] [--image 文件]... "提问" [-]
+                                                   单次运行，答案写 stdout，进度写 stderr；
+                                                   不写提问时从 stdin 读，写了 - 时把 stdin 接在提问后面
+  sprout run -i [同上选项] ["第一个提问"]          交互模式：不进全屏界面，一行一问，/exit 或 Ctrl+D 退出
   sprout serve [--data-dir DIR] [-c | --resume ID] [--effort 档位]
                                                    在 stdin / stdout 上提供 JSON-RPC 2.0 服务（见 docs/rpc.md）
   sprout models update [--data-dir DIR]            从 models.dev 更新模型参数与价格的本地缓存
@@ -65,6 +71,7 @@ const usage = `用法:
   -c, --continue   恢复当前目录最近使用的会话，接着聊
   --resume ID      恢复指定会话：序号（见 TUI 里的 /resume 列表）或 ID 前缀
   --image 文件     随提问发送一张图片（png/jpeg/gif/webp），可重复；仅 run 模式支持
+  -i, --interactive  run 的交互模式
   --effort 档位    思考程度，如 auto / low / high / max；可选档位由 models.jsonc 里该模型的 effort 声明决定
   --data-dir DIR   数据目录（配置、会话、日志）。优先级: --data-dir > SPROUT_DATA_DIR > <程序所在目录>/data/.sprout
                    用 go run 启动时必须显式指定，例如 --data-dir ./data/.sprout
@@ -142,14 +149,25 @@ func parseArgs(argv []string) (args, error) {
 	rfs := flag.NewFlagSet("sprout run", flag.ContinueOnError)
 	register(rfs)
 	rfs.Var((*stringList)(&a.images), "image", "")
+	rfs.BoolVar(&a.interactive, "i", false, "")
+	rfs.BoolVar(&a.interactive, "interactive", false, "")
 	if err := rfs.Parse(rest[1:]); err != nil {
 		return a, fmt.Errorf("%w: %v", errUsage, err)
 	}
 	finish()
-	prompt := strings.TrimSpace(strings.Join(rfs.Args(), " "))
-	if prompt == "" && len(a.images) == 0 {
-		return a, fmt.Errorf("%w: run 需要提问内容，例如 sprout run \"看一下当前目录\"", errUsage)
+	// 单独的 "-" 表示从 stdin 读。没有提问时是否读 stdin 要看它是不是管道，由 runPromptText 在运行时判断。
+	var words []string
+	for _, w := range rfs.Args() {
+		if w == "-" {
+			a.runStdin = true
+			continue
+		}
+		words = append(words, w)
 	}
+	if a.interactive && a.runStdin {
+		return a, fmt.Errorf("%w: run -i 用 stdin 逐行提问，不能再用 - 读入", errUsage)
+	}
+	prompt := strings.TrimSpace(strings.Join(words, " "))
 	a.runPrompt = &prompt
 	return a, nil
 }

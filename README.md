@@ -141,6 +141,8 @@ go build -o bin/sprout.exe ./cmd/sprout
 
 sprout                 # 终端界面
 sprout run "..."       # 单次非交互，答案写 stdout，进度写 stderr
+git diff | sprout run 审一下 -   # 单独的 - 把 stdin 接在提问后面；不写提问时整段从 stdin 读
+sprout run -i          # 交互模式：不进全屏界面，一行一问
 sprout -c              # 恢复当前目录最近的会话（也可 sprout run -c "..."；TUI 里用 /resume 选择）
 sprout --effort high   # 指定思考程度（TUI 里用 /effort 切换），档位由 models.jsonc 按模型声明
 sprout models update   # 从 models.dev 更新模型窗口、输出上限和价格的本地缓存（启动时不联网）

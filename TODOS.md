@@ -165,7 +165,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] 每轮回答结束后的统计行：回答下方一行淡色的 `耗时 · 首字 · token/s · 输入 · 输出 · 缓存 · 合计`，是这一轮主对话全部模型调用的合计（不含子代理）；恢复会话时只写 token（见 `docs/m1-implementation.md` §9）。
 - [x] 配置热加载（TUI）：`models.jsonc` 改完几秒内自动重新读取，`/model` 列表随之更新，当前模型的设置变了就在空闲时重建 agent、保留对话；写错时继续用旧配置并提示。`sprout run`、`sprout serve` 和缺 API Key 启动时仍要重启（见 `docs/m1-implementation.md` §5）。
 - [x] 剪贴板取图：TUI 里 Ctrl+V / Alt+V 粘贴剪贴板里的图片或复制的图片文件，显示成 `[剪贴板图片 N]`（见 `docs/m2-vision.md` §6）。
-- [ ] 交互式 CLI REPL；`sprout run` 不支持从 stdin 读提问。
+- [x] 交互式 CLI：`sprout run -i` 一行一问、行尾 `\` 续行、生成中 Ctrl+C 只取消当前回答；`sprout run` 不写提问时从 stdin 读，单独的 `-` 把 stdin 接在提问后面（见 `docs/cli.md`）。
 - [x] 思考程度调节：`/effort` 档位条与 `--effort`，档位由 `models.jsonc` 的 `effort` 按模型声明；四种协议按各自真实字段发送，Anthropic 思考块带签名原样回传（`docs/effort.md`）。
 - [x] Responses 协议下的思考摘要：`reasoning.summary=auto` 时接收 `reasoning_summary_text` 并显示。
 - [x] Responses 协议回传 reasoning 条目：开启思考时请求 `include: reasoning.encrypted_content`，把 reasoning 条目原文存进 `Message.Native`，下一轮放在同一条 assistant 的正文与 `function_call` 之前回传。

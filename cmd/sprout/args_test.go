@@ -45,6 +45,27 @@ func TestParseArgs(t *testing.T) {
 	}
 }
 
+// 没有提问的 run 在解析阶段不报错：要看 stdin 有没有重定向，由 runPromptText 在运行时判断。
+func TestParseRunStdinAndInteractive(t *testing.T) {
+	a, err := parseArgs([]string{"run", "审一下", "-"})
+	if err != nil || !a.runStdin || *a.runPrompt != "审一下" || a.interactive {
+		t.Fatalf("单独的 - 应标记读 stdin: %+v %v", a, err)
+	}
+	a, err = parseArgs([]string{"run"})
+	if err != nil || a.runPrompt == nil || *a.runPrompt != "" || a.runStdin {
+		t.Fatalf("空 run 应留给运行时判断: %+v %v", a, err)
+	}
+	for _, argv := range [][]string{{"run", "-i"}, {"run", "--interactive", "-c", "先问这个"}} {
+		a, err = parseArgs(argv)
+		if err != nil || !a.interactive || a.runPrompt == nil {
+			t.Fatalf("%v 应进入交互模式: %+v %v", argv, a, err)
+		}
+	}
+	if *a.runPrompt != "先问这个" || a.resume != "latest" {
+		t.Errorf("交互模式应保留首个提问和 -c: %+v", a)
+	}
+}
+
 func TestParseModelsUpdate(t *testing.T) {
 	a, err := parseArgs([]string{"models", "update", "--data-dir", "D:/x"})
 	if err != nil {
@@ -74,13 +95,12 @@ func TestParseServeArgs(t *testing.T) {
 
 func TestParseArgsErrors(t *testing.T) {
 	cases := map[string][]string{
-		"未知命令":     {"bogus"},
-		"serve 多余": {"serve", "extra"},
-		"未知选项":     {"--nope"},
-		"run 无内容":  {"run"},
-		"run 全空白":  {"run", "   "},
-		"选项缺值":     {"--data-dir"},
-		"run 选项错":  {"run", "--bogus", "q"},
+		"未知命令":        {"bogus"},
+		"serve 多余":    {"serve", "extra"},
+		"未知选项":        {"--nope"},
+		"run -i 又写 -": {"run", "-i", "-"},
+		"选项缺值":        {"--data-dir"},
+		"run 选项错":     {"run", "--bogus", "q"},
 	}
 	for name, argv := range cases {
 		t.Run(name, func(t *testing.T) {

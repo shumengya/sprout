@@ -80,7 +80,7 @@ func writeServerConfig(t *testing.T, dir, baseURL string) {
 
 func run(argv ...string) (code int, stdout, stderr string) {
 	var o, e bytes.Buffer
-	code = realMain(argv, &o, &e)
+	code = realMain(argv, nil, &o, &e)
 	return code, o.String(), e.String()
 }
 
