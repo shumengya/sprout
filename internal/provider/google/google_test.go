@@ -27,7 +27,8 @@ func TestStreamsTextThoughtAndUsage(t *testing.T) {
 	if resp.StopReason != agent.StopStop {
 		t.Errorf("停止原因 = %q", resp.StopReason)
 	}
-	if resp.Usage != (agent.Usage{InputTokens: 10, OutputTokens: 4, TotalTokens: 15, ReasoningTokens: 1}) {
+	// candidatesTokenCount 不含思考 token：输出要加上 thoughtsTokenCount（4 + 1），合计才对得上 total。
+	if resp.Usage != (agent.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15, ReasoningTokens: 1}) {
 		t.Errorf("Usage = %+v", resp.Usage)
 	}
 }

@@ -100,7 +100,9 @@ func (p *provider) Stream(ctx context.Context, req agent.Request, emit func(agen
 		}
 		if u := chunk.UsageMetadata; u != nil {
 			usage = agent.Usage{
-				InputTokens: u.PromptTokenCount, OutputTokens: u.CandidatesTokenCount,
+				// candidatesTokenCount 不含思考 token（total = prompt + candidates + thoughts），
+				// 而思考按输出计费，内部口径里 OutputTokens 要包含 ReasoningTokens，所以加回去。
+				InputTokens: u.PromptTokenCount, OutputTokens: u.CandidatesTokenCount + u.ThoughtsTokenCount,
 				TotalTokens: u.TotalTokenCount, ReasoningTokens: u.ThoughtsTokenCount,
 				CacheReadTokens: u.CachedContentTokenCount,
 			}
