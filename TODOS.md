@@ -120,6 +120,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [ ] **每轮统计行**：只有模型级测试，没在真实终端和真实模型上看过数字。
 - [ ] **`models.jsonc` 热加载**：只有临时目录里的单元测试（改文件后手动拨修改时间），没有在真实编辑器（VS Code、记事本、vim 的原子替换或先清空再写）下保存过。
 - [ ] **`/install-sprout` / `/uninstall-sprout` 的真实效果**：Windows 的流程用注册表替身和临时目录测试过，读取真实用户 / 系统 PATH 只做过只读演练，没有真正写过注册表、没有确认新开的终端能直接敲 `sprout`；Linux / macOS / Termux 的符号链接逻辑只用文件系统替身测试过，真实系统上没跑过。
+- [ ] **排队消息在工具执行完后送达**：内核、会话重放、TUI、RPC 都有单元测试，但没有用真实模型跑过；四种协议在请求构造上都接受“工具结果后跟一条用户消息”，没有逐家对真实服务确认。
 - [ ] `go test -race`：本机没有 gcc，未跑过。
 
 ## 三、未实现
@@ -198,7 +199,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 
 - [x] CI：`.github/workflows/ci.yml` 在 Windows / Ubuntu / macOS 上跑 `go build` / `go vet` / `go test`，另有一个 job 在 Linux 上交叉编译全部发布目标（只验证能打包，不上传）。是否通过以 GitHub 上的运行结果为准，本文件不记录。
 - [x] LICENSE：Apache-2.0，发布包一并附带。
-- [x] `README.md` 的“项目结构”已补上 `tool/shell`、`tool/file`、`tool/external`、`media`、`provider/google`、`provider/transport`，`skills`、`mcp`，并标出 `rpc` / `webui` 仍是占位。
+- [x] `README.md` 的“项目结构”已补上 `tool/shell`、`tool/file`、`tool/external`、`media`、`provider/google`、`provider/transport`，`skills`、`mcp`，并标出 `webui` 仍是占位（`rpc` 已实现）。
 - [x] `README.md` 与 `AGENTS.md` 的“当前状态”已更新为 M1 + M2，协议表补上 Gemini，深入文档列表补全。
 - [x] `docs/slash-commands.md` 已列出 `/new` 与 `/image`。
 - [x] `docs/cli.md`、`docs/keybindings.md`、`docs/slash-commands.md` 已提交到 git。
