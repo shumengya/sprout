@@ -59,8 +59,8 @@ go vet ./...
 - Windows 的 `bash` 工具只认真实 Git Bash / MSYS2 / Cygwin：按 `bashPath` 配置、Program Files 两个路径、PATH 顺序查找；只有 `System32\bash.exe`（WSL 启动器）时视为不可用，并提示安装 Git for Windows。
 - Windows 的 `powershell` 工具先找 `pwsh.exe`（7+），再回退 `powershell.exe`（5.1）；把 edition 写进工具描述，5.1 不要生成 `&&` / `||` / `?:`。
 - `bash` 和 `powershell` 都是一等公民，不排先后；是否注册由 `tools.jsonc` 开关、平台和实际检测结果共同决定，模型只看到当前可用工具。
-- 系统提示词改动只改 `agent.DefaultPromptTemplate`，并同步仓库根的 `SYSTEMPROMPT.example.md`（测试保证一致）；模板里用到的字段名（`promptData`）是用户可见接口，不要改名。
-- 新增内置工具时同步改三处：`config.KnownTools`（否则 `tools.jsonc` 校验会拒绝该名字）、`config.ToolsTemplate` 与仓库根的 `tools.example.jsonc`（测试保证一致）、`cmd/sprout/setup.go` 的 `registerTools`。
+- 系统提示词改动只改 `agent.DefaultPromptTemplate`，并同步 `examples/SYSTEMPROMPT.example.md`（测试保证一致）；模板里用到的字段名（`promptData`）是用户可见接口，不要改名。
+- 新增内置工具时同步改三处：`config.KnownTools`（否则 `tools.jsonc` 校验会拒绝该名字）、`config.ToolsTemplate` 与 `examples/tools.example.jsonc`（测试保证一致）、`cmd/sprout/setup.go` 的 `registerTools`。
 - 外部工具（`internal/agent/tool/external`）只做「把参数替换进命令再执行」，不校验参数取值；覆盖 `parameters` 只影响模型看到的 schema，不是执行期约束。别把它当成沙箱。
 - Termux 没有 systemd、没有 CGO 工具链；不要引入依赖这些的库。
 - MCP 客户端目前是自己写的，但这不是禁令：要不要换成官方 SDK 或引入某个窄库，按「架构边界」里的依赖成本规则判断。注意 MCP **客户端**做 OAuth 只需要 PKCE、授权服务器元数据发现和令牌存储，不需要 JWT / JWKS 校验——校验令牌签名是资源服务端的职责，别把 JWT 当成客户端的引入成本。改协议细节时同时更新 `docs/mcp.md`。
@@ -70,8 +70,8 @@ go vet ./...
 - 技能的目录段是追加在系统提示词末尾的（`skills.AppendCatalog`），不要改成模板变量：用户的 `SYSTEMPROMPT.md` 可能是旧版本，没有那个变量的模板会让技能静默失效。
 - 改旧工具输出的裁剪规则（`internal/agent/context.go` 的 `policyFor`）必须把 `agent.PruneVersion` 加一，并让旧版本号仍走旧规则：`compact` 记录按自己的 `prune_version` 重放，版本不变就改规则，旧会话恢复出来的历史会和当初模型看到的不同。黄金对照测试（`session/golden_test.go`）的窗口大小是按当前策略调出来的，改策略后要重新确认前提断言。
 - `models.jsonc` 热加载（`cmd/sprout/reload.go`）会替换 agent，TUI 只在空闲时调用，期间置 `switching`；新增会改 app 或 agent 的界面操作（如 `/effort`、`/model` 的 Enter）要检查 `m.switching`，否则会和后台的重新读取互相覆盖。
-- `mcp.jsonc` 的模板（`config.MCPTemplate`）与仓库根的 `mcp.example.jsonc` 由测试保证一致，改一处要同步另一处。
-- 状态栏的项目名、内置行号和内置颜色都在 `internal/tui/statusline.go` 的 `statusDefs` 里，`statusItemOrder` 必须与它一一对应（测试保证）。加一项时这三处一起改，另外 `config.StatuslineTemplate` 与仓库根的 `statusline.example.jsonc` 也要同步；`statusline.jsonc` 的项目名是用户可见接口，不要改名。
+- `mcp.jsonc` 的模板（`config.MCPTemplate`）与 `examples/mcp.example.jsonc` 由测试保证一致，改一处要同步另一处。
+- 状态栏的项目名、内置行号和内置颜色都在 `internal/tui/statusline.go` 的 `statusDefs` 里，`statusItemOrder` 必须与它一一对应（测试保证）。加一项时这三处一起改，另外 `config.StatuslineTemplate` 与 `examples/statusline.example.jsonc` 也要同步；`statusline.jsonc` 的项目名是用户可见接口，不要改名。
 - `mcp.jsonc` 与 `skills.jsonc` 的开关由面板写回，必须走 `config` 包的 `editJSONC`（按字节偏移拼接，保留注释、BOM、缩进，写完重新校验，失败回滚）；不要读出结构体再整份 `json.Marshal` 写回，会丢掉用户的注释。唯一的例外是旧版 `{"disabled": [...]}` 的一次性迁移（`WriteSkills`）。
 - 技能的注册表键名优先于 `SKILL.md` 里的 `name`；`/技能名` 触发时内置命令优先，名字不是技能（`ErrUnknownSkill`）就当普通提问，所以 `/etc/hosts` 这类输入仍能原样发送。
 - 子代理在主代理的工具 goroutine 里装配（`cmd/sprout/subagent.go` 的 `spawnSubagent`），此时 TUI / RPC 线程可能同时在改 app：`sel` / `key` 必须在 `a.mu` 下读，思考档位从 `a.ag.Thinking()` 取，不要读 `a.effort`（`/effort` 一轮中途也能改它）。子代理的进度只能经 `tool.Call.Emit` 交给内核转发，不能直接写主代理的 sink：Sink 约定只在 agent 主 goroutine 里调用。

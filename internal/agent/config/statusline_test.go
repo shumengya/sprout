@@ -45,7 +45,7 @@ func TestEnsureStatuslineTemplateNeverOverwrites(t *testing.T) {
 }
 
 func TestStatuslineExampleMatchesTemplate(t *testing.T) {
-	b, err := os.ReadFile(filepath.Join("..", "..", "..", "statusline.example.jsonc"))
+	b, err := os.ReadFile(filepath.Join("..", "..", "..", "examples", "statusline.example.jsonc"))
 	if err != nil {
 		t.Fatal(err)
 	}

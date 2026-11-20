@@ -8,7 +8,7 @@ import (
 )
 
 func TestSettingsExampleMatchesTemplate(t *testing.T) {
-	b, err := os.ReadFile(filepath.Join("..", "..", "..", "settings.example.jsonc"))
+	b, err := os.ReadFile(filepath.Join("..", "..", "..", "examples", "settings.example.jsonc"))
 	if err != nil {
 		t.Fatal(err)
 	}

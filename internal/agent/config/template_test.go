@@ -87,7 +87,7 @@ func TestEnsureTemplateFailsWhenDirMissing(t *testing.T) {
 
 // 防止内置模板与仓库根目录的示例文件各改各的。
 func TestTemplateMatchesExampleFile(t *testing.T) {
-	b, err := os.ReadFile(filepath.Join("..", "..", "..", "models.example.jsonc"))
+	b, err := os.ReadFile(filepath.Join("..", "..", "..", "examples", "models.example.jsonc"))
 	if err != nil {
 		t.Fatal(err)
 	}

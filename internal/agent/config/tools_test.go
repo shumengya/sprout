@@ -133,7 +133,7 @@ func TestToolsPathUnderDataDir(t *testing.T) {
 
 // 模板必须与仓库根目录的示例文件一致，避免两处各改各的。
 func TestToolsTemplateMatchesExampleFile(t *testing.T) {
-	b, err := os.ReadFile(filepath.Join("..", "..", "..", "tools.example.jsonc"))
+	b, err := os.ReadFile(filepath.Join("..", "..", "..", "examples", "tools.example.jsonc"))
 	if err != nil {
 		t.Fatal(err)
 	}

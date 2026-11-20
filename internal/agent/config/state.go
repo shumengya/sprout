@@ -29,7 +29,7 @@ type Settings struct {
 func SettingsPath(dataDir string) string { return joinDataDir(dataDir, "settings.jsonc") }
 
 // SettingsTemplate 是首次运行时生成的 settings.jsonc。
-// 仓库根目录的 settings.example.jsonc 必须与它逐字一致，由 template_test.go 保证。
+// examples/settings.example.jsonc 必须与它逐字一致，由 template_test.go 保证。
 const SettingsTemplate = `// Sprout 设置（JSONC：支持 // 和 /* */ 注释，以及尾逗号）。
 // 改完之后重启 sprout 生效。
 //

@@ -247,7 +247,7 @@ internal/tui/view.go                  布局与渲染
 internal/tui/entries.go               transcript 条目与工具渲染
 internal/tui/commands.go              斜杠命令 /tools /help /quit
 internal/cli/run.go                   单次运行
-models.example.jsonc                  示例配置
+examples/models.example.jsonc         示例配置
 ```
 
 ## 9. 实现检查点

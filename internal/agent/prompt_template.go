@@ -1,7 +1,7 @@
 package agent
 
 // DefaultPromptTemplate 是内置系统提示词，也是数据目录 SYSTEMPROMPT.md 为空或缺失时生成的模板。
-// 修改时同步仓库根的 SYSTEMPROMPT.example.md（测试保证一致）。
+// 修改时同步 examples/SYSTEMPROMPT.example.md（测试保证一致）。
 //
 // 空白约定：可选的行和段落都把换行写在条件块里面、开头用 {{- 吃掉前一个换行，
 // 这样条件不成立时不会留下空行，成立时段落之间正好一个空行。

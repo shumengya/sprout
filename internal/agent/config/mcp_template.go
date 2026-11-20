@@ -9,7 +9,7 @@ import (
 )
 
 // MCPTemplate 是首次运行时生成的 mcp.jsonc。
-// 仓库根目录的 mcp.example.jsonc 必须与它逐字一致，由 mcp_test.go 保证。
+// examples/mcp.example.jsonc 必须与它逐字一致，由 mcp_test.go 保证。
 //
 // 模板里一个服务端都不启用：探测失败的远程服务会让每次启动都多等一轮超时，
 // 用户想接什么自己打开注释即可。

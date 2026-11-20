@@ -81,7 +81,7 @@ func (s effortStore) Choices() []tui.EffortChoice {
 
 func (s effortStore) Unsupported() string {
 	return fmt.Sprintf("模型 %s 没有在 models.jsonc 声明 effort，不能调整思考程度。\n"+
-		"在该模型下加上 \"effort\": {\"levels\": [\"low\", \"medium\", \"high\"]} 即可（各家参数不同，写法见 models.example.jsonc），修改后重启 sprout。",
+		"在该模型下加上 \"effort\": {\"levels\": [\"low\", \"medium\", \"high\"]} 即可（各家参数不同，写法见仓库 examples/models.example.jsonc），修改后重启 sprout。",
 		s.a.sel.Ref())
 }
 

@@ -124,7 +124,7 @@
 注意：覆盖 `parameters` 只改变模型看到的 schema，**不会**让工具本身拒绝其他参数——
 约束执行行为仍要改代码。这是当前实现的边界，不是沙箱。
 
-模板与仓库根目录的 `tools.example.jsonc` 由测试保证一致。
+模板与 `examples/tools.example.jsonc` 由测试保证一致。
 
 ## 与 MCP 工具的关系
 

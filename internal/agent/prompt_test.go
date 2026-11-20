@@ -118,7 +118,7 @@ func TestPromptTemplateCommentsAreNotSent(t *testing.T) {
 
 // 仓库根的示例文件与内置模板逐字一致，避免两处各改各的。
 func TestDefaultPromptMatchesExampleFile(t *testing.T) {
-	b, err := os.ReadFile(filepath.Join("..", "..", "SYSTEMPROMPT.example.md"))
+	b, err := os.ReadFile(filepath.Join("..", "..", "examples", "SYSTEMPROMPT.example.md"))
 	if err != nil {
 		t.Fatal(err)
 	}

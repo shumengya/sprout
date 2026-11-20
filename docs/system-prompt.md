@@ -3,7 +3,7 @@
 发给模型的系统提示词来自数据目录下的 `SYSTEMPROMPT.md`，它是一份 Go `text/template` 模板。
 文件缺失或为空时，启动会写入程序内置的模板；已有内容从不覆盖。修改后需要重启 sprout。
 
-内置模板与仓库根目录的 `SYSTEMPROMPT.example.md` 逐字一致（测试保证）；想恢复默认，清空或删除该文件即可。
+内置模板与 `examples/SYSTEMPROMPT.example.md` 逐字一致（测试保证）；想恢复默认，清空或删除该文件即可。
 
 ## 为什么是模板
 

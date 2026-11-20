@@ -50,7 +50,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] `models.jsonc`（JSONC，注释与尾逗号）；语法/类型错误定位到 `文件:行:列`（列按字符计）。
 - [x] 校验一次汇总所有问题；API Key 环境变量优先、`apiKey` 兜底；`tools:false` 的模型不下发工具。
 - [x] 数据目录 `--data-dir` > `SPROUT_DATA_DIR` > `<exeDir>/data/.sprout`；`go run` 临时二进制或不可写时报错，不回退 `~/.sprout`。
-- [x] 首次运行生成带注释的模板（不覆盖已有文件）；模板与 `models.example.jsonc` 由测试保证一致。
+- [x] 首次运行生成带注释的模板（不覆盖已有文件）；模板与 `examples/models.example.jsonc` 由测试保证一致。
 
 ### 会话（`internal/agent/session`）
 - [x] JSONL 记录器（`event.Sink`）：`session` / `user` / `assistant` / `tool` / `usage` / `turn` / `error`；文件懒创建，权限 0600。
@@ -75,7 +75,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] `/image 路径` 附加图片，粘贴或消息里直接写图片路径时自动附加（`internal/media`、`internal/tui/image.go`）。
 - [x] 对话区拖选复制：按住左键拖动选中（反色显示），松开自动复制；选区跟着内容走，拖到上下边缘自动滚动；中文按整个字选中；内容重排（窗口缩放、`/think` 展开）导致选区对不上时自动取消。复制同时走 OSC 52 和系统剪贴板，任何一条失败只提示、不当作致命。
 - [x] 真实终端光标（输入法候选窗跟随）；退出时 `Shutdown` 等 agent 收尾，保证 `turn.finished` 被记录。
-- [x] 底部状态栏（默认三行：路径、对话轮次、耗时、内存 百分比 · 进程 MB、CPU · 负载 / 输入、输出、缓存读写 · 命中率、花费、上下文占用、模型、思考强度 / 状态、速度、压缩次数、MCP、插件、技能、工具数、Git 分支 ↑ahead +新增 ~修改 -删除）；MCP 显示 `已连接/已启用`、技能显示个数，没配置时显示 `—`；`插件` 仍未实现，恒为占位。花费按 models.dev 的单价折算，见下。显示哪些项、在第几行、什么颜色由数据目录的 `statusline.jsonc` 配置（`statusline.example.jsonc` 是模板）。设计见 `docs/m1-implementation.md` §9。
+- [x] 底部状态栏（默认三行：路径、对话轮次、耗时、内存 百分比 · 进程 MB、CPU · 负载 / 输入、输出、缓存读写 · 命中率、花费、上下文占用、模型、思考强度 / 状态、速度、压缩次数、MCP、插件、技能、工具数、Git 分支 ↑ahead +新增 ~修改 -删除）；MCP 显示 `已连接/已启用`、技能显示个数，没配置时显示 `—`；`插件` 仍未实现，恒为占位。花费按 models.dev 的单价折算，见下。显示哪些项、在第几行、什么颜色由数据目录的 `statusline.jsonc` 配置（`examples/statusline.example.jsonc` 是模板）。设计见 `docs/m1-implementation.md` §9。
 
 ### 识图（`internal/media`，设计见 `docs/m2-vision.md`）
 - [x] `Message.Content` 改为 text / image 块数组；工具结果也能带图片。

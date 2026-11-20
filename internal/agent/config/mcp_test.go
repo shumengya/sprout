@@ -23,7 +23,7 @@ func TestMCPTemplateIsValidAndEmpty(t *testing.T) {
 }
 
 func TestMCPExampleMatchesTemplate(t *testing.T) {
-	b, err := os.ReadFile(filepath.Join("..", "..", "..", "mcp.example.jsonc"))
+	b, err := os.ReadFile(filepath.Join("..", "..", "..", "examples", "mcp.example.jsonc"))
 	if err != nil {
 		t.Fatal(err)
 	}

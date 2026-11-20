@@ -16,7 +16,7 @@ Sprout 内置一个最小化的 MCP（Model Context Protocol）客户端，把�
 
 ## 配置：`mcp.jsonc`
 
-放在数据目录（默认 `<exeDir>/data/.sprout/mcp.jsonc`），首次启动生成一份全部注释掉的模板。JSONC：支持 `//`、`/* */` 与尾逗号，与 `models.jsonc` 同一套解析和报错定位。仓库根的 `mcp.example.jsonc` 与内置模板逐字一致，由测试保证。
+放在数据目录（默认 `<exeDir>/data/.sprout/mcp.jsonc`），首次启动生成一份全部注释掉的模板。JSONC：支持 `//`、`/* */` 与尾逗号，与 `models.jsonc` 同一套解析和报错定位。`examples/mcp.example.jsonc` 与内置模板逐字一致，由测试保证。
 
 ```jsonc
 {

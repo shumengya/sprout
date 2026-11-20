@@ -72,6 +72,8 @@ internal/
   webui/                 WebUI 模块（占位，未实现）
   rpc/                   JSON-RPC 服务（sprout serve，stdio）
 docs/                    设计文档
+examples/                数据目录各配置文件的模板（与内置模板逐字一致，测试保证）
+tools/release/           发布打包工具
 ```
 
 小模块（事件、会话、配置、平台、工具、skills、MCP）挂在内核 `agent/` 下；`provider`、`media`、`tui`、`cli`、`webui`、`rpc` 是平级的大组件。所有组件在同一个 Go module 内，靠包边界隔离，暂不拆成多个 module。对外 API 稳定前统一放在 `internal/`，需要对外嵌出时再加 `pkg/sprout` 门面。

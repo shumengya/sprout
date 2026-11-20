@@ -48,7 +48,7 @@
   OpenAI 协议写了预算、Anthropic 预算小于 1024 或不小于 `maxOutput`、Gemini 预算小于 -1、
   Gemini 同时写强度和预算、对象里出现未知字段（如 `budgets`、`efort` 这类笔误）。
 
-模板（`models.example.jsonc`）给四种协议各示范了一种写法。
+模板（`examples/models.example.jsonc`）给四种协议各示范了一种写法。
 
 ## 3. 各协议发送什么
 
