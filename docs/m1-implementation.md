@@ -551,8 +551,8 @@ TUI 输入 → agent.Run → event channel → tea.Cmd → TUI 更新
 
 **尚未验证**
 
-- OpenAI 官方服务（Chat 与 Responses）：只验证过 DeepSeek。
+- OpenAI 官方服务（Chat 与 Responses）：只验证过 DeepSeek；2026-11-20 经第三方中转（true-sota）验证过两种协议，仍没有直连官方服务。
 - 真实终端里的 TUI 手工操作，尤其是中文输入法下 Enter 的组合期行为、Windows 控制台里 Ctrl+C 的送达方式、鼠标滚轮是否被送达、拖选复制在各终端里的表现（OSC 52 是否生效、Linux 缺 xclip/xsel/wl-clipboard 与 Termux 缺 termux-clipboard-set 时的提示、反色高亮的观感）、Ctrl+Home/End 等组合键在各终端里是否被正确识别、流式渲染的观感。TUI 只用 `tea.Program` 加桩 runner 和模型级渲染测试验证过。
 - 在非终端环境（stdin 重定向到 `/dev/null`）下启动 TUI 不会自行退出，会一直挂到被外部终止；正常使用不受影响，M1 未处理。
 - 工具子进程会继承 `sprout` 的环境变量，包括通过 `DEEPSEEK_API_KEY` 等传入的 API Key；模型可以让命令读取它。M1 没有权限模块，这是已知取舍。
-- `go test -race`（本机没有 gcc）。
+- ~~`go test -race`（本机没有 gcc）~~：2026-11-20 用本机 mingw64 的 gcc 跑通，查出并修复了一处 MCP 后台连接的数据竞争。
