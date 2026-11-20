@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"charm.land/bubbles/v2/spinner"
@@ -320,12 +321,13 @@ func (m *Model) submit() (tea.Model, tea.Cmd) {
 		m.add(&entry{kind: kindNotice, text: n})
 	}
 	// 正在生成时先入队：想补充信息、追加要求，不必等本轮结束再把话重打一遍。
-	// 内容按提交这一刻的样子存好（图片、技能都已展开），本轮结束时原样发出。
+	// 内容按提交这一刻的样子存好（图片、技能都已展开）。内核在当前这批工具执行完后取走，
+	// 接在工具结果后面交给模型；模型这一步已经在给最终答案时，等本轮结束后作为新的一轮发出。
 	if m.running {
 		e.queued = true
 		e.touch()
-		m.queue = append(m.queue, queued{in: in, entry: e})
-		m.status = fmt.Sprintf("已排队（第 %d 条），本轮结束后自动发送", len(m.queue))
+		n := m.queue.push(in)
+		m.status = fmt.Sprintf("已排队（第 %d 条），当前步骤完成后自动发送", n)
 		m.refresh()
 		return m, nil
 	}
@@ -337,28 +339,85 @@ func (m *Model) submit() (tea.Model, tea.Cmd) {
 	return m, m.startTurn(in)
 }
 
-// queued 是一条排队中的用户输入。entry 指向对话区那条显示「排队中」的条目，发出时换成正常样式。
-type queued struct {
-	in    agent.Input
-	entry *entry
+// inputQueue 是生成中提交、还没交给内核的输入，按提交顺序排列。界面线程追加；
+// agent goroutine 在一批工具执行完后经 Input.Queued 一次取走全部；没被取走的由界面在本轮结束后逐条发出。
+// 两个线程都会碰它，所以加锁。对话区里对应的条目靠 entry.queued 标记，顺序与这里一致。
+type inputQueue struct {
+	mu    sync.Mutex
+	items []agent.Input
+}
+
+// push 追加一条，返回追加后的条数。
+func (q *inputQueue) push(in agent.Input) int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.items = append(q.items, in)
+	return len(q.items)
+}
+
+// take 取走全部，供 Input.Queued 使用。
+func (q *inputQueue) take() []agent.Input {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	out := q.items
+	q.items = nil
+	return out
+}
+
+// pop 取出队首一条。
+func (q *inputQueue) pop() (agent.Input, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.items) == 0 {
+		return agent.Input{}, false
+	}
+	in := q.items[0]
+	q.items = q.items[1:]
+	return in, true
+}
+
+func (q *inputQueue) count() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.items)
+}
+
+func (q *inputQueue) clear() {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.items = nil
+}
+
+// unqueueFirst 把对话区里最早一条“排队中”的用户消息换回正常样式并返回它。
+// 队列是先进先出的，最早那条就是刚被取走或发出的那条。
+func (m *Model) unqueueFirst() *entry {
+	for _, e := range m.entries {
+		if e.queued {
+			e.queued = false
+			e.touch()
+			return e
+		}
+	}
+	return nil
 }
 
 // startQueued 在本轮结束后发出队首那条。还在忙或队列为空时返回 nil。
 // 排队内容是用户主动提交的，上一轮被取消也照发：取消的是那一轮的回答，不是这些提问。
 func (m *Model) startQueued() tea.Cmd {
-	if m.running || m.resuming || m.switching || m.compacting || len(m.queue) == 0 {
+	if m.running || m.resuming || m.switching || m.compacting {
 		return nil
 	}
-	q := m.queue[0]
-	m.queue = m.queue[1:]
-	q.entry.queued = false
-	q.entry.touch()
-	if len(m.queue) > 0 {
-		m.status = fmt.Sprintf("已发送排队消息，还有 %d 条等待", len(m.queue))
+	in, ok := m.queue.pop()
+	if !ok {
+		return nil
+	}
+	m.unqueueFirst()
+	if n := m.queue.count(); n > 0 {
+		m.status = fmt.Sprintf("已发送排队消息，还有 %d 条等待", n)
 	}
 	m.running, m.follow = true, true
 	m.refresh()
-	return m.startTurn(q.in)
+	return m.startTurn(in)
 }
 
 // skillInvocation 把 "/技能名 任务" 展开成发给模型的提问，返回展开后的正文与技能名。

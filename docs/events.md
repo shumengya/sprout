@@ -6,7 +6,7 @@
 
 ## 1. 入口
 
-- 提交一轮：`Agent.Run(ctx, Input{Text, Images}, sink)`。
+- 提交一轮：`Agent.Run(ctx, Input{Text, Images, Queued}, sink)`。`Queued` 可为 nil；非 nil 时内核在每批工具执行完、下一次请求模型之前调用它，取走用户在这一轮进行中排队的输入，依次作为用户消息接在工具结果后面（每条发一个 `user.queued`）。模型给最终答案的那一步之后不再调用，没被取走的由 surface 自己在本轮结束后作为新的一轮发出。它在 agent 主 goroutine 里调用，与界面线程的同步由 surface 负责。
 - 手动压缩：`Agent.Compact(ctx, focus, sink)`，与 `Run` 共用一把锁，会等当前一轮结束再执行。
 - 取消：取消传入的 `ctx`。事件协议里没有单独的“命令”类型。
 - `event.Sink` 只有一个方法 `Emit(Event)`；`event.SinkFunc` 把函数包装成 Sink。事件都由 agent 主 goroutine 发出（并行工具的结果也回到主 goroutine 再发），所以 Sink 不要求线程安全。
@@ -18,6 +18,7 @@
 | Kind | Go 类型 | 主要字段 | 落盘为 |
 | --- | --- | --- | --- |
 | `turn.started` | `TurnStarted` | `Prompt`、`Images` | `user` |
+| `user.queued` | `UserQueued` | `Prompt`、`Images` | `user_queued` |
 | `message.delta` | `MessageDelta` | `Text` | 不落盘 |
 | `reasoning.delta` | `ReasoningDelta` | `Text` | 不落盘 |
 | `message.completed` | `MessageCompleted` | `Content`、`Reasoning`、`ToolCalls`、`StopReason`、`ReasoningTokensEst`、`Native` | `assistant` |
@@ -42,13 +43,14 @@ surface 可以依赖下面这些规则，内核和测试保证它们成立。
 - `error` 之后一定跟着 `turn.finished`，`Reason` 为 `error` 或 `max_steps`。
 - `interrupted` 之后一定跟着 `turn.finished`，`Reason` 为 `cancelled` 或 `error`。
 - 同一批工具调用并行执行（上限 `Config.MaxParallelTools`，默认 4；声明不可并行的工具如 `write` / `edit` / `delete` 独占执行，见 `docs/tools.md`「并行」）：`tool.requested` 按调用顺序发出，`tool.finished` 按完成顺序发出，用 `ID` 配对。被取消而没来得及执行的调用只有 `tool.finished`（`Cancelled` 为 true），没有 `tool.requested`。
+- `user.queued` 只出现在一批工具的 `tool.finished` 全部发完之后、下一次模型调用之前，属于当前这一轮，不会另起 `turn.started`。同一批取到几条就连发几条，顺序与排队顺序一致。
 - `retrying` 只在本次调用还没向界面输出任何内容时出现，所以重试不会让 surface 收到重复的增量。
 - `compacted` 可能出现在一轮中间（自动压缩，`Manual` 为 false），也可能由 `Agent.Compact` 在两轮之间发出（`Manual` 为 true）。手动压缩不是一轮，前后没有 `turn.started` / `turn.finished`。历史被改动就一定有这个事件，压缩从不静默发生。
 - `subagent` 只出现在启动它的 `agent` 工具调用的 `tool.requested` 与 `tool.finished` 之间，`CallID` 就是那次调用的 `ID`。内层是子代理自己完整的一轮（`turn.started` … `turn.finished`），同样遵守本节的顺序规则，但不含 `message.delta` / `reasoning.delta`。几个子代理并行时，各自的 `subagent` 事件交错到达，用 `CallID` 区分。
 
 ## 4. 字段语义
 
-- **`TurnStarted.Images`**：`Data` 是 base64 原始数据。会话记录器落盘后回填 `Path`（相对会话文件的路径），并在自己的副本里清空 `Data`；记录器会先复制切片再改，不影响其他 Sink 收到的事件。`Source` 是图片在消息正文里对应的原始片段，界面用它把路径显示成 `[文件名]`。
+- **`TurnStarted.Images`**（`UserQueued.Images` 同）：`Data` 是 base64 原始数据。会话记录器落盘后回填 `Path`（相对会话文件的路径），并在自己的副本里清空 `Data`；记录器会先复制切片再改，不影响其他 Sink 收到的事件。`Source` 是图片在消息正文里对应的原始片段，界面用它把路径显示成 `[文件名]`。
 - **增量与完整内容**：`message.delta`、`reasoning.delta` 只用于展示。完整的正文和思维链以 `message.completed` 为准；非流式服务只有 `message.completed`，没有增量。
 - **`MessageCompleted.ReasoningTokensEst`**：内核对思维链的 token 估算（`agent.EstimateTokens`），供界面在服务端没报告 `Usage.ReasoningTokens` 时显示。它不落盘，恢复会话时重新计算。
 - **`MessageCompleted.Native`**：协议原始内容，比如带签名的 Anthropic 思考块、Responses 的 reasoning 条目、Gemini 的 `thoughtSignature`。只有同一协议、同一模型才能回传（`Native.Usable`），界面不需要它。

@@ -137,8 +137,8 @@ func TestSubmitWhileRunningQueuesTheMessage(t *testing.T) {
 	if m.in.Value() != "" {
 		t.Errorf("入队后输入框应清空，得到 %q", m.in.Value())
 	}
-	if len(m.queue) != 1 || m.queue[0].in.Text != "第二条" {
-		t.Fatalf("队列 = %+v", m.queue)
+	if len(m.queue.items) != 1 || m.queue.items[0].Text != "第二条" {
+		t.Fatalf("队列 = %+v", m.queue.items)
 	}
 	mustContain(t, plain(m), "第二条", "排队中", "已排队（第 1 条）")
 	if n := m.turns(); n != 0 {
@@ -147,8 +147,8 @@ func TestSubmitWhileRunningQueuesTheMessage(t *testing.T) {
 	// 再提交一条：排在后面。
 	m.in.SetValue("第三条")
 	m.Update(keyEnter)
-	if len(m.queue) != 2 || m.queue[1].in.Text != "第三条" {
-		t.Fatalf("第二条排队失败: %+v", m.queue)
+	if len(m.queue.items) != 2 || m.queue.items[1].Text != "第三条" {
+		t.Fatalf("第二条排队失败: %+v", m.queue.items)
 	}
 	mustContain(t, plain(m), "已排队（第 2 条）")
 }
@@ -164,13 +164,13 @@ func TestQueuedMessageStartsAfterTurnFinishes(t *testing.T) {
 	begin(m, "第一条")
 	m.in.SetValue("第二条")
 	m.Update(keyEnter)
-	if len(m.queue) != 1 {
-		t.Fatalf("应已排队: %+v", m.queue)
+	if m.queue.count() != 1 {
+		t.Fatalf("应已排队: %+v", m.queue.items)
 	}
 	// 上一轮结束：Update 末尾把队首发出去。
 	_, cmd := m.Update(eventMsg{turn: m.turn, ev: event.TurnFinished{Reason: event.ReasonStop}})
-	if len(m.queue) != 0 || !m.running || cmd == nil {
-		t.Fatalf("队首应已发出：queue=%d running=%v cmd=%v", len(m.queue), m.running, cmd != nil)
+	if m.queue.count() != 0 || !m.running || cmd == nil {
+		t.Fatalf("队首应已发出：queue=%d running=%v cmd=%v", m.queue.count(), m.running, cmd != nil)
 	}
 	mustContain(t, plain(m), "第二条")
 	if strings.Contains(plain(m), "排队中") {
@@ -185,6 +185,57 @@ func TestQueuedMessageStartsAfterTurnFinishes(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Error("队首没有真正调用 Runner")
+	}
+}
+
+// 排队的消息由内核在一批工具执行完后取走：对话区里那条换回普通样式并挪到工具卡片之后，
+// 仍算同一轮；本轮结束时队列已空，不再另起一轮。
+func TestQueuedMessageJoinsMidTurnAfterTools(t *testing.T) {
+	got := make(chan agent.Input, 1)
+	m := newSized(t, Options{Runner: fakeRunner{run: func(_ context.Context, in agent.Input, _ event.Sink) error {
+		got <- in
+		return nil
+	}}}, 80, 24)
+	m.in.SetValue("第一条")
+	_, cmd := m.Update(keyEnter)
+	runCmds(cmd)
+	var in agent.Input
+	select {
+	case in = <-got:
+	case <-time.After(2 * time.Second):
+		t.Fatal("没有调用 Runner")
+	}
+	if in.Queued == nil {
+		t.Fatal("startTurn 应把取排队消息的函数交给内核")
+	}
+
+	turn := m.turn
+	// 在工具卡片出现之前提交：它在对话区里先排在卡片前面，送达后要挪到后面。
+	m.in.SetValue("第二条")
+	m.Update(keyEnter)
+	m.Update(eventMsg{turn: turn, ev: event.ToolRequested{Call: event.ToolCall{ID: "c1", Name: "bash", Arguments: `{"command":"ls"}`}}})
+	m.Update(eventMsg{turn: turn, ev: event.ToolFinished{ID: "c1", Name: "bash", Content: "ok"}})
+
+	// 内核这时来取，然后发出 UserQueued。
+	taken := in.Queued()
+	if len(taken) != 1 || taken[0].Text != "第二条" {
+		t.Fatalf("内核取到 %+v", taken)
+	}
+	m.Update(eventMsg{turn: turn, ev: event.UserQueued{Prompt: "第二条"}})
+	last := m.entries[len(m.entries)-1]
+	if last.kind != kindUser || last.text != "第二条" || last.queued {
+		t.Fatalf("排队消息应换回普通样式并排在工具卡片之后，末尾是 %+v", last)
+	}
+	if strings.Contains(plain(m), "排队中") {
+		t.Error("送达后不应再显示“排队中”")
+	}
+
+	m.Update(eventMsg{turn: turn, ev: event.TurnFinished{Reason: event.ReasonStop}})
+	if m.running || m.turn != turn {
+		t.Fatal("队列已被内核取走，本轮结束后不应再发起新的一轮")
+	}
+	if n := m.turns(); n != 1 {
+		t.Errorf("一轮中途送达的消息属于那一轮，turns = %d", n)
 	}
 }
 

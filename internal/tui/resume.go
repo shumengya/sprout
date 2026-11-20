@@ -111,7 +111,7 @@ func (m *Model) newSessionCmd() {
 		return
 	}
 	m.entries, m.tools = nil, map[string]*entry{}
-	m.queue = nil                                                 // 排队的是上一个会话里的提问，不能带进新会话
+	m.queue.clear()                                               // 排队的是上一个会话里的提问，不能带进新会话
 	m.usage, m.cost, m.ctxTokens = usageTotals{}, costTotals{}, 0 // 新会话从零开始计数
 	m.resetBusy()
 	m.resetSpeed()
@@ -154,6 +154,10 @@ func (m *Model) replay(events []event.Event) {
 	for _, e := range events {
 		if ts, ok := e.(event.TurnStarted); ok {
 			m.add(&entry{kind: kindUser, text: ts.Prompt, images: imageMarks(ts.Images)})
+			continue
+		}
+		if uq, ok := e.(event.UserQueued); ok {
+			m.add(&entry{kind: kindUser, text: uq.Prompt, images: imageMarks(uq.Images), midTurn: true})
 			continue
 		}
 		m.onEvent(e)

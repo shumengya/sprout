@@ -56,8 +56,11 @@ type entry struct {
 
 	// images 是用户消息附带的图片，见 entryImage。
 	images []entryImage
-	// queued 表示这条用户消息还在队列里：本轮生成中提交的，等它结束后才会真正发出。
+	// queued 表示这条用户消息还在队列里：生成中提交的，等当前步骤完成后才会真正发出。
 	queued bool
+	// midTurn 表示这条用户消息是在一轮进行中接进去的（排队消息在一批工具执行完后送达），
+	// 它属于那一轮，不单独算一轮。
+	midTurn bool
 
 	// 工具条目
 	name    string
@@ -114,7 +117,7 @@ func (e *entry) draw(w int) string {
 			// 排队中的消息不走图片原位替换：发出前的样子尽量简单，发出后再按正常样式重绘。
 			b.WriteString(styQueued.Render(wrap(sanitize(e.text), w)))
 			b.WriteString("\n")
-			b.WriteString(styFaint.Render("排队中，本轮结束后发送"))
+			b.WriteString(styFaint.Render("排队中，当前步骤完成后发送"))
 			return b.String()
 		}
 		b.WriteString(drawUserText(e.text, e.images, w))

@@ -271,8 +271,8 @@ func fmtGit(g GitInfo) string {
 func (m *Model) turns() int {
 	n := 0
 	for _, e := range m.entries {
-		// 还在排队、没发出去的那条不算一轮。
-		if e.kind == kindUser && !e.queued {
+		// 还在排队、没发出去的不算一轮；一轮中途接进去的属于那一轮，也不另算。
+		if e.kind == kindUser && !e.queued && !e.midTurn {
 			n++
 		}
 	}

@@ -37,6 +37,8 @@ func (s chanSink) Emit(e event.Event) {
 // startTurn 在 Update 里调用：这里只准备状态，不做 IO。
 // agent 的实际启动放在返回的 Cmd 里，由 Bubble Tea 在 Update 之外执行。
 func (m *Model) startTurn(in agent.Input) tea.Cmd {
+	// 本轮进行中排队的消息由内核在每批工具执行完后来取，不必等整轮结束。
+	in.Queued = m.queue.take
 	m.turn++
 	turn := m.turn
 	m.started = m.now()
@@ -171,11 +173,31 @@ func (m *Model) onEvent(e event.Event) {
 		m.cur = nil
 	case event.Error:
 		m.add(&entry{kind: kindError, text: e.Message})
+	case event.UserQueued:
+		m.onQueuedSent()
 	case event.Subagent:
 		m.onSubagent(e)
 	case event.TurnFinished:
 		m.finishTurn(e.Reason)
 	}
+}
+
+// onQueuedSent 处理内核接走了一条排队消息：把最早那条“排队中”的条目换回正常样式，
+// 并挪到对话区末尾。它是在提交那一刻加进对话区的，后面可能已经跟了几个工具卡片；
+// 挪到这里，显示顺序才和模型实际看到的顺序一致。
+func (m *Model) onQueuedSent() {
+	e := m.unqueueFirst()
+	if e == nil {
+		return
+	}
+	e.midTurn = true
+	for i, x := range m.entries {
+		if x == e {
+			m.entries = append(m.entries[:i], m.entries[i+1:]...)
+			break
+		}
+	}
+	m.entries = append(m.entries, e)
 }
 
 // addUsage 把一次模型调用的用量记进状态栏和本轮的统计。

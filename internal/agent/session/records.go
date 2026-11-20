@@ -172,6 +172,8 @@ func toRecord(e event.Event, now time.Time) (any, bool) {
 	switch e := e.(type) {
 	case event.TurnStarted:
 		return userRec{h("user"), e.Prompt, imageRecs(e.Images)}, true
+	case event.UserQueued:
+		return userRec{h("user_queued"), e.Prompt, imageRecs(e.Images)}, true
 	case event.MessageCompleted:
 		rec := assistantRec{header: h("assistant"), Content: e.Content, Reasoning: e.Reasoning, StopReason: e.StopReason, Native: e.Native}
 		for _, c := range e.ToolCalls {

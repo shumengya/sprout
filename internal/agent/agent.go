@@ -155,7 +155,7 @@ func (a *Agent) Run(ctx context.Context, in Input, sink event.Sink) (err error) 
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	t := &turn{a: a, ctx: ctx, out: event.Multi(sink, a.cfg.Recorder), base: len(a.history), reason: event.ReasonStop}
+	t := &turn{a: a, ctx: ctx, out: event.Multi(sink, a.cfg.Recorder), base: len(a.history), reason: event.ReasonStop, queued: in.Queued}
 	t.out.Emit(event.TurnStarted{Prompt: in.Text, Images: eventImages(in.Images)})
 
 	defer func() {

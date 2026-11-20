@@ -14,6 +14,7 @@ type Kind string
 
 const (
 	KindTurnStarted      Kind = "turn.started"
+	KindUserQueued       Kind = "user.queued"
 	KindMessageDelta     Kind = "message.delta"
 	KindReasoningDelta   Kind = "reasoning.delta"
 	KindMessageCompleted Kind = "message.completed"
@@ -52,6 +53,14 @@ type ToolCall struct {
 // TurnStarted 在用户提交一条输入后发出，每轮必有且仅有一次。
 // Images 是本轮携带的图片；Data 是 base64 原始数据，会话记录器会把它落盘并清空，转发给 surface 的副本不含 Data。
 type TurnStarted struct {
+	Prompt string
+	Images []ImageInfo
+}
+
+// UserQueued 在一轮进行中把用户排队的输入（agent.Input.Queued 取走的）接进历史时发出，
+// 紧跟在一批工具的 ToolFinished 之后、下一次模型调用之前。它属于当前这一轮，不开始新的一轮；
+// 字段含义与 TurnStarted 相同，Images 的落盘规则也一样。
+type UserQueued struct {
 	Prompt string
 	Images []ImageInfo
 }
@@ -224,6 +233,7 @@ type Error struct {
 }
 
 func (TurnStarted) Kind() Kind      { return KindTurnStarted }
+func (UserQueued) Kind() Kind       { return KindUserQueued }
 func (MessageDelta) Kind() Kind     { return KindMessageDelta }
 func (ReasoningDelta) Kind() Kind   { return KindReasoningDelta }
 func (MessageCompleted) Kind() Kind { return KindMessageCompleted }

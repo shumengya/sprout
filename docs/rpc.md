@@ -94,6 +94,7 @@ sprout serve [--data-dir DIR] [-c | --resume ID] [--effort 档位]
 | kind | 字段 |
 | --- | --- |
 | `turn.started` | `prompt`、`images: [{name, mediaType, bytes, path?, source?}]`（不含 base64） |
+| `user.queued` | 同 `turn.started`。`turn/start` 不支持排队，所以实时推送里不会出现；`session/resume` 重放 TUI 里排队过的会话时会有 |
 | `message.delta` / `reasoning.delta` | `text` |
 | `message.completed` | `content`、`reasoning`、`toolCalls: [{id, name, arguments}]`、`stopReason`、`reasoningTokensEst` |
 | `tool.requested` | `id`、`name`、`arguments`（原始 JSON 字符串） |

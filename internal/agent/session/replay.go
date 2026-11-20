@@ -55,30 +55,15 @@ func (r *replayer) handle(rec rawRec) {
 	case "user":
 		r.flush()
 		r.base, r.inTurn, r.panicked = len(r.history), true, false
-		// 与 Input.Message 的规则一致：纯图片提问不补空文本块（部分协议会拒绝空 text block）。
-		var content []agent.Block
-		if rec.Content != "" || len(rec.Images) == 0 {
-			content = append(content, agent.TextBlock(rec.Content))
-		}
-		var images []event.ImageInfo
-		for _, img := range rec.Images {
-			blk, err := loadImageFile(r.st.Path, img)
-			if err != nil {
-				// 图片文件被删或损坏：保留一条文字说明，别让整轮无法恢复。
-				content = append(content, agent.TextBlock("（图片无法恢复："+img.File+"）"))
-				continue
-			}
-			content = append(content, blk)
-			name := img.Name
-			if name == "" { // 旧记录没有原始文件名
-				name = filepath.Base(img.File)
-			}
-			images = append(images, event.ImageInfo{
-				Name: name, MediaType: img.MediaType, Bytes: img.Bytes, Source: img.Source,
-			})
-		}
-		r.history = append(r.history, agent.Message{Role: agent.RoleUser, Content: content})
+		msg, images := r.userMessage(rec)
+		r.history = append(r.history, msg)
 		r.emit(event.TurnStarted{Prompt: rec.Content, Images: images})
+	case "user_queued":
+		// 一轮中途接进来的排队输入：运行时它跟在整批工具结果之后，flush 先把结果补齐，顺序就一致。
+		r.flush()
+		msg, images := r.userMessage(rec)
+		r.history = append(r.history, msg)
+		r.emit(event.UserQueued{Prompt: rec.Content, Images: images})
 	case "assistant":
 		r.flush()
 		msg := agent.Message{Role: agent.RoleAssistant, Reasoning: rec.Reasoning, Native: rec.Native}
@@ -120,6 +105,33 @@ func (r *replayer) handle(rec rawRec) {
 		r.endTurn(rec.Reason)
 	}
 	// retry / resume 以及未知类型：只用于审计，恢复时忽略。
+}
+
+// userMessage 把 user / user_queued 记录还原成用户消息，并给出界面展示用的图片信息。
+func (r *replayer) userMessage(rec rawRec) (agent.Message, []event.ImageInfo) {
+	// 与 Input.Message 的规则一致：纯图片提问不补空文本块（部分协议会拒绝空 text block）。
+	var content []agent.Block
+	if rec.Content != "" || len(rec.Images) == 0 {
+		content = append(content, agent.TextBlock(rec.Content))
+	}
+	var images []event.ImageInfo
+	for _, img := range rec.Images {
+		blk, err := loadImageFile(r.st.Path, img)
+		if err != nil {
+			// 图片文件被删或损坏：保留一条文字说明，别让整轮无法恢复。
+			content = append(content, agent.TextBlock("（图片无法恢复："+img.File+"）"))
+			continue
+		}
+		content = append(content, blk)
+		name := img.Name
+		if name == "" { // 旧记录没有原始文件名
+			name = filepath.Base(img.File)
+		}
+		images = append(images, event.ImageInfo{
+			Name: name, MediaType: img.MediaType, Bytes: img.Bytes, Source: img.Source,
+		})
+	}
+	return agent.Message{Role: agent.RoleUser, Content: content}, images
 }
 
 func (rec rawRec) usage() event.Usage {

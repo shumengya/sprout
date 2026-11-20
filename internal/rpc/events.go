@@ -39,6 +39,9 @@ func wireEvent(turn int, e event.Event) map[string]any {
 		m["prompt"] = e.Prompt
 		// 不带 base64：客户端自己有原图，事件里重复携带只会让单行变成几 MB。
 		m["images"] = wireImages(e.Images)
+	case event.UserQueued:
+		m["prompt"] = e.Prompt
+		m["images"] = wireImages(e.Images)
 	case event.MessageDelta:
 		m["text"] = e.Text
 	case event.ReasoningDelta:

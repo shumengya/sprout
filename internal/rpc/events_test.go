@@ -26,6 +26,18 @@ func TestToolFinishedWireCarriesImageMetaWithoutData(t *testing.T) {
 	}
 }
 
+func TestUserQueuedWireLikeTurnStarted(t *testing.T) {
+	b, err := json.Marshal(wireEvent(2, event.UserQueued{Prompt: "补充", Images: []event.ImageInfo{{Name: "a.png", MediaType: "image/png", Bytes: 3, Data: "QUJD"}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	if !strings.Contains(s, `"kind":"user.queued"`) || !strings.Contains(s, `"prompt":"补充"`) ||
+		!strings.Contains(s, `"name":"a.png"`) || strings.Contains(s, "QUJD") {
+		t.Errorf("user.queued 应带 prompt 和图片元数据、不带 base64: %s", s)
+	}
+}
+
 func TestSubagentWireNestsInnerEvent(t *testing.T) {
 	m := wireEvent(3, event.Subagent{CallID: "call_1", Agent: "explore", Event: event.ToolRequested{
 		Call: event.ToolCall{ID: "x", Name: "read", Arguments: `{"path":"a"}`},

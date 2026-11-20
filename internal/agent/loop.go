@@ -23,6 +23,7 @@ type turn struct {
 	think   string
 	// compactFailed：本轮已经尝试过摘要且失败，不再每一步都重试（否则每次模型调用前都多一次失败的摘要请求）。
 	compactFailed bool
+	queued        func() []Input // Input.Queued，可为 nil
 }
 
 // stream 向模型发一次请求并把增量转成事件。
@@ -114,12 +115,26 @@ func (t *turn) loop() error {
 		if err := t.runTools(msg.ToolCalls); err != nil {
 			return err
 		}
+		t.takeQueued()
 	}
 
 	t.reason = event.ReasonMaxSteps
 	err := fmt.Errorf("%w（%d 轮），已停止本轮", ErrMaxSteps, a.cfg.MaxSteps)
 	t.out.Emit(event.Error{Message: err.Error()})
 	return err
+}
+
+// takeQueued 把用户在这一轮进行中排队的输入接进历史。只在一批工具结果之后做：
+// 这时 tool 消息已经和 tool call 配齐，接一条用户消息不破坏任何协议的顺序要求；
+// 模型输出最终答案（没有 tool call）时不取，剩下的由界面在本轮结束后作为新的一轮发出。
+func (t *turn) takeQueued() {
+	if t.queued == nil {
+		return
+	}
+	for _, in := range t.queued() {
+		t.a.history = append(t.a.history, in.Message())
+		t.out.Emit(event.UserQueued{Prompt: in.Text, Images: eventImages(in.Images)})
+	}
 }
 
 // normalizeCalls 把空参数补成 "{}"：部分模型对无参工具会给空串，

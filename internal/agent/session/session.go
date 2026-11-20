@@ -190,6 +190,18 @@ func (r *Recorder) Emit(e event.Event) {
 			}
 			e = ev
 		}
+	case event.UserQueued:
+		// 与 TurnStarted 相同：图片先落盘，写不成就连这条用户记录也不写。
+		if len(ev.Images) > 0 {
+			if r.f == nil && !r.open() {
+				return
+			}
+			ev.Images = r.storeImages(ev.Images)
+			if r.failed {
+				return
+			}
+			e = ev
+		}
 	case event.ToolFinished:
 		if len(ev.Images) > 0 {
 			if r.f == nil && !r.open() {

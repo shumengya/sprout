@@ -26,6 +26,10 @@ type Image struct {
 type Input struct {
 	Text   string
 	Images []Image
+	// Queued 非 nil 时，每批工具执行完、下一次请求模型之前调用一次，取走用户在这一轮进行中排队的输入，
+	// 依次作为用户消息接在工具结果后面，模型下一步就能看到，不必等整轮结束。
+	// 它在 agent 主 goroutine 里调用，与界面线程之间的同步由提供方负责。只对 Run 的这一轮有效，不进历史。
+	Queued func() []Input
 }
 
 // Message 把输入转成用户消息。文本在前、图片按原顺序跟在后面，

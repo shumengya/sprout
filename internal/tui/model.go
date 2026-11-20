@@ -216,8 +216,8 @@ type Model struct {
 	statusline []StatusItem
 	// pending 是下一条消息待发送的图片（/image 附加），发送或 /image clear 后清空。
 	pending []agent.Image
-	// queue 是生成中提交的输入，按先后顺序在本轮结束后依次发出。
-	queue []queued
+	// queue 是生成中提交、还没交给内核的输入，见 inputQueue。
+	queue *inputQueue
 
 	// 对话区的拖选。选区用内容坐标记录；content 是当前送进 viewport 的完整文本，
 	// plain 是它去掉样式后的逐行文本（按需计算，plainSrc 记录算的是哪一版）。
@@ -250,7 +250,7 @@ func New(o Options) *Model {
 		o.Disabled = "没有可用的 agent，无法发起对话。"
 	}
 	m := &Model{opts: o, follow: true, mouse: true, tools: map[string]*entry{}, quit: make(chan struct{}), clip: defaultClip, now: time.Now,
-		res: Resources{Mem: -1, CPU: -1, ProcMB: -1}}
+		res: Resources{Mem: -1, CPU: -1, ProcMB: -1}, queue: &inputQueue{}}
 
 	m.vp = viewport.New()
 	m.vp.FillHeight = true
