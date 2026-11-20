@@ -179,7 +179,8 @@ func runOnce(ap *app, prompt string, images []string, resume string, stdout, std
 
 // runTUI 启动终端界面。resume 非空时先恢复会话；失败不致命，只提示并开新会话。
 func runTUI(ap *app, resume string, stderr io.Writer) int {
-	opts := tui.Options{Info: ap.info, Disabled: ap.disabled, Notices: ap.notices, Installer: commandInstaller{}, Updater: autoUpdater{version: version, repo: releaseRepo}, Resources: systemResources(), Git: gitSampler(ap.info.Cwd), MCPChanged: ap.mcpChanged, Statusline: ap.statusline}
+	opts := tui.Options{Info: ap.info, Disabled: ap.disabled, Notices: ap.notices, Installer: commandInstaller{}, Updater: autoUpdater{version: version, repo: releaseRepo}, Resources: systemResources(), Git: gitSampler(ap.info.Cwd), MCPChanged: ap.mcpChanged, Statusline: ap.statusline,
+		ClipboardImage: platform.ClipboardImage}
 	// 后台连接结束后由 TUI 在空闲时调用 applyMCP，把工具接进 agent 并刷新信息栏。
 	if ap.mcpReady != nil {
 		opts.MCPReady = ap.mcpReady

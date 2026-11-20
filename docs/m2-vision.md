@@ -101,6 +101,12 @@ func (m Message) WithoutImages(placeholder string) Message // 图片换成占位
   再在空白切分的片段里从盘符、每个分隔符之后的位置当起点逐字符回退，所以「图：D:.png 这张」这种
   中英混排也能切出来。路径文本原样保留；一条消息最多自动附加 10 张；读失败的（超限、损坏）不阻塞发送，
   只给出原因。
+- **剪贴板取图**：TUI 里按 Ctrl+V 或 Alt+V（Windows Terminal 会拦下 Ctrl+V，用 Alt+V），终端拦下 Ctrl+V 后送来空粘贴时也会去读。
+  读取在 `platform.ClipboardImage`：Windows 用 Win32 剪贴板 API（先取 `PNG` 格式，没有再取 `CF_DIB` 自己转成 png，
+  资源管理器里复制的文件取 `CF_HDROP`）；macOS 用 `osascript` 取 `«class PNGf»` 或 Finder 复制的文件；
+  Linux / BSD 用 `wl-paste`（Wayland）或 `xclip`（X11）先列类型再取图片或 `text/uri-list`；Termux 不支持。
+  图片在输入框里显示成 `[剪贴板图片 N]`，图片的 `Source` 就是这个标记，所以它原样留在正文里发给模型，
+  告诉模型图片在哪；删掉标记就不发这张图。复制的是文件时按粘贴这些路径处理。Ctrl+V 读不到图片时退回粘贴文字。
 - CLI：`sprout run --image a.png --image b.png "看图"`，可重复；只给图片、不给文字也可以。
   提问文本里的图片路径同样自动附加，并在 stderr 提示附了哪些。
 - 图片来源统一走 `internal/media`：读文件、按内容嗅探类型（不信扩展名），再按下一节的规则缩放压缩。
@@ -122,6 +128,5 @@ func (m Message) WithoutImages(placeholder string) Message // 图片换成占位
 
 ## 7. 不做 / 未验证
 
-- 不做剪贴板取图（`Ctrl+V`）：从剪贴板粘贴的图片要落成文件才能自动识别。
 - gif 在上限内原样发送，不拆帧；需要缩放时只保留第一帧。
 - 各协议的真实服务端图片往返只用本地 `httptest` 验证了请求形状，**尚未对真实服务商接口做手工验证**。

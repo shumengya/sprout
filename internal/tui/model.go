@@ -147,6 +147,9 @@ type Options struct {
 	// ReloadModels 重新读取 models.jsonc，当前模型的设置变了就重建 agent（保留对话历史），
 	// 返回刷新后的 Info 与要显示的提示。它会替换 agent，TUI 只在空闲时、在 tea.Cmd 里调用，期间按切换模型处理。
 	ReloadModels func() (Info, []string)
+	// ClipboardImage 读取系统剪贴板里的图片（Ctrl+V / Alt+V），约定同 platform.ClipboardImage：
+	// data 是图片字节，paths 是复制的文件，都为空表示没有图片。在 tea.Cmd 里调用；为 nil 时这两个键按普通按键处理。
+	ClipboardImage func() (data []byte, paths []string, err error)
 }
 
 // 输入框按内容增高：空时一行，最多显示这么多行，再多就在输入框内部滚动。
@@ -216,6 +219,8 @@ type Model struct {
 	statusline []StatusItem
 	// pending 是下一条消息待发送的图片（/image 附加），发送或 /image clear 后清空。
 	pending []agent.Image
+	// clipSeq 是剪贴板图片的序号，用来给 [剪贴板图片 N] 标记编号。
+	clipSeq int
 	// queue 是生成中提交、还没交给内核的输入，见 inputQueue。
 	queue *inputQueue
 

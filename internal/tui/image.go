@@ -1,10 +1,12 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/atotto/clipboard"
 
 	"github.com/shumengya/sprout/internal/agent"
 	"github.com/shumengya/sprout/internal/agent/event"
@@ -16,8 +18,9 @@ import (
 type imageSource int
 
 const (
-	fromCommand imageSource = iota // /image 路径
-	fromPaste                      // 粘贴的内容里带图片路径
+	fromCommand   imageSource = iota // /image 路径
+	fromPaste                        // 粘贴的内容里带图片路径
+	fromClipboard                    // Ctrl+V / Alt+V 读剪贴板里的图片
 )
 
 // imageMsg 是后台读图的结果。insert 非空时插进输入框（粘贴改写后的内容）。
@@ -55,12 +58,23 @@ func (m *Model) imageCmd(arg string) tea.Cmd {
 func (m *Model) onImages(msg imageMsg) {
 	m.status = ""
 	if msg.err != nil {
+		if msg.from == fromClipboard { // “剪贴板里没有图片”这类只是提示，放状态行
+			m.status = msg.err.Error()
+			return
+		}
 		m.add(&entry{kind: kindError, text: msg.err.Error()})
 		return
 	}
 	m.pending = append(m.pending, msg.imgs...)
 	if msg.insert != "" {
 		m.in.InsertString(msg.insert)
+	}
+	if msg.from == fromClipboard {
+		m.status, m.statusOK = fmt.Sprintf("已粘贴剪贴板图片（%s）", media.Size(len(msg.imgs[0].Data)*3/4)), true
+		if !m.opts.Info.Vision {
+			m.status, m.statusOK = m.status+"；当前模型没有标注 vision，发送时会被替换成占位文本", false
+		}
+		return
 	}
 	if msg.from != fromCommand {
 		return
@@ -123,6 +137,53 @@ func pasteImages(content string, room int) (string, []agent.Image) {
 		imgs = append(imgs, img)
 	}
 	return content, imgs
+}
+
+// clipboardCmd 在后台读剪贴板里的图片。图片在输入框里显示成 [剪贴板图片 N]，这个标记原样发给模型，
+// 告诉它图片在正文里的位置；删掉标记就不发这张图。剪贴板里是从文件管理器复制的文件时，按粘贴这些路径处理。
+// textFallback（按的是 Ctrl+V）时没有图片就退回粘贴文字：终端没把 Ctrl+V 拦下来做粘贴时，文字粘贴也要能用。
+func (m *Model) clipboardCmd(textFallback bool) tea.Cmd {
+	if len(m.pending) >= media.MaxAutoImages {
+		m.status = fmt.Sprintf("一条消息最多附加 %d 张图片", media.MaxAutoImages)
+		return nil
+	}
+	read := m.opts.ClipboardImage
+	m.clipSeq++
+	name := fmt.Sprintf("剪贴板图片 %d", m.clipSeq) // 序号在本次运行内递增，同一条消息里的标记不会重名
+	m.status = "正在读取剪贴板…"
+	return func() tea.Msg {
+		data, paths, err := read()
+		switch {
+		case err != nil:
+			return imageMsg{from: fromClipboard, err: err}
+		case len(data) > 0:
+			img, err := media.Prepare(data, name)
+			if err != nil {
+				return imageMsg{from: fromClipboard, err: err}
+			}
+			img.Source = pasteMark(img)
+			return imageMsg{from: fromClipboard, insert: img.Source, imgs: []agent.Image{img}}
+		case len(paths) > 0:
+			return tea.PasteMsg{Content: quotePaths(paths)}
+		case textFallback:
+			if text, err := clipboard.ReadAll(); err == nil && text != "" {
+				return tea.PasteMsg{Content: text}
+			}
+		}
+		return imageMsg{from: fromClipboard, err: errors.New("剪贴板里没有图片")}
+	}
+}
+
+// quotePaths 把复制的文件拼成一段粘贴内容；带空格的路径加引号，FindImagePaths 才能整段认出来。
+func quotePaths(paths []string) string {
+	out := make([]string, len(paths))
+	for i, p := range paths {
+		if strings.ContainsAny(p, " \t") {
+			p = `"` + p + `"`
+		}
+		out[i] = p
+	}
+	return strings.Join(out, " ")
 }
 
 // pasteMark 是粘贴图片在输入框里的显示形式。

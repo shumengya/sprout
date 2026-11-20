@@ -120,6 +120,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [ ] **每轮统计行**：只有模型级测试，没在真实终端和真实模型上看过数字。
 - [ ] **`models.jsonc` 热加载**：只有临时目录里的单元测试（改文件后手动拨修改时间），没有在真实编辑器（VS Code、记事本、vim 的原子替换或先清空再写）下保存过。
 - [ ] **`/install-sprout` / `/uninstall-sprout` 的真实效果**：Windows 的流程用注册表替身和临时目录测试过，读取真实用户 / 系统 PATH 只做过只读演练，没有真正写过注册表、没有确认新开的终端能直接敲 `sprout`；Linux / macOS / Termux 的符号链接逻辑只用文件系统替身测试过，真实系统上没跑过。
+- [ ] **剪贴板取图**：Windows 的 DIB 解析和 TUI 流程有单元测试，只在本机确认过“剪贴板里没有图片”这一支；没在真实终端里粘贴过截图，Windows Terminal 拦下 Ctrl+V 后是否送来空粘贴没确认；macOS（osascript）与 Linux（wl-paste / xclip）的实现完全没在真机上跑过。
 - [ ] **排队消息在工具执行完后送达**：内核、会话重放、TUI、RPC 都有单元测试，但没有用真实模型跑过；四种协议在请求构造上都接受“工具结果后跟一条用户消息”，没有逐家对真实服务确认。
 - [ ] `go test -race`：本机没有 gcc，未跑过。
 
@@ -163,7 +164,7 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
 - [x] 技能正文的裁剪保护：`read` 读取 `SKILL.md` 的工具结果不参与旧输出裁剪（按历史里的调用参数判断，会话恢复重放结果一致）。
 - [x] 每轮回答结束后的统计行：回答下方一行淡色的 `耗时 · 首字 · token/s · 输入 · 输出 · 缓存 · 合计`，是这一轮主对话全部模型调用的合计（不含子代理）；恢复会话时只写 token（见 `docs/m1-implementation.md` §9）。
 - [x] 配置热加载（TUI）：`models.jsonc` 改完几秒内自动重新读取，`/model` 列表随之更新，当前模型的设置变了就在空闲时重建 agent、保留对话；写错时继续用旧配置并提示。`sprout run`、`sprout serve` 和缺 API Key 启动时仍要重启（见 `docs/m1-implementation.md` §5）。
-- [ ] 剪贴板取图（`Ctrl+V` 粘贴图片）。
+- [x] 剪贴板取图：TUI 里 Ctrl+V / Alt+V 粘贴剪贴板里的图片或复制的图片文件，显示成 `[剪贴板图片 N]`（见 `docs/m2-vision.md` §6）。
 - [ ] 交互式 CLI REPL；`sprout run` 不支持从 stdin 读提问。
 - [x] 思考程度调节：`/effort` 档位条与 `--effort`，档位由 `models.jsonc` 的 `effort` 按模型声明；四种协议按各自真实字段发送，Anthropic 思考块带签名原样回传（`docs/effort.md`）。
 - [x] Responses 协议下的思考摘要：`reasoning.summary=auto` 时接收 `reasoning_summary_text` 并显示。
