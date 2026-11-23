@@ -118,6 +118,9 @@ func TestBackgroundCallDoesNotBlockLoop(t *testing.T) {
 		}
 		if spec.Name == "slow" {
 			s := string(spec.Parameters)
+			if !strings.Contains(s, "一般不要用") {
+				t.Errorf("开关的描述应要求模型默认不用：%s", s)
+			}
 			if !(strings.Index(s, "zeta") < strings.Index(s, "alpha") && strings.Index(s, "alpha") < strings.Index(s, tool.BackgroundParam)) {
 				t.Errorf("参数顺序被打乱：%s", s)
 			}

@@ -265,7 +265,7 @@ func TestAgentToolIsBackgroundable(t *testing.T) {
 	if strings.Contains(string(tl.Parameters()), tool.BackgroundParam) {
 		t.Error("开关参数由内核注入，工具自己的 schema 里不该有")
 	}
-	if !strings.Contains(tl.Description(), "run_in_background") {
-		t.Error("描述里应说明什么时候放到后台")
+	if d := tl.Description(); !strings.Contains(d, "run_in_background") || !strings.Contains(d, "默认前台调用") {
+		t.Error("描述里应说明默认前台调用、只在必要时放到后台")
 	}
 }
