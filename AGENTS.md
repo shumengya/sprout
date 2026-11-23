@@ -45,7 +45,8 @@ go vet ./...
 | 工具 | 内置 `bash`、`powershell`、`read`、`write`、`edit`、`delete`，另可在 `tools.jsonc` 里用 `exec` 把外部命令包装成工具；条目必须 `"enable": true` 才注册给模型（见 `docs/tools.md`） |
 | MCP | 自带最小客户端（`internal/agent/mcp`，stdio + Streamable HTTP），配置在数据目录 `mcp.jsonc`；工具注册为 `mcp__<服务端>__<工具>`；启动时**后台**连接（界面不等服务端），连好后重建 agent 接入工具；协商版本缓存在 `<数据目录>/mcp-versions.json`；OAuth 令牌存在 `<数据目录>/mcp-auth.json`，只能由 `sprout mcp login` 在终端登录；elicitation / sampling 只在界面接了处理函数时才在握手里声明；当前自写客户端，是否引入外部库按「架构边界」里的依赖成本规则判断（见 `docs/mcp.md`） |
 | Skills | 注册表 `<数据目录>/skills.jsonc`：只有注册的技能才生效，每条含 `path` 与 `enable`；扫描 `<工作目录>/.sprout/skills`、`<工作目录>/.agents/skills`、`<数据目录>/skills`、`~/.agents/skills` 发现的技能自动登记，已有条目不覆盖；`scanAgents` 为 false 时不加载 `.agents` 下的技能。只把元数据追加进系统提示词，正文由模型用 `read` 按需读取；`/技能名 任务` 手动触发时由 TUI 读出正文交给模型（见 `docs/skills.md`） |
-| 子代理 | 内置工具 `agent`：同步、只有一层（子代理的工具表里永远没有 `agent`），同一批调用并行；类型 = 内置 general / explore + `<数据目录>/agents/*.md` + `<工作目录>/.sprout/agents/*.md`（后者优先）；子代理过程记在 `<会话名>.agents/<call id>.jsonl`，主会话只记 `subagent_usage`（见 `docs/subagents.md`） |
+| 子代理 | 内置工具 `agent`：只有一层（子代理的工具表里永远没有 `agent`），同一批调用并行，可转入后台（见下一行）；类型 = 内置 general / explore + `<数据目录>/agents/*.md` + `<工作目录>/.sprout/agents/*.md`（后者优先）；子代理过程记在 `<会话名>.agents/<call id>.jsonl`，主会话只记 `subagent_usage`（见 `docs/subagents.md`） |
+| 后台工具 | 工具实现 `tool.Backgroundable` 才能后台执行（`tools.jsonc` 的 `background` 可覆盖，不可并行的工具不行）；模型按次用内核注入的 `run_in_background` 选择；后台任务属于发起它的那一轮，`Run` 要等它们结束才返回，结果在安全点作为用户消息送达（见 `docs/tools.md`「后台执行」） |
 | 权限 | 暂不实现权限模块，默认完全权限；不要提前加审批流或 allow/deny 配置 |
 | TUI | Bubble Tea v2 + lipgloss + bubbles；不用 tview |
 | 平台 | Windows 优先开发，目标 Linux / macOS / Android Termux |
@@ -75,6 +76,7 @@ go vet ./...
 - `mcp.jsonc` 与 `skills.jsonc` 的开关由面板写回，必须走 `config` 包的 `editJSONC`（按字节偏移拼接，保留注释、BOM、缩进，写完重新校验，失败回滚）；不要读出结构体再整份 `json.Marshal` 写回，会丢掉用户的注释。唯一的例外是旧版 `{"disabled": [...]}` 的一次性迁移（`WriteSkills`）。
 - 技能的注册表键名优先于 `SKILL.md` 里的 `name`；`/技能名` 触发时内置命令优先，名字不是技能（`ErrUnknownSkill`）就当普通提问，所以 `/etc/hosts` 这类输入仍能原样发送。
 - 子代理在主代理的工具 goroutine 里装配（`cmd/sprout/subagent.go` 的 `spawnSubagent`），此时 TUI / RPC 线程可能同时在改 app：`sel` / `key` 必须在 `a.mu` 下读，思考档位从 `a.ag.Thinking()` 取，不要读 `a.effort`（`/effort` 一轮中途也能改它）。子代理的进度只能经 `tool.Call.Emit` 交给内核转发，不能直接写主代理的 sink：Sink 约定只在 agent 主 goroutine 里调用。
+- 后台工具调用（`internal/agent/background.go`）的进度经非阻塞队列交给主 goroutine，结果只能在安全点（一批工具结果之后、模型答完后的等待中、一轮收尾时）作为用户消息送进历史；`cancelled` / `fail` / 超过步数在写中断说明或 `error` 之前必须先 `stopBackground`，否则等待中被取消会留下两条连续的 assistant 消息。`Run` 返回前后台任务必须全部结束，agent 只在空闲时重建的约定才成立。
 - `sprout update` 依赖 tag 与产物文件名同 `tools/release` 生成的一致（`sprout_<版本>_<平台>.<后缀>`）；改发布命名或平台名时要同步 `cmd/sprout/update.go` 的 `platformName`。它不需要数据目录。自动替换必须先通过 `SHA256SUMS.txt` 校验和新程序的 `--version` 试运行，任何一步失败都不能动原程序；Windows 正在运行的 exe 不能覆盖，只能先改名成 `.old`（下次启动时清理），所以别改成直接写文件。
 - 数据目录用 `os.Executable()` 定位，`go run` 时二进制在临时目录；开发时显式传 `--data-dir ./data/.sprout`，不要用 cwd 当默认。目录不可写时明确报错，不要静默回退到 `~/.sprout`。
 - 所有路径处理用 `filepath`，不要手拼 `/` 或 `\`。
@@ -89,7 +91,7 @@ go vet ./...
 
 ## 不要做
 
-- 不要越过里程碑提前实现权限模块或 WebUI。子代理已按用户要求实现同步、一层的 `agent` 工具；后台子代理、给运行中的子代理追加消息等扩展要先经用户确认。MCP 的工具结果图片、Resources、Prompts、Elicitation、MRTR、Sampling、OAuth 均已按用户要求实现（剩余限制见 `docs/mcp.md`「已知限制」），在此之外的 MCP 能力（如 `resources/subscribe`、url 模式 elicitation、CIMD）仍要先经用户确认。`sprout update` 只更新程序本身，不要顺带改数据目录里的配置。
+- 不要越过里程碑提前实现权限模块或 WebUI。子代理已按用户要求实现一层的 `agent` 工具，并按用户要求支持转入后台（一轮内的后台任务）；给运行中的子代理追加消息、跨轮的后台任务等扩展要先经用户确认。MCP 的工具结果图片、Resources、Prompts、Elicitation、MRTR、Sampling、OAuth 均已按用户要求实现（剩余限制见 `docs/mcp.md`「已知限制」），在此之外的 MCP 能力（如 `resources/subscribe`、url 模式 elicitation、CIMD）仍要先经用户确认。`sprout update` 只更新程序本身，不要顺带改数据目录里的配置。
 - 不要为 TUI 或演示引入假模型、假工具、回显模式；测试替身只允许放在 `_test.go`。
 - 不要复制 Crush / Codex / Claude Code 的代码；参考设计可以，注意 Crush 是 FSL-1.1-MIT。
 - 不要提交 `.env`、API key、`auth.json`、构建产物。

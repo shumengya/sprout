@@ -4,18 +4,19 @@ import "testing"
 
 func TestKinds(t *testing.T) {
 	cases := map[Kind]Event{
-		KindTurnStarted:      TurnStarted{},
-		KindUserQueued:       UserQueued{},
-		KindMessageDelta:     MessageDelta{},
-		KindReasoningDelta:   ReasoningDelta{},
-		KindMessageCompleted: MessageCompleted{},
-		KindToolRequested:    ToolRequested{},
-		KindToolFinished:     ToolFinished{},
-		KindUsage:            Usage{},
-		KindRetrying:         Retrying{},
-		KindCompacted:        Compacted{},
-		KindTurnFinished:     TurnFinished{},
-		KindError:            Error{},
+		KindTurnStarted:        TurnStarted{},
+		KindUserQueued:         UserQueued{},
+		KindMessageDelta:       MessageDelta{},
+		KindReasoningDelta:     ReasoningDelta{},
+		KindMessageCompleted:   MessageCompleted{},
+		KindToolRequested:      ToolRequested{},
+		KindToolFinished:       ToolFinished{},
+		KindUsage:              Usage{},
+		KindRetrying:           Retrying{},
+		KindCompacted:          Compacted{},
+		KindTurnFinished:       TurnFinished{},
+		KindError:              Error{},
+		KindBackgroundFinished: BackgroundFinished{},
 	}
 	for want, e := range cases {
 		if got := e.Kind(); got != want {

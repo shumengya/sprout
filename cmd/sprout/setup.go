@@ -318,9 +318,14 @@ func (a *app) registerTools(cfg *config.File, e env) (*tool.Registry, error) {
 	}
 
 	add := func(t tool.Tool, detail string) error {
-		// tools.jsonc 里写了 description / parameters / parallel 时覆盖内置值；外部工具本来就用配置值，包一层也无害。
-		if entry, ok := a.tools.Entry(t.Name()); ok && (entry.Description != "" || len(entry.Parameters) > 0 || entry.Parallel != nil) {
-			t = tool.Decorator{Tool: t, DescriptionText: entry.Description, ParamSchema: entry.Parameters, ParallelOverride: entry.Parallel}
+		// tools.jsonc 里写了 description / parameters / parallel / background 时覆盖内置值；外部工具本来就用配置值，包一层也无害。
+		if entry, ok := a.tools.Entry(t.Name()); ok && (entry.Description != "" || len(entry.Parameters) > 0 || entry.Parallel != nil || entry.Background != nil) {
+			t = tool.Decorator{Tool: t, DescriptionText: entry.Description, ParamSchema: entry.Parameters,
+				ParallelOverride: entry.Parallel, BackgroundOverride: entry.Background}
+			// write / edit / delete 默认不可并行，配置校验看不到这层隐含的冲突，在这里报错，免得开关静默失效。
+			if entry.Background != nil && *entry.Background && !tool.Parallel(t) {
+				return fmt.Errorf("tools.jsonc：%s 不可并行，不能设 background: true（后台执行的调用一定会和之后的调用重叠）", t.Name())
+			}
 		}
 		if err := reg.Register(t); err != nil {
 			return err

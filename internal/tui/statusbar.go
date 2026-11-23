@@ -385,21 +385,28 @@ func (m *Model) statusName() string {
 }
 
 // busyLabel 描述正在做的事；空闲时返回空串。活动行和状态栏用的是同一套说法。
+// 有后台任务时，模型给完答案后内核在等它们，说成“等待后台任务”；别的时候在说法后面注明后台还有几个。
 func (m *Model) busyLabel() string {
 	names := m.runningTools()
+	label := ""
 	switch {
 	case m.compacting:
-		return "压缩上下文"
+		label = "压缩上下文"
 	case len(names) == 1:
-		return "执行 " + names[0]
+		label = "执行 " + names[0]
 	case len(names) > 1:
-		return fmt.Sprintf("并行执行 %d 个工具", len(names))
+		label = fmt.Sprintf("并行执行 %d 个工具", len(names))
 	case m.think != nil:
-		return "思考中"
+		label = "思考中"
+	case m.running && m.awaitingBg && m.backgroundTools() > 0:
+		return fmt.Sprintf("等待 %d 个后台任务", m.backgroundTools())
 	case m.running:
-		return "生成中"
+		label = "生成中"
 	}
-	return ""
+	if n := m.backgroundTools(); label != "" && n > 0 {
+		label += fmt.Sprintf(" · 后台 %d 个", n)
+	}
+	return label
 }
 
 // fmtSeconds 把零头很短的时长写成 1.2s、0.4s；不到 10 秒保留一位小数，再长就按 fmtElapsed 的写法。

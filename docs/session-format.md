@@ -40,9 +40,10 @@
 | `user` | `turn.started` | `content`、`images`（省略） |
 | `user_queued` | `user.queued` | 同 `user`；一轮中途接进来的排队输入，属于当前这一轮 |
 | `assistant` | `message.completed` | `content`、`reasoning`（省略）、`tool_calls: [{id, name, arguments}]`（省略）、`stop_reason`（省略）、`native`（省略） |
-| `tool` | `tool.finished` | `tool_call_id`、`name`、`command`、`stdout`、`stderr`、`exit_code`、`truncated`、`timed_out`、`cancelled`、`duration_ms`、`error`、`content`、`images`；除 `tool_call_id`、`name`、`exit_code`、`duration_ms` 外都省略零值 |
+| `tool` | `tool.finished` | `tool_call_id`、`name`、`command`、`stdout`、`stderr`、`exit_code`、`truncated`、`timed_out`、`cancelled`、`duration_ms`、`error`、`content`、`images`、`background`；除 `tool_call_id`、`name`、`exit_code`、`duration_ms` 外都省略零值。`background` 为 true 表示这次调用转入了后台，`content` 是占位说明，结果在之后的 `background` 记录里 |
+| `background` | `background.finished` | 同 `tool`（没有 `images`、`background`），另有 `message`：作为用户消息写进历史的完整文本。写在送达的那一刻：一批工具的 `tool` 记录之后、模型给出答案之后，或一轮收尾的 `interrupted` / `error` 之前 |
 | `usage` | `usage` | `input_tokens`、`output_tokens`、`total_tokens`、`reasoning_tokens`（省略）、`cache_read_tokens`（省略）、`cache_write_tokens`（省略） |
-| `subagent_usage` | 内层为 `usage` 的 `subagent` | `tool_call_id`、`agent`，其余字段同 `usage`；写在那次 `agent` 调用的 `tool` 记录之前 |
+| `subagent_usage` | 内层为 `usage` 的 `subagent` | `tool_call_id`、`agent`，其余字段同 `usage`；写在那次 `agent` 调用的 `tool` 记录之前（转入后台的调用写在占位 `tool` 记录与 `background` 记录之间，可能夹在别的记录中间） |
 | `compact` | `compacted` | `mode`、`tokens_before`、`tokens_after`、`dropped`、`summary`（省略）、`error`（省略）、`manual`（省略）、`prune_version`（省略） |
 | `interrupted` | `interrupted` | `reason`、`content`、`reasoning`（省略） |
 | `error` | `error` | `message`、`retryable`（省略） |
@@ -86,7 +87,8 @@
 - `compact` 按当初的方式重做：summary 丢弃前 `dropped` 条消息并换上摘要（手动压缩保留最近一轮时 `dropped` 小于历史条数，留下的就是那一轮）；prune 用纯函数 `agent.PruneToolOutputs` 按 `prune_version` 的策略从最旧的开始裁同样多条。没有 `prune_version` 的旧记录按版本 1（统一保留开头 200 字符）裁，与当年的结果一致。
 - `interrupted` 还原成一条 assistant 消息，内容与当初写进历史的一致。
 - `user_queued` 先把上一批工具结果按调用顺序补齐，再追加一条用户消息（运行时它就接在整批结果之后），不开始新的一轮，不计入 `Turns`，也不参与第 6 节的轮号编号。旧版本程序读到它会当作未知类型忽略，恢复出的历史少这条消息，但仍然合法。
-- `subagent_usage` 还原成内层为 `Usage` 的 `event.Subagent`，不动历史（它夹在 `agent` 调用的 `assistant` 与 `tool` 记录之间）。旧版本程序读到它会当作未知类型忽略，只是恢复后的花费少算子代理那部分。
+- `background` 先把上一批工具结果按调用顺序补齐，再把 `message` 追加成一条用户消息（运行时它就接在整批结果之后），发出 `event.BackgroundFinished`；带 `background` 标记的 `tool` 记录照常还原成 tool 消息（内容是占位说明），重放出的 `ToolFinished.Background` 为 true。它们都不开始新的一轮。旧版本程序读到 `background` 会当作未知类型忽略，恢复出的历史少这条结果，但仍然合法。
+- `subagent_usage` 还原成内层为 `Usage` 的 `event.Subagent`，不动历史（它夹在 `agent` 调用的 `assistant` 与 `tool` 记录之间，后台调用则在占位与结果之间）。旧版本程序读到它会当作未知类型忽略，只是恢复后的花费少算子代理那部分。
 - 图片按 `file` 读回，`tool` 记录的图片跟在结果文本后面（与运行时的 tool 消息顺序一致）；文件丢失或损坏时换成“（图片无法恢复：路径）”文本块，不让整轮无法恢复。
 - 无法解析的行跳过并计数；`retry`、`resume` 和未知类型只用于审计，重放时忽略；`branch` 只决定取哪条路径（第 6 节），本身不进历史。
 - 换了模型或服务商时，调用方用 `State.StripReasoning` 清掉旧思维链和 `native`。

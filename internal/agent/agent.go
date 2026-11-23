@@ -81,8 +81,12 @@ func New(cfg Config) (*Agent, error) {
 	}
 	if cfg.Tools != nil {
 		for _, t := range cfg.Tools.List() {
-			a.specs = append(a.specs, ToolSpec{Name: t.Name(), Description: t.Description(), Parameters: t.Parameters()})
-			a.specTokens += estimateText(t.Name()) + estimateText(t.Description()) + estimateText(string(t.Parameters()))
+			params := t.Parameters()
+			if tool.Background(t) {
+				params = withBackgroundParam(params)
+			}
+			a.specs = append(a.specs, ToolSpec{Name: t.Name(), Description: t.Description(), Parameters: params})
+			a.specTokens += estimateText(t.Name()) + estimateText(t.Description()) + estimateText(string(params))
 		}
 	}
 	return a, nil
@@ -155,11 +159,15 @@ func (a *Agent) Run(ctx context.Context, in Input, sink event.Sink) (err error) 
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	t := &turn{a: a, ctx: ctx, out: event.Multi(sink, a.cfg.Recorder), base: len(a.history), reason: event.ReasonStop, queued: in.Queued}
+	t := &turn{a: a, ctx: ctx, out: event.Multi(sink, a.cfg.Recorder), base: len(a.history), reason: event.ReasonStop, queued: in.Queued,
+		bg: newBackground(ctx)}
 	t.out.Emit(event.TurnStarted{Prompt: in.Text, Images: eventImages(in.Images)})
 
 	defer func() {
-		if r := recover(); r != nil {
+		r := recover()
+		// 正常收尾时后台调用都已送达或终止，这里只释放 context；panic 时它们可能还在跑，等它们退出再作废整轮。
+		t.bg.abort()
+		if r != nil {
 			// 程序错误：整轮作废，历史退回到本轮开始前，保证后续请求仍然合法。
 			a.history = a.history[:t.base]
 			a.resetCalibration()

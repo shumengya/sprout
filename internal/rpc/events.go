@@ -59,13 +59,11 @@ func wireEvent(turn int, e event.Event) map[string]any {
 	case event.ToolRequested:
 		m["id"], m["name"], m["arguments"] = e.Call.ID, e.Call.Name, e.Call.Arguments
 	case event.ToolFinished:
-		m["id"], m["name"], m["command"] = e.ID, e.Name, e.Command
-		m["stdout"], m["stderr"], m["exitCode"] = e.Stdout, e.Stderr, e.ExitCode
-		m["truncated"], m["timedOut"], m["cancelled"] = e.Truncated, e.TimedOut, e.Cancelled
-		m["durationMs"] = e.Duration.Milliseconds()
-		m["content"], m["error"] = e.Content, e.Err
-		// 工具结果里的图片同样只给元数据；要看原图从会话目录的 <会话名>.images/ 读。
-		m["images"] = wireImages(e.Images)
+		toolFields(m, e)
+		m["background"] = e.Background
+	case event.BackgroundFinished:
+		toolFields(m, e.Result)
+		m["message"] = e.Message
 	case event.Usage:
 		m["inputTokens"], m["outputTokens"], m["totalTokens"] = e.InputTokens, e.OutputTokens, e.TotalTokens
 		m["reasoningTokens"] = e.ReasoningTokens
@@ -92,4 +90,15 @@ func wireEvent(turn int, e event.Event) map[string]any {
 		return nil
 	}
 	return m
+}
+
+// toolFields 写入 tool.finished 与 background.finished 共用的结果字段。
+func toolFields(m map[string]any, e event.ToolFinished) {
+	m["id"], m["name"], m["command"] = e.ID, e.Name, e.Command
+	m["stdout"], m["stderr"], m["exitCode"] = e.Stdout, e.Stderr, e.ExitCode
+	m["truncated"], m["timedOut"], m["cancelled"] = e.Truncated, e.TimedOut, e.Cancelled
+	m["durationMs"] = e.Duration.Milliseconds()
+	m["content"], m["error"] = e.Content, e.Err
+	// 工具结果里的图片同样只给元数据；要看原图从会话目录的 <会话名>.images/ 读。
+	m["images"] = wireImages(e.Images)
 }

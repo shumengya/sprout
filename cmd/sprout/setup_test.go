@@ -10,6 +10,7 @@ import (
 
 	"github.com/shumengya/sprout/internal/agent/config"
 	"github.com/shumengya/sprout/internal/agent/platform"
+	"github.com/shumengya/sprout/internal/agent/tool"
 )
 
 // shellSet 构造一个固定的检测结果，让装配逻辑的测试不依赖本机装了什么。
@@ -305,6 +306,34 @@ func TestBuiltinToolInvalidParametersRejected(t *testing.T) {
 	_, err := buildApp(dir, testEnv(map[string]string{"DEEPSEEK_API_KEY": "k"}, shellSet(false, false)), nil)
 	if err == nil || !strings.Contains(err.Error(), "parameters.type") {
 		t.Errorf("应拒绝不合法的 parameters，得到 %v", err)
+	}
+}
+
+// tools.jsonc 的 background 覆盖工具自己的后台声明：agent 默认可后台，可以关掉；
+// 默认不可并行的 write 打开后台时启动就报错，而不是让开关静默失效。
+func TestBackgroundOverrideFromToolsConfig(t *testing.T) {
+	dir := t.TempDir()
+	tools := `{"tools": {"read": {"enable": true, "background": true}, "agent": {"enable": true, "background": false}}}`
+	if err := os.WriteFile(config.ToolsPath(dir), []byte(tools), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a, err := buildApp(dir, testEnv(map[string]string{"DEEPSEEK_API_KEY": "k"}, shellSet(false, false)), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read, _ := a.reg.Get("read")
+	ag, _ := a.reg.Get("agent")
+	if read == nil || ag == nil || !tool.Background(read) || tool.Background(ag) {
+		t.Errorf("read 应可后台、agent 应不可后台")
+	}
+
+	bad := `{"tools": {"write": {"enable": true, "background": true}}}`
+	if err := os.WriteFile(config.ToolsPath(dir), []byte(bad), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = buildApp(dir, testEnv(map[string]string{"DEEPSEEK_API_KEY": "k"}, shellSet(false, false)), nil)
+	if err == nil || !strings.Contains(err.Error(), "write 不可并行") {
+		t.Errorf("write 打开后台应报错，得到 %v", err)
 	}
 }
 

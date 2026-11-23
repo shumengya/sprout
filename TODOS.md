@@ -141,7 +141,8 @@ M1（最小可用闭环）已实现并提交。本文件区分三类状态：**�
   - [x] skills 注册表（`skills.jsonc`）：只有注册的技能才生效，每条含 `path` 与 `enable`，`path` 可指向任意位置；扫描到的技能自动登记，已有条目不被覆盖；`scanAgents` 控制是否加载 `.agents/skills`；旧版 `{"disabled": [...]}` 启动时自动迁移；
   - [x] 技能管理界面：`/skills` 面板开关技能、切换 `scanAgents`、重新扫描；`/技能名 任务` 手动触发；
   - [x] 子代理（`internal/agent/subagent`，见 `docs/subagents.md`）：内置工具 `agent`，同步、只有一层，同一批调用并行；内置 general / explore 两种类型，`<数据目录>/agents/*.md` 与 `<工作目录>/.sprout/agents/*.md` 自定义类型（`tools` 通配筛选、`model`、`effort`）；子代理进度以 `subagent` 事件转发给 TUI 卡片、`sprout run` 的 stderr 与 RPC；子代理过程记在 `<会话名>.agents/<call id>.jsonl`，主会话记 `subagent_usage`，恢复后花费不丢。真实模型（claude-sonnet-5-5）派出 explore 子代理列目录并汇报已跑通（2026-11-20 实测）；TUI 卡片没在真实终端里看过。
-  - [ ] 后台子代理（派出后先返回、之后再取结果或追加消息，类似 codex 的 spawn / send / wait）；子代理换了模型时花费按它自己的单价折算（目前按主模型单价）；
+  - [x] 后台工具调用（见 `docs/tools.md`「后台执行」）：工具显式声明可后台（`tool.Backgroundable`），内核给它的参数加 `run_in_background`，模型设为 true 时调用当场返回任务编号、ReAct 循环继续，结果在下一个安全点作为用户消息送达；后台任务属于发起它的那一轮，模型答完时这一轮等它们，等待期间照样接收排队输入，取消或出错时一起终止。`agent` 工具默认可后台，`tools.jsonc` 的 `background` 可以覆盖。事件 `background.finished`、会话记录 `background` 见 `docs/events.md`、`docs/session-format.md`。只有替身测试，没用真实模型跑过；TUI 卡片没在真实终端里看过。
+  - [ ] 子代理的其余扩展：给运行中的子代理追加消息、单独取消某个后台子代理、跨轮的后台任务（目前一轮要等后台任务结束才收尾）；子代理换了模型时花费按它自己的单价折算（目前按主模型单价）；
   - [ ] 搜索、web 等更多工具（现有 `bash`、`powershell`、`read`、`write`、`edit`、`delete`，外加 `tools.jsonc` 里定义的外部命令工具）；
   - [ ] 权限模块（审批流、allow/deny、沙箱）——目前默认完全权限，不要提前加。
 

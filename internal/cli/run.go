@@ -55,7 +55,13 @@ func (p *printer) Emit(e event.Event) {
 	case event.ToolRequested:
 		p.status("[%s] %s", e.Call.Name, firstLine(clean(commandOf(e.Call.Arguments))))
 	case event.ToolFinished:
+		if e.Background {
+			p.status("  └ 已转入后台")
+			break
+		}
 		p.status("  └ %s", toolSummary(e))
+	case event.BackgroundFinished:
+		p.status("[%s] 后台任务结束（%s）：%s", e.Result.Name, e.Result.ID, toolSummary(e.Result))
 	case event.Error:
 		p.status("错误: %s", firstLine(clean(e.Message)))
 	case event.Retrying:

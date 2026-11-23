@@ -172,8 +172,10 @@ type Model struct {
 	thinkShown bool
 	// interrupted：本轮已经由 interrupted 事件说明过中断原因，结束时不再重复一条“已取消”。
 	interrupted bool
-	follow      bool // transcript 是否自动跟随底部
-	unseen      bool // 暂停跟随期间是否有新内容到达
+	// awaitingBg：最近一次模型调用没有请求工具。这时还有后台任务的话，内核正在等它们，而不是在生成。
+	awaitingBg bool
+	follow     bool // transcript 是否自动跟随底部
+	unseen     bool // 暂停跟随期间是否有新内容到达
 
 	showThink bool            // 是否展开思维链全文（/think 切换）
 	mouse     bool            // 是否开启鼠标上报（/mouse 切换）；开启后滚轮可滚动，但终端自带的拖选需要按住 Shift
@@ -367,7 +369,7 @@ func (m *Model) add(e *entry) *entry {
 	return e
 }
 
-// runningTools 返回当前仍在执行的工具名。同一批 tool call 并行时可能有多个。
+// runningTools 返回当前仍在前台执行的工具名。同一批 tool call 并行时可能有多个。
 func (m *Model) runningTools() []string {
 	var names []string
 	for _, e := range m.entries {
@@ -376,6 +378,17 @@ func (m *Model) runningTools() []string {
 		}
 	}
 	return names
+}
+
+// backgroundTools 返回转入后台、还没结束的工具调用个数。
+func (m *Model) backgroundTools() int {
+	n := 0
+	for _, e := range m.entries {
+		if e.kind == kindTool && e.bg {
+			n++
+		}
+	}
+	return n
 }
 
 // layout 按窗口尺寸重排各区域。

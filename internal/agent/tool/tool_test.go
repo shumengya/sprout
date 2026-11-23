@@ -142,3 +142,35 @@ func TestParallelDeclaration(t *testing.T) {
 		}
 	}
 }
+
+type bgStub struct{ stubTool }
+
+func (bgStub) Background() bool { return true }
+
+type serialBGStub struct{ bgStub }
+
+func (serialBGStub) Parallel() bool { return false }
+
+func TestBackgroundDeclaration(t *testing.T) {
+	no, yes := false, true
+	cases := []struct {
+		name string
+		t    Tool
+		want bool
+	}{
+		{"未声明不可后台", stubTool{"a"}, false},
+		{"声明可后台", bgStub{stubTool{"a"}}, true},
+		// 独占执行的承诺和后台执行冲突：声明了也不算。
+		{"不可并行的不能后台", serialBGStub{bgStub{stubTool{"a"}}}, false},
+		{"Decorator 透传声明", Decorator{Tool: bgStub{stubTool{"a"}}}, true},
+		{"Decorator 透传未声明", Decorator{Tool: stubTool{"a"}}, false},
+		{"配置打开后台", Decorator{Tool: stubTool{"a"}, BackgroundOverride: &yes}, true},
+		{"配置关闭后台", Decorator{Tool: bgStub{stubTool{"a"}}, BackgroundOverride: &no}, false},
+		{"配置打开后台但不可并行", Decorator{Tool: stubTool{"a"}, BackgroundOverride: &yes, ParallelOverride: &no}, false},
+	}
+	for _, c := range cases {
+		if got := Background(c.t); got != c.want {
+			t.Errorf("%s: Background = %v，期望 %v", c.name, got, c.want)
+		}
+	}
+}

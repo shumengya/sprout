@@ -81,6 +81,15 @@ func (r *replayer) handle(rec rawRec) {
 			ReasoningTokensEst: agent.EstimateTokens(rec.Reasoning)})
 	case "tool":
 		r.tool(rec)
+	case "background":
+		// 运行时后台结果只在一批工具结果全部写进历史之后送达，flush 先把结果补齐，顺序就一致。
+		r.flush()
+		r.history = append(r.history, agent.NewTextMessage(agent.RoleUser, rec.Message))
+		r.emit(event.BackgroundFinished{Result: event.ToolFinished{
+			ID: rec.ToolCallID, Name: rec.Name, Command: rec.Command, Stdout: rec.Stdout, Stderr: rec.Stderr,
+			ExitCode: rec.ExitCode, Truncated: rec.Truncated, TimedOut: rec.TimedOut, Cancelled: rec.Cancelled,
+			Duration: time.Duration(rec.DurationMS) * time.Millisecond, Err: rec.Error, Content: rec.Content,
+		}, Message: rec.Message})
 	case "interrupted":
 		r.flush()
 		msg := agent.Message{Role: agent.RoleAssistant, Reasoning: rec.Reasoning}
@@ -172,6 +181,7 @@ func (r *replayer) tool(rec rawRec) {
 		ID: call.ID, Name: rec.Name, Command: rec.Command, Stdout: rec.Stdout, Stderr: rec.Stderr,
 		ExitCode: rec.ExitCode, Truncated: rec.Truncated, TimedOut: rec.TimedOut, Cancelled: rec.Cancelled,
 		Duration: time.Duration(rec.DurationMS) * time.Millisecond, Err: rec.Error, Content: content, Images: images,
+		Background: rec.Background,
 	})
 }
 

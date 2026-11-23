@@ -51,7 +51,7 @@ func (e *entry) drawTool(w int) string {
 	if e.sub != nil {
 		b.WriteString(e.drawSub(w))
 	}
-	if e.running {
+	if e.running || e.bg {
 		return b.String()
 	}
 	lines := outputLines(e.fin)
@@ -106,6 +106,8 @@ func (e *entry) statusLine() string {
 	switch {
 	case e.running:
 		return styFaint.Render("运行中…")
+	case e.bg:
+		return styFaint.Render("后台运行中…")
 	case f.Cancelled:
 		return styWarn.Render("已取消")
 	case f.Err != "":

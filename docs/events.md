@@ -6,7 +6,7 @@
 
 ## 1. 入口
 
-- 提交一轮：`Agent.Run(ctx, Input{Text, Images, Queued}, sink)`。`Queued` 可为 nil；非 nil 时内核在每批工具执行完、下一次请求模型之前调用它，取走用户在这一轮进行中排队的输入，依次作为用户消息接在工具结果后面（每条发一个 `user.queued`）。模型给最终答案的那一步之后不再调用，没被取走的由 surface 自己在本轮结束后作为新的一轮发出。它在 agent 主 goroutine 里调用，与界面线程的同步由 surface 负责。
+- 提交一轮：`Agent.Run(ctx, Input{Text, Images, Queued}, sink)`。`Queued` 可为 nil；非 nil 时内核在每批工具执行完、下一次请求模型之前调用它，取走用户在这一轮进行中排队的输入，依次作为用户消息接在工具结果后面（每条发一个 `user.queued`）。模型给最终答案的那一步之后不再调用（还在等后台调用时例外，见第 3 节），没被取走的由 surface 自己在本轮结束后作为新的一轮发出。它在 agent 主 goroutine 里调用，与界面线程的同步由 surface 负责。
 - 手动压缩：`Agent.Compact(ctx, focus, sink)`，与 `Run` 共用一把锁，会等当前一轮结束再执行。
 - 取消：取消传入的 `ctx`。事件协议里没有单独的“命令”类型。
 - `event.Sink` 只有一个方法 `Emit(Event)`；`event.SinkFunc` 把函数包装成 Sink。事件都由 agent 主 goroutine 发出（并行工具的结果也回到主 goroutine 再发），所以 Sink 不要求线程安全。
@@ -23,7 +23,8 @@
 | `reasoning.delta` | `ReasoningDelta` | `Text` | 不落盘 |
 | `message.completed` | `MessageCompleted` | `Content`、`Reasoning`、`ToolCalls`、`StopReason`、`ReasoningTokensEst`、`Native` | `assistant` |
 | `tool.requested` | `ToolRequested` | `Call{ID, Name, Arguments}` | 不落盘（信息已在 `assistant.tool_calls` 里） |
-| `tool.finished` | `ToolFinished` | `ID`、`Name`、`Command`、`Stdout`、`Stderr`、`ExitCode`、`Truncated`、`TimedOut`、`Cancelled`、`Duration`、`Content`、`Err`、`Images` | `tool` |
+| `tool.finished` | `ToolFinished` | `ID`、`Name`、`Command`、`Stdout`、`Stderr`、`ExitCode`、`Truncated`、`TimedOut`、`Cancelled`、`Duration`、`Content`、`Err`、`Images`、`Background` | `tool` |
+| `background.finished` | `BackgroundFinished` | `Result`（字段同 `ToolFinished`）、`Message` | `background` |
 | `usage` | `Usage` | `InputTokens`、`OutputTokens`、`TotalTokens`、`ReasoningTokens`、`CacheReadTokens`、`CacheWriteTokens` | `usage` |
 | `retrying` | `Retrying` | `Attempt`、`Max`、`Delay`、`Reason` | `retry`（仅审计） |
 | `compacted` | `Compacted` | `Mode`、`TokensBefore`、`TokensAfter`、`Dropped`、`Summary`、`Err`、`Manual`、`PruneVersion` | `compact` |
@@ -39,14 +40,15 @@
 surface 可以依赖下面这些规则，内核和测试保证它们成立。
 
 - 每轮以一个 `turn.started` 开始，以一个 `turn.finished` 结束，各有且仅有一次。`turn.finished` 是判断“这一轮结束了”的唯一依据。panic 也会被 recover，并以 `turn.finished(error)` 收尾。
-- 一轮里可以有多次模型调用（中间夹着工具往返）。每次调用的顺序是：零或多个 `reasoning.delta` / `message.delta`，然后一个 `message.completed`，紧接着一个 `usage`。`usage` 和它前面的 `message.completed` 属于同一次调用，中间不会插别的事件。
+- 一轮里可以有多次模型调用（中间夹着工具往返）。每次调用的顺序是：零或多个 `reasoning.delta` / `message.delta`，然后一个 `message.completed`，紧接着一个 `usage`。`usage` 和它前面的 `message.completed` 属于同一次调用，中间不会插别的事件。有后台调用在跑时，它们转发的 `subagent` 事件可能夹在增量之间（不会夹在 `message.completed` 与 `usage` 之间）。
 - `error` 之后一定跟着 `turn.finished`，`Reason` 为 `error` 或 `max_steps`。
 - `interrupted` 之后一定跟着 `turn.finished`，`Reason` 为 `cancelled` 或 `error`。
 - 同一批工具调用并行执行（上限 `Config.MaxParallelTools`，默认 4；声明不可并行的工具如 `write` / `edit` / `delete` 独占执行，见 `docs/tools.md`「并行」）：`tool.requested` 按调用顺序发出，`tool.finished` 按完成顺序发出，用 `ID` 配对。被取消而没来得及执行的调用只有 `tool.finished`（`Cancelled` 为 true），没有 `tool.requested`。
-- `user.queued` 只出现在一批工具的 `tool.finished` 全部发完之后、下一次模型调用之前，属于当前这一轮，不会另起 `turn.started`。同一批取到几条就连发几条，顺序与排队顺序一致。
+- `user.queued` 只出现在一批工具的 `tool.finished` 全部发完之后、下一次模型调用之前，或者内核等后台调用的时候，属于当前这一轮，不会另起 `turn.started`。同一批取到几条就连发几条，顺序与排队顺序一致。
+- 后台调用（见第 4 节 `ToolFinished.Background`）：`tool.requested` 之后立即是一个 `Background` 为 true 的 `tool.finished`，之后这次调用可能转发的 `subagent` 事件，最后是同一 `ID` 的 `background.finished`。`background.finished` 只在三个时刻发出：一批工具的 `tool.finished` 全部发完之后（排在同一时刻的 `user.queued` 之前）；模型给出没有工具调用的回答、内核等待后台调用的时候；一轮因取消、出错或超过步数结束、内核终止后台调用的时候（排在 `interrupted` / `error` 之前）。所以它总在这一轮的 `turn.finished` 之前，一轮不会在后台调用结束前收尾。
 - `retrying` 只在本次调用还没向界面输出任何内容时出现，所以重试不会让 surface 收到重复的增量。
 - `compacted` 可能出现在一轮中间（自动压缩，`Manual` 为 false），也可能由 `Agent.Compact` 在两轮之间发出（`Manual` 为 true）。手动压缩不是一轮，前后没有 `turn.started` / `turn.finished`。历史被改动就一定有这个事件，压缩从不静默发生。
-- `subagent` 只出现在启动它的 `agent` 工具调用的 `tool.requested` 与 `tool.finished` 之间，`CallID` 就是那次调用的 `ID`。内层是子代理自己完整的一轮（`turn.started` … `turn.finished`），同样遵守本节的顺序规则，但不含 `message.delta` / `reasoning.delta`。几个子代理并行时，各自的 `subagent` 事件交错到达，用 `CallID` 区分。
+- `subagent` 只出现在启动它的 `agent` 工具调用的 `tool.requested` 与 `tool.finished` 之间（后台调用则在 `tool.finished` 与 `background.finished` 之间），`CallID` 就是那次调用的 `ID`。内层是子代理自己完整的一轮（`turn.started` … `turn.finished`），同样遵守本节的顺序规则，但不含 `message.delta` / `reasoning.delta`。几个子代理并行时，各自的 `subagent` 事件交错到达，用 `CallID` 区分。
 
 ## 4. 字段语义
 
@@ -55,6 +57,8 @@ surface 可以依赖下面这些规则，内核和测试保证它们成立。
 - **`MessageCompleted.ReasoningTokensEst`**：内核对思维链的 token 估算（`agent.EstimateTokens`），供界面在服务端没报告 `Usage.ReasoningTokens` 时显示。它不落盘，恢复会话时重新计算。
 - **`MessageCompleted.Native`**：协议原始内容，比如带签名的 Anthropic 思考块、Responses 的 reasoning 条目、Gemini 的 `thoughtSignature`。只有同一协议、同一模型才能回传（`Native.Usable`），界面不需要它。
 - **`ToolFinished`**：`Stdout` / `Stderr` 是未经预览截断的完整输出，但已受工具自身 50KB 上限约束。`Content` 是回给模型的完整文本，会话恢复时原样还原。`Err` 非空表示工具没能产出正常结果（参数无效、进程起不来等）。工具的任何失败都只转成 tool 消息回给模型，不终止这一轮。`Images` 是工具正常结束时结果里附带的图片（如 MCP 工具返回的截图），失败或取消时为空；运行时带 `Data`（base64），记录器落盘后回填 `Path`，重放出的事件没有 `Data`。
+- **`ToolFinished.Background`**：为 true 表示这次调用转入了后台（工具声明了 `tool.Backgroundable`，模型在参数里写了 `run_in_background: true`）。`Content` 是当场回给模型的占位说明，其余结果字段为空，界面应把这次调用显示成“后台运行中”。
+- **`BackgroundFinished`**：后台调用结束、结果送进历史时发出。`Result` 是真正的结果，字段含义同 `ToolFinished`（`Background` 为 false，不带图片）；`Message` 是作为一条用户消息写进历史的完整文本（`[后台任务已结束：<工具>，任务编号 <ID>]` 加 `Result.Content`），会话恢复时原样还原。之后内核会再请求一次模型，让它处理这个结果。
 - **`Usage`**：`InputTokens` 统一是“全部输入”的口径，包含命中缓存（`CacheReadTokens`）和写入缓存（`CacheWriteTokens`）的部分，各协议在适配器里归一（如 Gemini 的 `candidatesTokenCount` 不含思考 token，适配器把 `thoughtsTokenCount` 加回 `OutputTokens`）。`ReasoningTokens` 是 `OutputTokens` 里用于思维链的部分。provider 不报告的字段为 0。
 - **`Retrying`**：`Attempt` 从 1 起。`Delay` 是这次重试前的等待时间；默认策略是 1s、2s、4s… 到 64s，共 7 次，服务端给了 `Retry-After` 时以它为准。
 - **`Compacted`**：`Mode` 为 `prune`（裁剪旧工具输出）或 `summary`（把更早的对话总结成摘要）。`TokensBefore` / `TokensAfter` 是估算值。`Dropped` 在 summary 模式下是被摘要替代的消息条数，在 prune 模式下是被裁剪的工具输出条数。`Summary` 是压缩后的完整摘要文本。`Err` 非空表示摘要失败，历史没动，本轮照常继续。`PruneVersion` 只在 prune 模式下有值，是这次裁剪用的策略版本（`agent.PruneVersion`，现在是 2：按工具类型决定保留多少），会话恢复时按它重放；0 表示旧会话，按版本 1（统一保留开头 200 字符）处理。手动压缩带 `KeepLast` 时 `Dropped` 小于历史总条数，最近一轮原文留在历史里。

@@ -174,3 +174,22 @@ func TestCompactedGoesToStderrOnly(t *testing.T) {
 		}
 	}
 }
+
+// 后台调用在 stderr 上分两段：先说明已转入后台，结束时再报一次结果。
+func TestBackgroundToolProgress(t *testing.T) {
+	_, out, errOut := run(context.Background(), fakeRunner{events: []event.Event{
+		event.ToolRequested{Call: event.ToolCall{ID: "c1", Name: "agent", Arguments: `{"description":"查找","prompt":"p"}`}},
+		event.ToolFinished{ID: "c1", Name: "agent", Background: true},
+		event.BackgroundFinished{Result: event.ToolFinished{ID: "c1", Name: "agent", Duration: 2 * time.Second}},
+		event.MessageDelta{Text: "好了"},
+		event.TurnFinished{Reason: event.ReasonStop},
+	}})
+	if out != "好了\n" {
+		t.Fatalf("stdout = %q", out)
+	}
+	for _, want := range []string{"[agent] 查找", "└ 已转入后台", "[agent] 后台任务结束（c1）：exit 0，2.0s"} {
+		if !strings.Contains(errOut, want) {
+			t.Errorf("stderr 缺少 %q: %q", want, errOut)
+		}
+	}
+}

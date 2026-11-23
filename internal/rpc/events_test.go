@@ -55,3 +55,21 @@ func TestSubagentWireNestsInnerEvent(t *testing.T) {
 type unknownEvent struct{}
 
 func (unknownEvent) Kind() event.Kind { return "test.unknown" }
+
+// 后台调用：tool.finished 带 background 标记；结果以 background.finished 推送，字段与 tool.finished 相同，另带写进历史的 message。
+func TestBackgroundWireEvents(t *testing.T) {
+	b, _ := json.Marshal(wireEvent(1, event.ToolFinished{ID: "c1", Name: "agent", Content: "占位", Background: true}))
+	if !strings.Contains(string(b), `"background":true`) || !strings.Contains(string(b), `"kind":"tool.finished"`) {
+		t.Errorf("tool.finished 应带 background: %s", b)
+	}
+	b, _ = json.Marshal(wireEvent(1, event.BackgroundFinished{
+		Result:  event.ToolFinished{ID: "c1", Name: "agent", Stdout: "报告", ExitCode: 0},
+		Message: "[后台任务已结束：agent，任务编号 c1]",
+	}))
+	s := string(b)
+	for _, want := range []string{`"kind":"background.finished"`, `"id":"c1"`, `"stdout":"报告"`, `"exitCode":0`, `"message":"[后台任务已结束`, `"images":[]`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("background.finished 缺少 %s: %s", want, s)
+		}
+	}
+}

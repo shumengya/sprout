@@ -72,6 +72,10 @@ func (t *Tool) Name() string                { return ToolName }
 func (t *Tool) Description() string         { return t.desc }
 func (t *Tool) Parameters() json.RawMessage { return t.params }
 
+// Background 声明 agent 工具可以转入后台：子代理往往要跑很久，主代理没必要干等。
+// 是否真的转入后台由模型在每次调用里决定（内核加的 run_in_background 参数）。
+func (t *Tool) Background() bool { return true }
+
 // Names 返回可用的子代理类型名，按定义顺序。
 func (t *Tool) Names() []string { return append([]string(nil), t.order...) }
 
@@ -85,7 +89,9 @@ func (t *Tool) describe() string {
 		"使用要点：\n" +
 		"- 子代理看不到当前对话，也看不到其他子代理。prompt 要自成一体：背景、目标、范围、已经排除的方向、报告要包含什么，都写进去。\n" +
 		"- 派出多个子代理时给它们不重叠的范围；能改文件的子代理并行时尤其如此，否则会互相覆盖。\n" +
-		"- 子代理不能再派子代理，也不能向用户提问。调用要等子代理结束才返回，不能追问；报告是它自己的总结，关键结论需要时自己核实。\n\n" +
+		"- 子代理不能再派子代理，也不能向用户提问，也不能在它运行中追加消息；报告是它自己的总结，关键结论需要时自己核实。\n" +
+		"- 默认要等子代理结束才返回。手头还有别的事可做时，设 run_in_background: true 先派出去：调用立即返回，" +
+		"你接着做别的，报告之后自动送达；下一步就要用到报告时不要放到后台。\n\n" +
 		"子代理类型（agent 参数，默认 " + DefaultAgent + "）：")
 	for _, name := range t.order {
 		d := t.defs[name]

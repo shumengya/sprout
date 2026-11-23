@@ -208,6 +208,8 @@ func TestExternalToolValidation(t *testing.T) {
 			"必须是 \"object\""},
 		{"工具名不合法", `{"tools":{"1bad":{"enable":true,"description":"d","exec":{"shell":"bash","command":"x"}}}}`,
 			"不是合法的工具名"},
+		{"后台与独占冲突", `{"tools":{"foo":{"enable":true,"description":"d","background":true,"parallel":false,"exec":{"shell":"bash","command":"x"}}}}`,
+			"不能同时设 background: true 和 parallel: false"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -239,5 +241,18 @@ func TestBuiltinOverrideIsAllowed(t *testing.T) {
 	e, _ := f.Entry(ToolRead)
 	if e.Description != "只读文本" || len(e.Parameters) == 0 {
 		t.Errorf("覆盖值没保存: %+v", e)
+	}
+}
+
+func TestBackgroundFieldIsKept(t *testing.T) {
+	f, err := loadToolsText(t, `{"tools":{"agent":{"enable":true,"background":false},"bash":{"enable":true}}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := f.Entry(ToolAgent); e.Background == nil || *e.Background {
+		t.Errorf("agent 的 background 应为 false：%+v", e)
+	}
+	if e, _ := f.Entry(ToolBash); e.Background != nil {
+		t.Errorf("没写 background 时应为 nil，沿用工具自己的声明")
 	}
 }

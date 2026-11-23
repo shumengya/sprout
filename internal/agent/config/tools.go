@@ -52,8 +52,11 @@ type ToolEntry struct {
 	Parameters  json.RawMessage `json:"parameters"`
 	// Parallel 省略时沿用工具自己的声明（外部工具默认可并行，write / edit / delete 默认不可）。
 	// false 表示同一批里这个工具的调用独占执行，不和别的调用重叠。
-	Parallel *bool     `json:"parallel"`
-	Exec     *ExecSpec `json:"exec"`
+	Parallel *bool `json:"parallel"`
+	// Background 省略时沿用工具自己的声明（只有 agent 默认可后台）。true 表示模型可以把这个工具的调用
+	// 转入后台执行，不挡住 ReAct 循环；不可并行的工具不能设为 true。
+	Background *bool     `json:"background"`
+	Exec       *ExecSpec `json:"exec"`
 }
 
 // ExecSpec 描述外部工具怎么执行。命令里的 {{参数名}} 会替换成模型传入的值。
@@ -103,6 +106,11 @@ func (f *ToolsFile) problems() []string {
 		prefix := "tools." + name
 		if !ToolNamePattern.MatchString(name) {
 			add("%s 不是合法的工具名：只能用字母开头，后接字母、数字、下划线或连字符，最长 64 个字符", prefix)
+		}
+		// 后台执行必然和之后的调用重叠，独占执行的承诺兑现不了。内置的 write / edit / delete 默认就不可并行，
+		// 这种隐含的冲突在注册工具时才知道，由 cmd/sprout 报错。
+		if e.Background != nil && *e.Background && e.Parallel != nil && !*e.Parallel {
+			add("%s 不能同时设 background: true 和 parallel: false：后台执行的调用一定会和之后的调用重叠", prefix)
 		}
 		if e.Exec == nil {
 			if !IsBuiltin(name) {

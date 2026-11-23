@@ -66,7 +66,9 @@ type entry struct {
 	name    string
 	command string
 	running bool
-	fin     event.ToolFinished
+	// bg 表示调用已转入后台、还没结束：fin 此时只是占位结果，真正的结果由 BackgroundFinished 带来。
+	bg  bool
+	fin event.ToolFinished
 	// skill 非空表示这次调用读的是某个技能的 SKILL.md 或其目录下的文件，值是技能名，卡片上会标出来。
 	skill string
 	// sub 是 agent 工具派出的子代理的进度；其他工具为 nil。

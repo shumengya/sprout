@@ -255,3 +255,17 @@ func TestSystemSection(t *testing.T) {
 		t.Error("没有角色说明时不输出空标题")
 	}
 }
+
+// agent 工具声明可后台：子代理跑得久，主代理可以先派出去做别的。开关参数由内核加，不在工具自己的 schema 里。
+func TestAgentToolIsBackgroundable(t *testing.T) {
+	tl := New(tool.NewRegistry(), Builtins(), nil)
+	if !tool.Background(tl) {
+		t.Fatal("agent 工具应声明可后台")
+	}
+	if strings.Contains(string(tl.Parameters()), tool.BackgroundParam) {
+		t.Error("开关参数由内核注入，工具自己的 schema 里不该有")
+	}
+	if !strings.Contains(tl.Description(), "run_in_background") {
+		t.Error("描述里应说明什么时候放到后台")
+	}
+}

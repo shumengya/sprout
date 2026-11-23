@@ -98,14 +98,15 @@ sprout serve [--data-dir DIR] [-c | --resume ID] [--effort 档位]
 | `message.delta` / `reasoning.delta` | `text` |
 | `message.completed` | `content`、`reasoning`、`toolCalls: [{id, name, arguments}]`、`stopReason`、`reasoningTokensEst` |
 | `tool.requested` | `id`、`name`、`arguments`（原始 JSON 字符串） |
-| `tool.finished` | `id`、`name`、`command`、`stdout`、`stderr`、`exitCode`、`truncated`、`timedOut`、`cancelled`、`durationMs`、`content`、`error`、`images: [{name, mediaType, bytes, path?}]`（不含 base64；`path` 相对会话目录） |
+| `tool.finished` | `id`、`name`、`command`、`stdout`、`stderr`、`exitCode`、`truncated`、`timedOut`、`cancelled`、`durationMs`、`content`、`error`、`images: [{name, mediaType, bytes, path?}]`（不含 base64；`path` 相对会话目录）、`background`：为 true 表示调用转入了后台，`content` 是占位说明，结果之后以同一 `id` 的 `background.finished` 推送 |
+| `background.finished` | 字段同 `tool.finished`（没有 `background`，`images` 总为空），另有 `message`：作为用户消息写进历史的完整文本。一定在这一轮的 `turn.finished` 之前（见 `docs/events.md`） |
 | `usage` | `inputTokens`、`outputTokens`、`totalTokens`、`reasoningTokens`、`cacheReadTokens`、`cacheWriteTokens` |
 | `retrying` | `attempt`、`max`、`delayMs`、`reason` |
 | `compacted` | `mode`、`tokensBefore`、`tokensAfter`、`dropped`、`summary`、`error`、`manual` |
 | `interrupted` | `reason`、`content`、`reasoning`、`partial` |
 | `error` | `message`、`retryable` |
 | `turn.finished` | `reason`：`stop` / `cancelled` / `error` / `max_steps` / `length` |
-| `subagent` | `id`（启动它的 `agent` 调用的 id）、`agent`（子代理类型）、`event`：子代理的一个事件，字段同本表，有 `kind` 但没有 `turn`。不推送增量；`session/resume` 重放出的只有内层为 `usage` 的这一种（见 `docs/subagents.md`） |
+| `subagent` | `id`（启动它的 `agent` 调用的 id；后台调用的子代理事件在 `tool.finished` 与 `background.finished` 之间到达）、`agent`（子代理类型）、`event`：子代理的一个事件，字段同本表，有 `kind` 但没有 `turn`。不推送增量；`session/resume` 重放出的只有内层为 `usage` 的这一种（见 `docs/subagents.md`） |
 
 **`notice`**：`{message}`，给用户看的提示，例如后台连接的 MCP 服务端失败。
 

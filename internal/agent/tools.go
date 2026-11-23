@@ -22,7 +22,7 @@ const cancelledToolReply = "未执行：用户取消了本轮对话。"
 // 进程起不来、被取消、甚至 panic）都转成文本返回给模型，让它看到失败原因，不会终止 agent。
 //
 // 它不发事件、不碰历史，所以可以在多个 goroutine 里并发调用；事件和历史由 runTools 在主 goroutine 里统一处理。
-// ctx 是本轮的 ctx 加上这次调用的 tool.Call。
+// ctx 是本轮的 ctx（后台调用是从它派生的后台 ctx）加上这次调用的 tool.Call。
 func (t *turn) execTool(ctx context.Context, call ToolCall) (fin event.ToolFinished, content string) {
 	fin = event.ToolFinished{ID: call.ID, Name: call.Name}
 	defer func() {
@@ -43,11 +43,17 @@ func (t *turn) execTool(ctx context.Context, call ToolCall) (fin event.ToolFinis
 		res, err := tl.Run(ctx, json.RawMessage(call.Arguments))
 		fillFinished(&fin, res, time.Since(start))
 		switch {
-		case err != nil && t.ctx.Err() != nil:
+		case err != nil && ctx.Err() != nil:
 			fin.Cancelled, fin.Err = true, "已取消"
 			content = "工具执行被用户取消。"
+			partial := "以下是取消前已收集的输出：\n"
+			if t.ctx.Err() == nil {
+				// 本轮没被取消、调用的 ctx 却取消了：只有后台调用会这样，本轮出错或超过步数时内核终止了它。
+				content = "工具执行被终止：这一轮对话因出错或超过步数提前结束。"
+				partial = "以下是终止前已收集的输出：\n"
+			}
 			if res.Command != "" {
-				content += "以下是取消前已收集的输出：\n" + res.ForModel()
+				content += partial + res.ForModel()
 			}
 		case err != nil:
 			fin.Err = err.Error()

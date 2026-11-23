@@ -92,6 +92,22 @@ type Parallelizable interface {
 	Parallel() bool
 }
 
+// Backgroundable 由可以转入后台执行的工具实现。
+//
+// 返回 true 时，内核在这个工具的参数 schema 里加一个布尔参数 BackgroundParam：模型把它设为 true，
+// 调用就立即以一段占位说明作为工具结果返回，真正的执行在后台继续，ReAct 循环接着请求模型；
+// 执行结束后，结果作为一条用户消息在下一个安全点（一批工具执行完后，或模型给出最终答案时）送进历史。
+// 后台任务属于发起它的那一轮：一轮要等它们全部结束才收尾，取消这一轮也会取消它们。
+//
+// 不实现这个接口等于返回 false。声明不可并行（Parallelizable 返回 false）的工具不能转入后台，
+// 后台执行必然和之后的调用重叠，独占执行的承诺无法兑现。
+type Backgroundable interface {
+	Background() bool
+}
+
+// BackgroundParam 是内核加进可后台工具参数里的开关名。执行前内核会把它从参数里去掉，工具自己看不到。
+const BackgroundParam = "run_in_background"
+
 // Registry 按注册顺序保存工具。注册顺序决定下发给模型的顺序。
 type Registry struct {
 	order  []Tool
@@ -132,6 +148,12 @@ func Parallel(t Tool) bool {
 	return !ok || p.Parallel()
 }
 
+// Background 报告工具的调用能否转入后台：必须显式声明可后台，而且可并行。
+func Background(t Tool) bool {
+	b, ok := t.(Backgroundable)
+	return ok && b.Background() && Parallel(t)
+}
+
 // Names 返回按注册顺序排列的工具名。
 func (r *Registry) Names() []string {
 	names := make([]string, len(r.order))
@@ -158,6 +180,8 @@ type Decorator struct {
 	ParamSchema     json.RawMessage
 	// ParallelOverride 非 nil 时覆盖工具自己的并行声明（tools.jsonc 的 parallel）。
 	ParallelOverride *bool
+	// BackgroundOverride 非 nil 时覆盖工具自己的后台声明（tools.jsonc 的 background）。
+	BackgroundOverride *bool
 }
 
 func (d Decorator) Description() string {
@@ -178,6 +202,15 @@ func (d Decorator) Parallel() bool {
 		return *d.ParallelOverride
 	}
 	return Parallel(d.Tool)
+}
+
+// Background 优先用配置里的覆盖值，否则透传被包装工具的声明。可并行的要求由 tool.Background 统一检查。
+func (d Decorator) Background() bool {
+	if d.BackgroundOverride != nil {
+		return *d.BackgroundOverride
+	}
+	b, ok := d.Tool.(Backgroundable)
+	return ok && b.Background()
 }
 
 func (d Decorator) Parameters() json.RawMessage {

@@ -14,7 +14,8 @@ type Call struct {
 	// ID 是这次 tool call 的 id，与 ToolRequested / ToolFinished 的 ID 相同。
 	ID string
 	// Emit 把一个事件交给内核，由内核在 agent 主 goroutine 里转发给 sink，所以并发调用也安全。
-	// 只能在 Run 返回前调用：调用结束后内核不再接收。可能阻塞到主 goroutine 取走事件为止。
+	// 只能在 Run 返回前调用：调用结束后内核不再接收。前台调用可能阻塞到主 goroutine 取走事件为止；
+	// 转入后台的调用不阻塞，事件先排队，主 goroutine 在下一个空当转发。
 	Emit func(event.Event)
 }
 

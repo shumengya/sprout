@@ -24,6 +24,7 @@ type turn struct {
 	// compactFailed：本轮已经尝试过摘要且失败，不再每一步都重试（否则每次模型调用前都多一次失败的摘要请求）。
 	compactFailed bool
 	queued        func() []Input // Input.Queued，可为 nil
+	bg            *background    // 本轮转入后台的工具调用
 }
 
 // stream 向模型发一次请求并把增量转成事件。
@@ -31,6 +32,9 @@ func (t *turn) stream() (Response, error) {
 	t.partial, t.think = "", ""
 	return t.retrying(func(started func()) (Response, error) {
 		return t.a.cfg.Provider.Stream(t.ctx, t.a.request(), func(c Chunk) error {
+			// 后台调用的进度趁每个增量转发一次：流式接收期间主 goroutine 没有别的空当。
+			// 它们不是这次调用的输出，不调用 started，不影响重试判断。
+			t.bg.flushEvents(t.out)
 			if c.ReasoningDelta != "" {
 				started()
 				t.think += c.ReasoningDelta
@@ -107,6 +111,13 @@ func (t *turn) loop() error {
 		}
 
 		if len(msg.ToolCalls) == 0 {
+			// 还有后台调用没送达：这一轮不能结束（后台任务属于这一轮），等结果或用户的新输入，再接着请求模型。
+			if t.bg.pending() {
+				if err := t.awaitBackground(); err != nil {
+					return err
+				}
+				continue
+			}
 			if resp.StopReason == StopLength {
 				t.reason = event.ReasonLength
 			}
@@ -115,26 +126,31 @@ func (t *turn) loop() error {
 		if err := t.runTools(msg.ToolCalls); err != nil {
 			return err
 		}
+		// 后台结果排在用户的排队输入之前：用户最新的话放在最后，模型最先回应它。
+		t.deliverBackground()
 		t.takeQueued()
 	}
 
 	t.reason = event.ReasonMaxSteps
+	t.stopBackground()
 	err := fmt.Errorf("%w（%d 轮），已停止本轮", ErrMaxSteps, a.cfg.MaxSteps)
 	t.out.Emit(event.Error{Message: err.Error()})
 	return err
 }
 
-// takeQueued 把用户在这一轮进行中排队的输入接进历史。只在一批工具结果之后做：
-// 这时 tool 消息已经和 tool call 配齐，接一条用户消息不破坏任何协议的顺序要求；
-// 模型输出最终答案（没有 tool call）时不取，剩下的由界面在本轮结束后作为新的一轮发出。
-func (t *turn) takeQueued() {
+// takeQueued 把用户在这一轮进行中排队的输入接进历史，返回是否接到了。只在一批工具结果之后、
+// 或等待后台调用时做：这时 tool 消息已经和 tool call 配齐，接一条用户消息不破坏任何协议的顺序要求；
+// 模型输出最终答案（没有 tool call）且没有后台调用时不取，剩下的由界面在本轮结束后作为新的一轮发出。
+func (t *turn) takeQueued() bool {
 	if t.queued == nil {
-		return
+		return false
 	}
-	for _, in := range t.queued() {
+	ins := t.queued()
+	for _, in := range ins {
 		t.a.history = append(t.a.history, in.Message())
 		t.out.Emit(event.UserQueued{Prompt: in.Text, Images: eventImages(in.Images)})
 	}
+	return len(ins) > 0
 }
 
 // normalizeCalls 把空参数补成 "{}"：部分模型对无参工具会给空串，
@@ -162,6 +178,7 @@ func eventCalls(calls []ToolCall) []event.ToolCall {
 // cancelled 收尾一次被取消的轮次。
 func (t *turn) cancelled() error {
 	t.reason = event.ReasonCancelled
+	t.stopBackground()
 	t.saveInterrupted(interruptNoteCancelled)
 	return t.ctx.Err()
 }
@@ -169,6 +186,7 @@ func (t *turn) cancelled() error {
 // fail 收尾一次失败的轮次：发 Error 事件并返回原错误。
 func (t *turn) fail(err error) error {
 	t.reason = event.ReasonError
+	t.stopBackground()
 	t.saveInterrupted(interruptNoteError + clip(err.Error(), maxInterruptReason) + "]")
 	var pe *ProviderError
 	t.out.Emit(event.Error{Message: err.Error(), Retryable: errors.As(err, &pe) && pe.Retryable})

@@ -84,6 +84,15 @@ type toolRec struct {
 	Content string `json:"content,omitempty"`
 	// Images 是结果里附带的图片，和 user 记录一样落盘到 <会话名>.images/。
 	Images []imageRec `json:"images,omitempty"`
+	// Background 表示这次调用转入了后台：Content 是占位说明，真正的结果在之后同一 tool_call_id 的 background 记录里。
+	Background bool `json:"background,omitempty"`
+}
+
+// backgroundRec 是一个转入后台的调用结束后送进历史的结果。字段与 tool 记录相同（不带图片），
+// Message 是作为用户消息写进历史的完整文本，恢复时原样还原。
+type backgroundRec struct {
+	toolRec
+	Message string `json:"message"`
 }
 
 // compactRec 记录一次上下文压缩。恢复会话时按它重放：summary 丢弃前 dropped 条消息并换上摘要，
@@ -193,7 +202,16 @@ func toRecord(e event.Event, now time.Time) (any, bool) {
 			Stdout: e.Stdout, Stderr: e.Stderr, ExitCode: e.ExitCode,
 			Truncated: e.Truncated, TimedOut: e.TimedOut, Cancelled: e.Cancelled,
 			DurationMS: e.Duration.Milliseconds(), Error: e.Err, Content: e.Content, Images: imageRecs(e.Images),
+			Background: e.Background,
 		}, true
+	case event.BackgroundFinished:
+		r := e.Result
+		return backgroundRec{toolRec{
+			header: h("background"), ToolCallID: r.ID, Name: r.Name, Command: r.Command,
+			Stdout: r.Stdout, Stderr: r.Stderr, ExitCode: r.ExitCode,
+			Truncated: r.Truncated, TimedOut: r.TimedOut, Cancelled: r.Cancelled,
+			DurationMS: r.Duration.Milliseconds(), Error: r.Err, Content: r.Content,
+		}, e.Message}, true
 	case event.Compacted:
 		return compactRec{h("compact"), e.Mode, e.TokensBefore, e.TokensAfter, e.Dropped, e.Summary, e.Err, e.Manual, e.PruneVersion}, true
 	case event.Usage:

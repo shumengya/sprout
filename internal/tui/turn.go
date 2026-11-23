@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/shumengya/sprout/internal/agent"
 	"github.com/shumengya/sprout/internal/agent/event"
@@ -88,6 +89,12 @@ func (m *Model) onEvent(e event.Event) {
 	pending := m.usageThink
 	m.usageThink = nil
 
+	// 模型又开始输出、又发起工具调用或接到了新消息，就不再是“只等后台任务”。
+	switch e.(type) {
+	case event.ReasoningDelta, event.MessageDelta, event.ToolRequested, event.UserQueued, event.BackgroundFinished:
+		m.awaitingBg = false
+	}
+
 	switch e := e.(type) {
 	case event.ReasoningDelta:
 		m.markGen()
@@ -108,6 +115,7 @@ func (m *Model) onEvent(e event.Event) {
 		m.cur.touch()
 	case event.MessageCompleted:
 		m.genEnd = m.now()
+		m.awaitingBg = len(e.ToolCalls) == 0
 		m.endThink()
 		// 没收到增量（非流式服务）时，用完整内容补上思维链和正文。
 		// thinkShown 记录本次模型调用是否已经流式展示过思维链：MessageDelta 会提前结束 m.think，
@@ -138,11 +146,13 @@ func (m *Model) onEvent(e event.Event) {
 			t = m.add(&entry{kind: kindTool, name: e.Name})
 			m.tools[e.ID] = t
 		}
-		t.running, t.fin = false, e
+		t.running, t.bg, t.fin = false, e.Background, e
 		if t.command == "" {
 			t.command = e.Command
 		}
 		t.touch()
+	case event.BackgroundFinished:
+		m.onBackgroundFinished(e)
 	case event.Usage:
 		m.addUsage(e)
 		if pending != nil && e.ReasoningTokens > 0 {
@@ -180,6 +190,24 @@ func (m *Model) onEvent(e event.Event) {
 	case event.TurnFinished:
 		m.finishTurn(e.Reason)
 	}
+}
+
+// onBackgroundFinished 处理一个后台调用的结束：卡片换成真正的结果，并在对话区末尾补一行说明。
+// 卡片可能早已滚出屏幕，没有这一行用户不知道模型接下来的回答是因为什么。
+func (m *Model) onBackgroundFinished(e event.BackgroundFinished) {
+	r := e.Result
+	t := m.tools[r.ID]
+	if t == nil { // 记录不完整时找不到占位卡片，补一张
+		t = m.add(&entry{kind: kindTool, name: r.Name, command: r.Command})
+		m.tools[r.ID] = t
+	}
+	t.running, t.bg, t.fin = false, false, r
+	t.touch()
+	what := r.Name
+	if t.command != "" {
+		what += "(" + strings.Join(strings.Fields(t.command), " ") + ")"
+	}
+	m.add(&entry{kind: kindNotice, text: "后台任务已结束：" + ansi.Truncate(what, 80, "…") + " · " + ansi.Strip(t.statusLine())})
 }
 
 // onQueuedSent 处理内核接走了一条排队消息：把最早那条“排队中”的条目换回正常样式，
@@ -277,11 +305,12 @@ func (m *Model) finishTurn(reason string) {
 	m.running, m.cur, m.status = false, nil, ""
 	// 轮次异常结束时（通道提前关闭等）可能还有工具卡片停在“运行中…”，不能让它一直转下去。
 	for _, e := range m.entries {
-		if e.kind == kindTool && e.running {
-			e.running, e.fin.Cancelled, e.fin.Err = false, true, "已取消"
+		if e.kind == kindTool && (e.running || e.bg) {
+			e.running, e.bg, e.fin.Cancelled, e.fin.Err = false, false, true, "已取消"
 			e.touch()
 		}
 	}
+	m.awaitingBg = false
 	if m.cancel != nil {
 		m.cancel() // 释放 context
 		m.cancel = nil

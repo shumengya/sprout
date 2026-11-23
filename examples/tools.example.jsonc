@@ -9,6 +9,9 @@
 //   parameters   参数 JSON Schema（type 必须是 object）。内置工具不写则用程序自带的参数
 //   parallel     同一批调用里能否和别的调用并行。false 表示独占执行：等前面的调用结束才开始，
 //                执行期间不启动别的调用。不写则用工具自己的声明：write / edit / delete 为 false，其余为 true
+//   background   能否转入后台执行。true 时模型可以在调用里加 "run_in_background": true，调用立即返回，
+//                模型接着做别的事，执行结束后结果自动送达；一轮要等后台任务都结束才收尾，取消这一轮也会取消它们。
+//                不写则用工具自己的声明：只有 agent 为 true。不可并行的工具（parallel 为 false）不能设为 true
 //   exec         外部工具的执行方式；只有非内置工具需要，内置工具写了会报错
 //
 // exec 的写法：
@@ -55,6 +58,8 @@
 
     // agent：把一块独立的工作交给子代理。子代理有自己的上下文，做完只交回一份报告，
     // 同一次回复里的多个 agent 调用并行执行；子代理不能再派子代理。
+    // 它默认可以转入后台（background 为 true）：主代理先派出子代理、接着做别的，报告之后自动送达。
+    // 不想让模型这样用就写 "background": false。
     // 内置 general（全部工具）与 explore（只读：read + shell）两种类型；
     // 自定义类型写成 Markdown 放在 <数据目录>/agents/ 或 <工作目录>/.sprout/agents/，见 docs/subagents.md。
     "agent": { "enable": true },
@@ -80,6 +85,14 @@
     //   "enable": false,
     //   "description": "显示 git 工作区状态。",
     //   "exec": { "shell": "direct", "command": "git", "args": ["status", "--short"] }
+    // },
+
+    // 跑得久的命令可以允许转入后台，模型不必干等（timeoutSeconds 照样生效）：
+    // "go-test": {
+    //   "enable": false,
+    //   "description": "运行 Go 单元测试，返回测试输出。",
+    //   "background": true,
+    //   "exec": { "shell": "direct", "command": "go", "args": ["test", "./..."], "timeoutSeconds": 600 }
     // },
   },
 }

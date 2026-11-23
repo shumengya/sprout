@@ -56,6 +56,7 @@ type rawRec struct {
 	Cancelled  bool   `json:"cancelled"`
 	DurationMS int64  `json:"duration_ms"`
 	Error      string `json:"error"`
+	Background bool   `json:"background"`
 
 	InputTokens      int `json:"input_tokens"`
 	OutputTokens     int `json:"output_tokens"`

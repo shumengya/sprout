@@ -13,20 +13,21 @@ import (
 type Kind string
 
 const (
-	KindTurnStarted      Kind = "turn.started"
-	KindUserQueued       Kind = "user.queued"
-	KindMessageDelta     Kind = "message.delta"
-	KindReasoningDelta   Kind = "reasoning.delta"
-	KindMessageCompleted Kind = "message.completed"
-	KindToolRequested    Kind = "tool.requested"
-	KindToolFinished     Kind = "tool.finished"
-	KindUsage            Kind = "usage"
-	KindRetrying         Kind = "retrying"
-	KindCompacted        Kind = "compacted"
-	KindTurnFinished     Kind = "turn.finished"
-	KindInterrupted      Kind = "interrupted"
-	KindError            Kind = "error"
-	KindSubagent         Kind = "subagent"
+	KindTurnStarted        Kind = "turn.started"
+	KindUserQueued         Kind = "user.queued"
+	KindMessageDelta       Kind = "message.delta"
+	KindReasoningDelta     Kind = "reasoning.delta"
+	KindMessageCompleted   Kind = "message.completed"
+	KindToolRequested      Kind = "tool.requested"
+	KindToolFinished       Kind = "tool.finished"
+	KindUsage              Kind = "usage"
+	KindRetrying           Kind = "retrying"
+	KindCompacted          Kind = "compacted"
+	KindTurnFinished       Kind = "turn.finished"
+	KindInterrupted        Kind = "interrupted"
+	KindError              Kind = "error"
+	KindSubagent           Kind = "subagent"
+	KindBackgroundFinished Kind = "background.finished"
 )
 
 // 一轮（turn）结束的原因。
@@ -145,7 +146,25 @@ type ToolFinished struct {
 	// Images 是结果里附带、已交给模型的图片。和 TurnStarted 一样，会话记录器把 Data 落盘后回填 Path，
 	// 转发给 surface 的副本仍带 Data；恢复会话重放出的事件不带 Data。
 	Images []ImageInfo
+	// Background 为 true 表示这次调用转入了后台：Content 只是回给模型的占位说明，其余结果字段为空，
+	// 真正的结果之后由同一 ID 的 BackgroundFinished 带来。
+	Background bool
 }
+
+// BackgroundFinished 在一个转入后台的工具调用结束、结果送进历史时发出，与 ToolFinished(Background) 用 ID 配对。
+//
+// 送达的时机只有三种：一批工具的 ToolFinished 全部发完之后（排在同一时刻的 UserQueued 之前）；
+// 模型给出最终答案、内核等待后台任务的时候；一轮因取消、出错或超过步数而结束、后台任务被终止的时候
+// （排在 Interrupted / Error 之前）。所以它总在这一轮的 TurnFinished 之前。
+type BackgroundFinished struct {
+	// Result 是这次调用真正的结果，字段含义与 ToolFinished 相同；Background 为 false，不带图片。
+	Result ToolFinished
+	// Message 是作为一条用户消息写进历史的完整文本（说明头 + Result.Content）。
+	// 会话记录保存它，恢复会话时原样还原。
+	Message string
+}
+
+func (BackgroundFinished) Kind() Kind { return KindBackgroundFinished }
 
 // Usage 是一次模型调用的 token 用量。它紧跟在同一次调用的 MessageCompleted 之后发出。
 type Usage struct {
@@ -212,7 +231,8 @@ type Interrupted struct {
 
 func (Interrupted) Kind() Kind { return KindInterrupted }
 
-// Subagent 包着 agent 工具启动的子代理发出的一个事件，在这次调用的 ToolRequested 与 ToolFinished 之间到达。
+// Subagent 包着 agent 工具启动的子代理发出的一个事件。前台调用时它在这次调用的 ToolRequested 与 ToolFinished 之间到达；
+// 转入后台的调用则在 ToolFinished(Background) 与 BackgroundFinished 之间到达，可能夹在主代理的流式增量或别的工具事件中间。
 //
 // 子代理有自己的一整轮（turn.started … turn.finished），这些事件原样放在 Event 里；
 // 流式增量（message.delta / reasoning.delta）不转发。surface 用 CallID 把它挂到对应的工具卡片上，
