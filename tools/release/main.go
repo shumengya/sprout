@@ -2,7 +2,7 @@
 //
 // 产物写在 <out>/<版本号>/ 下：每个平台一个压缩包（Windows 用 zip，其余用 tar.gz）、
 // 一份 SHA256SUMS.txt 和一份 RELEASE.md。RELEASE.md 由 docs/releases/<版本号>.md 的正文
-// 加上这里自动生成的下载表、安装与校验方法组成，所以发布说明只需要手写人读的部分。
+// 加上这里自动生成的下载表组成，所以发布说明只需要手写人读的部分。
 //
 // 版本号取日期（2026.11.12），可带后缀（2026.11.12-rc.1）。
 package main
@@ -391,7 +391,7 @@ func readNotes(root, version, path string) (string, error) {
 
 func stubNotes(version string) string {
 	return "# Sprout " + version + "\n\n" + releaseDate(version) + "发布。\n\n" +
-		"## 本次更新\n\n- 待补充\n\n## 已知限制\n\n- 待补充\n"
+		"## 新增\n\n- 待补充\n\n## 修复\n\n- 待补充\n"
 }
 
 // releaseDate 把版本号里的日期写成中文，版本号带后缀时去掉后缀。
@@ -404,30 +404,16 @@ func releaseDate(version string) string {
 	return fmt.Sprintf("%d 年 %d 月 %d 日", t.Year(), t.Month(), t.Day())
 }
 
-const fence = "```"
-
-// autoSections 生成下载表、安装、校验和源码构建说明。平台清单直接来自 targets()，
+// autoSections 生成下载表和一两行必要的说明。平台清单直接来自 targets()，
 // 不会出现“发布说明里写了但实际没打这个包”的情况。
+// 刻意写短：安装、校验、源码构建在 README 和 docs/release.md 里都有，发布页上只留选包需要的信息。
 func autoSections(version string) string {
 	var b strings.Builder
 	b.WriteString("## 下载\n\n| 平台 | 文件 |\n| --- | --- |\n")
 	for _, t := range targets() {
 		fmt.Fprintf(&b, "| %s | `%s` |\n", t.Label, artifactName(version, t))
 	}
-	b.WriteString("\n压缩包里是 `sprout` 可执行文件（Windows 为 `sprout.exe`）和 `README.md`。\n")
-
-	b.WriteString("\n### 安装\n\n")
-	b.WriteString("- **Windows**：解压后把 `sprout.exe` 放在任意目录，双击进入终端界面；在 TUI 里执行 `/install-sprout` 可注册成全局命令。\n")
-	b.WriteString("- **Linux / macOS**：解压后 `chmod +x sprout && ./sprout`，或把它放进 `PATH`。\n")
-	b.WriteString("- **Android Termux**：用 `termux_arm64` 包（`GOOS=android` 单独编译，不能拿 `linux_arm64` 代替，原因见发布文档）。解压后 `./sprout` 即可；请放在 Termux 的 home 目录下，不要放 `/sdcard`（共享存储不能执行程序）。复制到剪贴板需要先 `pkg install termux-api`。\n")
-
-	b.WriteString("\n## 校验\n\n" + fence + "bash\n# Linux / macOS\nsha256sum -c SHA256SUMS.txt\n" + fence + "\n\n")
-	b.WriteString(fence + "powershell\n# Windows\nGet-Content SHA256SUMS.txt\n")
-	fmt.Fprintf(&b, "Get-FileHash -Algorithm SHA256 .\\sprout_%s_windows_amd64.zip\n", version)
-	b.WriteString(fence + "\n")
-
-	b.WriteString("\n## 从源码构建\n\n需要 Go 1.27 或更新版本，不需要 CGO：\n\n")
-	b.WriteString(fence + "bash\ngo build -o sprout ./cmd/sprout\n" + fence + "\n")
+	b.WriteString("\n校验和见 `SHA256SUMS.txt`。Termux 请用 `termux_arm64` 包，并放在 home 目录下运行（`/sdcard` 上不能执行程序）。\n")
 	return b.String()
 }
 
